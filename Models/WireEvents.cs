@@ -9,6 +9,8 @@ public record PlayerSnapshot(
     long TotalDamage,
     long TotalHeal,
     long TotalTaken,
+    double Dps,
+    double Hps,
     long Fame,
     long Silver);
 

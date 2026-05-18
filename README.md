@@ -9,6 +9,7 @@ Forked from [akashi-sym/Minimal-Albion-Online-DPS-Meter](https://github.com/akas
 - Windows 10/11 (build 22621+)
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 - [Npcap](https://npcap.com/#download) (recommended) with **"WinPcap API-compatible mode"** checked during install — or run as Administrator to use raw sockets
+- Node.js 20+ (only if you want to run the included web UI under `web/`)
 
 ## Build & run
 
@@ -18,6 +19,18 @@ dotnet bin\Release\net9.0\AlbionInfoTracker.dll
 ```
 
 The service listens on `ws://127.0.0.1:9696` (localhost only) and begins packet capture immediately. Start it **before** zoning in so it can register party members from the `NewCharacter` packet.
+
+### Web UI (`web/`)
+
+A Vite + React meter UI is included as a sibling project. In a second terminal:
+
+```powershell
+cd web
+npm install         # one time
+npm run dev
+```
+
+Vite prints a `http://localhost:5173/` URL — open it in any browser. The UI auto-connects to `ws://127.0.0.1:9696`, auto-reconnects every 2s if the service is down, and ships a `Reset` button that sends `{"type":"reset"}` to the service. `npm run build` produces a static bundle in `web/dist/` that can be served from any static host or used as an OBS browser source.
 
 ### Configuration
 
@@ -60,10 +73,14 @@ All messages are single JSON objects with `type` and `ts` (unix milliseconds). F
   "totalDamage":  12345,
   "totalHeal":    0,
   "totalTaken":   1200,
+  "dps":          412.5,                 // damage / actual combat time
+  "hps":          0.0,                   // heal   / actual combat time
   "fame":         0,    // see note
   "silver":       0     // see note
 }
 ```
+
+> `dps` / `hps` divide by the player's accumulated **combat time** (only seconds the player was actually in combat), not wall-clock since first sight — so they match what other Albion tools show and don't get diluted by downtime between fights.
 
 > **Note on `fame`/`silver`:** The game only sends your *own* fame and silver over the wire, so these fields are non-zero **only for the local player** in `players[]`. Other party members will always show `0` for these two. Per-player fame attribution is not possible from packet capture alone.
 

@@ -197,6 +197,8 @@ public class WebSocketBroadcaster : IHostedService
                 TotalDamage: p.Damage,
                 TotalHeal: p.Heal,
                 TotalTaken: p.TakenDamage,
+                Dps: p.Dps,
+                Hps: p.Hps,
                 Fame: isLocal ? fame : 0,
                 Silver: isLocal ? silver : 0));
         }

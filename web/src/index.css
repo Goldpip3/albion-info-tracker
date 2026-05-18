@@ -1,0 +1,5 @@
+/* Minimal reset — all styling lives in App.css */
+html, body {
+  margin: 0;
+  padding: 0;
+}

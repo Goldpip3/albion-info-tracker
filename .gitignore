@@ -14,3 +14,8 @@ logs/
 # NuGet
 *.nupkg
 packages/
+
+# Node (web/)
+node_modules/
+dist/
+.vite/
