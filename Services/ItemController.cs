@@ -1,4 +1,4 @@
-using AlbionDpsMeter.Models;
+using AlbionInfoTracker.Models;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -8,13 +8,13 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace AlbionDpsMeter.Services;
+namespace AlbionInfoTracker.Services;
 
 public class ItemController
 {
     private static readonly string CacheDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "AlbionDpsMeter");
+        "AlbionInfoTracker");
 
     private static readonly string CacheFile = Path.Combine(CacheDir, "items.json");
 

@@ -1,12 +1,12 @@
-using AlbionDpsMeter.Enums;
-using AlbionDpsMeter.Models;
+using AlbionInfoTracker.Enums;
+using AlbionInfoTracker.Models;
 using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace AlbionDpsMeter.Services;
+namespace AlbionInfoTracker.Services;
 
 public class EntityController
 {
@@ -212,6 +212,11 @@ public class EntityController
     public int GetPartyMemberCount()
     {
         return _knownEntities.Count(x => x.Value.IsInParty);
+    }
+
+    public List<KeyValuePair<Guid, PlayerGameObject>> GetAllEntitiesInParty()
+    {
+        return _knownEntities.ToArray().Where(x => x.Value.IsInParty).ToList();
     }
 
     #endregion

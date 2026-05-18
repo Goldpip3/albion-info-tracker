@@ -1,6 +1,6 @@
 using System;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class ActionInterval
 {

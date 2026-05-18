@@ -1,9 +1,9 @@
-using AlbionDpsMeter.Models;
+using AlbionInfoTracker.Models;
 using Serilog;
 using System;
 using System.Collections.Generic;
 
-namespace AlbionDpsMeter.Network.Events;
+namespace AlbionInfoTracker.Network.Events;
 
 public class PartyPlayerJoinedEvent
 {

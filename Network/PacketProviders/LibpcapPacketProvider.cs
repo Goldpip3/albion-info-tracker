@@ -12,7 +12,7 @@ using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace AlbionDpsMeter.Network.PacketProviders;
+namespace AlbionInfoTracker.Network.PacketProviders;
 
 public class LibpcapPacketProvider : PacketProvider
 {

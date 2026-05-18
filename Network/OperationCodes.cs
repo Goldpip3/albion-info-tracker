@@ -1,4 +1,4 @@
-namespace AlbionDpsMeter.Network;
+namespace AlbionInfoTracker.Network;
 
 public enum OperationCodes
 {

@@ -1,0 +1,360 @@
+﻿using StatisticsAnalysisTool.Common;
+using StatisticsAnalysisTool.Common.UserSettings;
+using StatisticsAnalysisTool.ViewModels;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Globalization;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Data;
+
+namespace StatisticsAnalysisTool.Trade;
+
+public class TradeMonitoringBindings : BaseViewModel
+{
+    private readonly record struct TradeFilterContext(long FromTicks, long ToTicks, string SearchText, long? SearchNumber);
+    private ListCollectionView _tradeCollectionView;
+    private ObservableRangeCollection<Trade> _trades = new();
+    private string _tradesSearchText;
+    private DateTime _datePickerTradeFrom = new(2017, 1, 1);
+    private DateTime _datePickerTradeTo = DateTime.UtcNow.AddDays(1);
+    private TradeStatsObject _tradeStatsObject = new();
+    private TradeOptionsObject _tradeOptionsObject = new();
+    private Visibility _isTradeMonitoringPopupVisible = Visibility.Collapsed;
+    private GridLength _gridSplitterPosition = GridLength.Auto;
+    private int _totalTradeCounts;
+    private int _currentTradeCounts;
+    private ManuallyTradeMenuObject _tradeManuallyMenuObject = new();
+    private bool _isDeleteTradesButtonEnabled = true;
+    private Visibility _filteringIsRunningIconVisibility = Visibility.Collapsed;
+    private TradeExportTemplateObject _tradeExportTemplateObject = new();
+
+    public TradeMonitoringBindings()
+    {
+        TradeCollectionView = CollectionViewSource.GetDefaultView(Trades) as ListCollectionView;
+
+        if (TradeCollectionView != null)
+        {
+            Trades.CollectionChanged += UpdateTotalTradesUi;
+            TradeCollectionView.CurrentChanged += UpdateCurrentTradesUi;
+
+            TradeCollectionView.IsLiveSorting = true;
+            TradeCollectionView.IsLiveFiltering = true;
+            TradeCollectionView.CustomSort = new TradeComparer();
+            TradeCollectionView.Refresh();
+        }
+
+        DatePickerTradeFrom = SettingsController.CurrentSettings.TradeMonitoringDatePickerTradeFrom;
+        DatePickerTradeTo = SettingsController.CurrentSettings.TradeMonitoringDatePickerTradeTo;
+    }
+
+    public void ItemFilterReset()
+    {
+        _datePickerTradeFrom = new DateTime(2017, 1, 1);
+        _datePickerTradeTo = DateTime.UtcNow.AddDays(1);
+        TradesSearchText = string.Empty;
+
+        TradeCollectionView = CollectionViewSource.GetDefaultView(Trades) as ListCollectionView;
+        if (TradeCollectionView != null)
+        {
+            TradeCollectionView.Filter = null;
+        }
+
+    }
+
+    public ListCollectionView TradeCollectionView
+    {
+        get => _tradeCollectionView;
+        set
+        {
+            _tradeCollectionView = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ObservableRangeCollection<Trade> Trades
+    {
+        get => _trades;
+        set
+        {
+            _trades = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string TradesSearchText
+    {
+        get => _tradesSearchText;
+        set
+        {
+            _tradesSearchText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public DateTime DatePickerTradeFrom
+    {
+        get => _datePickerTradeFrom;
+        set
+        {
+            _datePickerTradeFrom = value;
+            SettingsController.CurrentSettings.TradeMonitoringDatePickerTradeFrom = _datePickerTradeFrom;
+            OnPropertyChanged();
+        }
+    }
+
+    public DateTime DatePickerTradeTo
+    {
+        get => _datePickerTradeTo;
+        set
+        {
+            _datePickerTradeTo = value;
+            SettingsController.CurrentSettings.TradeMonitoringDatePickerTradeTo = _datePickerTradeTo;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool IsDeleteTradesButtonEnabled
+    {
+        get => _isDeleteTradesButtonEnabled;
+        set
+        {
+            _isDeleteTradesButtonEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TradeStatsObject TradeStatsObject
+    {
+        get => _tradeStatsObject;
+        set
+        {
+            _tradeStatsObject = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public ManuallyTradeMenuObject ManuallyTradeMenuObject
+    {
+        get => _tradeManuallyMenuObject;
+        set
+        {
+            _tradeManuallyMenuObject = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TradeExportTemplateObject TradeExportTemplateObject
+    {
+        get => _tradeExportTemplateObject;
+        set
+        {
+            _tradeExportTemplateObject = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public TradeOptionsObject TradeOptionsObject
+    {
+        get => _tradeOptionsObject;
+        set
+        {
+            _tradeOptionsObject = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int TotalTradeCounts
+    {
+        get => _totalTradeCounts;
+        set
+        {
+            _totalTradeCounts = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int CurrentTradeCounts
+    {
+        get => _currentTradeCounts;
+        set
+        {
+            _currentTradeCounts = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Visibility IsTradeMonitoringPopupVisible
+    {
+        get => _isTradeMonitoringPopupVisible;
+        set
+        {
+            _isTradeMonitoringPopupVisible = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public GridLength GridSplitterPosition
+    {
+        get => _gridSplitterPosition;
+        set
+        {
+            _gridSplitterPosition = value;
+            SettingsController.CurrentSettings.MailMonitoringGridSplitterPosition = _gridSplitterPosition.Value;
+            OnPropertyChanged();
+        }
+    }
+
+    public Visibility FilteringIsRunningIconVisibility
+    {
+        get => _filteringIsRunningIconVisibility;
+        set
+        {
+            _filteringIsRunningIconVisibility = value;
+            OnPropertyChanged();
+        }
+    }
+
+    #region Update ui
+
+    public void UpdateTotalTradesUi(object sender, NotifyCollectionChangedEventArgs e)
+    {
+        Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            TotalTradeCounts = Trades.Count;
+        });
+    }
+
+    public void UpdateCurrentTradesUi(object sender, EventArgs e)
+    {
+        Application.Current.Dispatcher.InvokeAsync(() =>
+        {
+            CurrentTradeCounts = TradeCollectionView.Count;
+        });
+    }
+
+    #endregion
+
+    #region Filter
+
+    private CancellationTokenSource _cancellationTokenSource;
+
+    public async Task UpdateFilteredTradesAsync()
+    {
+        if (Trades?.Count <= 0)
+        {
+            return;
+        }
+
+        FilteringIsRunningIconVisibility = Visibility.Visible;
+
+        if (_cancellationTokenSource is not null)
+        {
+            await _cancellationTokenSource.CancelAsync();
+        }
+        _cancellationTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            var filteredTrades = await Task.Run(ParallelTradeFilterProcess, _cancellationTokenSource.Token);
+
+            if (Trades != null)
+            {
+                TradeCollectionView ??= CollectionViewSource.GetDefaultView(Trades) as ListCollectionView;
+            }
+
+            if (TradeCollectionView != null)
+            {
+                var filteredTradeSet = filteredTrades.ToHashSet();
+                TradeCollectionView.Filter = obj => obj is Trade trade && filteredTradeSet.Contains(trade);
+
+                TradeStatsObject?.SetTradeStats(TradeCollectionView?.Cast<Trade>().ToList());
+            }
+
+            UpdateCurrentTradesUi(null, null);
+        }
+        catch (TaskCanceledException)
+        {
+            // Ignored
+        }
+        finally
+        {
+            FilteringIsRunningIconVisibility = Visibility.Collapsed;
+        }
+    }
+
+    public List<Trade> ParallelTradeFilterProcess()
+    {
+        var context = BuildFilterContext();
+        var partitioner = Partitioner.Create(Trades, EnumerablePartitionerOptions.NoBuffering);
+        var result = new ConcurrentBag<Trade>();
+
+        Parallel.ForEach(partitioner, (tradeBatch, state) =>
+        {
+            if (_cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                FilteringIsRunningIconVisibility = Visibility.Collapsed;
+                state.Stop();
+            }
+
+            if (Filter(tradeBatch, context))
+            {
+                result.Add(tradeBatch);
+            }
+        });
+
+        return result.OrderByDescending(d => d.Ticks).ToList();
+    }
+
+    private TradeFilterContext BuildFilterContext()
+    {
+        var searchText = TradesSearchText?.Trim() ?? string.Empty;
+        var hasNumericSearch = long.TryParse(searchText, NumberStyles.Any, CultureInfo.CurrentCulture, out var searchNumber);
+        var toDate = DatePickerTradeTo.Date;
+        var toTicks = toDate == DateTime.MaxValue.Date ? DateTime.MaxValue.Ticks : toDate.AddDays(1).AddTicks(-1).Ticks;
+
+        return new TradeFilterContext(DatePickerTradeFrom.Ticks, toTicks, searchText, hasNumericSearch ? searchNumber : null);
+    }
+
+    private bool Filter(object obj, TradeFilterContext context)
+    {
+        if (obj is not Trade trade)
+        {
+            return false;
+        }
+
+        if (trade.Ticks < context.FromTicks || trade.Ticks > context.ToTicks)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(context.SearchText))
+        {
+            return true;
+        }
+
+        if (context.SearchNumber is { } searchNumber)
+        {
+            return trade.MailContent?.UnitPriceWithoutTax.IntegerValue == searchNumber ||
+                   trade.MailContent?.TotalPrice.IntegerValue == searchNumber ||
+                   trade.InstantBuySellContent?.UnitPrice.IntegerValue == searchNumber ||
+                   trade.InstantBuySellContent?.TotalPrice.IntegerValue == searchNumber;
+        }
+
+        return (trade.LocationName?.IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               ($"T{trade.Item?.Tier}.{trade.Item?.Level}".IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.MailTypeDescription?.IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.Item?.LocalizedName?.IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.MailContent?.UnitPriceWithoutTax.ToString().IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.MailContent?.TotalPrice.ToString().IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.InstantBuySellContent?.UnitPrice.ToString().IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.InstantBuySellContent?.TotalPrice.ToString().IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0) ||
+               (trade.Description?.IndexOf(context.SearchText, StringComparison.OrdinalIgnoreCase) >= 0);
+    }
+
+    #endregion
+}

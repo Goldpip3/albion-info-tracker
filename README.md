@@ -1,127 +1,143 @@
-# Minimal Albion DPS Meter
+# Albion Info Tracker
 
-A lightweight, real-time DPS meter for **Albion Online** built with WinUI 3 and .NET 9. Captures network packets to track damage, healing, taken damage, fame, and silver across your party — no game modification required.
+A headless Windows service that passively captures **Albion Online** network traffic, decodes Photon packets, and broadcasts combat events (damage, healing, fame, silver) over a localhost **WebSocket** for any frontend to render — browser tab, OBS overlay, Discord bot, etc.
 
-![Windows](https://img.shields.io/badge/platform-Windows-blue)
-![.NET 9](https://img.shields.io/badge/.NET-9.0-purple)
-![WinUI 3](https://img.shields.io/badge/WinUI-3-green)
-
-## Features
-
-- **Real-time tracking** — Damage, DPS, Healing, HPS, and Taken Damage per player
-- **Fame tracking** — Total fame gained per session (includes premium bonus, zone multiplier, and satchel)
-- **Combat Fame tracking** — Respec/combat credits earned when your gear is already at max spec
-- **Silver tracking** — Net silver gained per session after guild tax
-- **Compact overlay** — Shrink to a small always-visible window while playing
-- **Always on top** — Pin the meter above all windows
-- **Weapon icons** — Displays each player's main-hand weapon from the Albion render API
-- **Sort options** — Sort by Damage, DPS, Heal, HPS, Name, or Taken Damage
-- **Copy to clipboard** — One-click copy of the damage summary
-- **Mica backdrop** — Modern Windows 11 look with a translucent background
-- **No game modification** — Works by reading network packets passively
+Forked from [akashi-sym/Minimal-Albion-Online-DPS-Meter](https://github.com/akashi-sym/Minimal-Albion-Online-DPS-Meter) (a WinUI 3 desktop meter) and rewritten as a .NET 9 console host.
 
 ## Requirements
 
-- **Windows 10/11** (build 22621+)
-- **.NET 9.0 Runtime** — [Download here](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
-- **Npcap** (recommended) or raw sockets for packet capture
-  - Download from [npcap.com](https://npcap.com/#download)
-  - During install, check **"WinPcap API-compatible mode"**
+- Windows 10/11 (build 22621+)
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
+- [Npcap](https://npcap.com/#download) (recommended) with **"WinPcap API-compatible mode"** checked during install — or run as Administrator to use raw sockets
 
-## Installation & Running
+## Build & run
 
-### Quick Start (Recommended)
-
-1. Download **AlbionDpsMeter-v1.0.0.2.zip** from the [latest release](https://github.com/akashi-sym/Minimal-Albion-Online-DPS-Meter/releases/latest)
-2. Extract the zip to any folder
-3. Run **`AlbionDpsMeter.exe`** — it's right in the root of the extracted folder
-4. Launch **Albion Online** and enter a zone
-5. The meter starts tracking automatically once you join a party
-
-> **Note:** If tracking doesn't start, right-click `AlbionDpsMeter.exe` → **Run as Administrator**. This is required when using raw sockets without Npcap installed.
-
----
-
-## Usage Tips
-
-### Joining / Leaving a Party
-
-The meter tracks only players in your party. Keep these in mind:
-
-- **Start the meter before you zone in** — it needs to see the `NewCharacter` packet when players load into the map to register them. If you open the meter mid-session, use the tip below.
-- **If party members are missing from the list** — leave the party and rejoin. This forces a fresh `PartyJoined` event and re-registers everyone.
-- **If you join a party after the meter is already open** — the meter will pick up the `PartyJoined` event automatically. No restart needed.
-- **Party member shows 0 damage** — they may have been in the zone before you opened the meter. Have them leave and rejoin the party to re-register.
-
-### Moving to a New Map
-
-- **Stats are NOT automatically reset on map change** (unless you enable Auto-reset).
-- When you travel to a new zone, the meter continues accumulating from the previous session.
-- To start fresh, click the **Reset** button (↺ icon in the toolbar) before entering the new zone.
-- Fame and Silver continue to accumulate across zones — they represent your full session total since the last reset.
-
-### Controls
-
-| Button | Action |
-|---|---|
-| ▶ / ⏸ | Start or pause tracking |
-| ↺ | Reset all stats (damage, heal, fame, silver) |
-| 📋 | Copy damage summary to clipboard |
-| 📌 | Toggle always-on-top |
-| ⧉ | Toggle compact overlay mode |
-
-### Stats Explained
-
-| Stat | Description |
-|---|---|
-| **DMG** | Total damage dealt by each party member |
-| **HEAL** | Total healing done |
-| **TAKEN** | Total damage received |
-| **FAME** | Total fame earned this session (with all bonuses applied) |
-| **C.FAME** | Combat credits — fame converted to respec points when gear is already max spec |
-| **SILVER** | Net silver looted this session after guild tax |
-
----
-
-## Build from Source
-
-```bash
-git clone https://github.com/akashi-sym/Minimal-Albion-Online-DPS-Meter.git
-cd Minimal-Albion-Online-DPS-Meter
+```powershell
 dotnet build -c Release
+dotnet bin\Release\net9.0\AlbionInfoTracker.dll
 ```
 
-Requires .NET 9 SDK and Windows App SDK 1.7.
+The service listens on `ws://127.0.0.1:9696` (localhost only) and begins packet capture immediately. Start it **before** zoning in so it can register party members from the `NewCharacter` packet.
 
----
+### Configuration
 
-## How It Works
+Pass flags or set env vars (standard `Microsoft.Extensions.Configuration` precedence — CLI > env > defaults):
 
-The meter passively captures UDP packets on the network interface used by Albion Online. It decodes Photon protocol messages to extract combat and economy events and maps them to player entities in your party. No packets are modified or injected — the tool is read-only.
+| Setting | Default | Notes |
+|---|---|---|
+| `--Port` / `Port` env | `9696` | TCP port for the WebSocket listener. Bind host is always `127.0.0.1`. |
+| `--PacketProvider` / `PacketProvider` env | `Npcap` | `Npcap` or `Sockets`. Sockets requires Administrator. |
 
-### Architecture
+## WebSocket protocol
 
-| Component | Description |
+### Server → client messages
+
+All messages are single JSON objects with `type` and `ts` (unix milliseconds). Field names are camelCase.
+
+| `type` | Sent when | Payload |
+|---|---|---|
+| `hello` | A client connects | `sessionId`, `players[]` snapshot |
+| `playersUpdate` | Combat occurs (~1Hz throttled) | `players[]` full snapshot |
+| `playerJoined` | A player enters your party | `playerId`, `name`, `weaponItemId` |
+| `playerLeft` | A player leaves your party | `playerId` |
+| `weaponEquipped` | A party member swaps main hand | `playerId`, `weaponItemId` |
+| `fameUpdate` | Fame, combat fame or silver ticks | `fame`, `combatFame`, `silver` (session totals) |
+| `sessionReset` | After a client sends `{"type":"reset"}` | new `sessionId` |
+
+### Client → server messages
+
+| `type` | Effect |
 |---|---|
-| **NetworkManager** | Captures packets via Npcap/Sockets and dispatches decoded Photon events |
-| **TrackingController** | Orchestrates entity tracking and combat processing |
-| **CombatController** | Aggregates per-player damage, heal, taken damage and session fame/silver |
-| **EntityController** | Manages known players, party membership, and local player identity |
-| **ItemController** | Maps item indices to names via [ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps) |
-| **ImageController** | Fetches and caches weapon icons from the Albion render API |
+| `reset` | Clears session damage/heal/fame/silver totals and issues a new `sessionId` |
 
-## Tech Stack
+### `PlayerSnapshot` shape
 
-- **WinUI 3** (Windows App SDK 1.7) — UI framework, pure code-behind (no XAML)
-- **CommunityToolkit.Mvvm** — MVVM source generators
-- **Serilog** — Structured logging to file
-- **Libpcap** — Network packet capture
-- **StatisticsAnalysisTool.Network** — Photon protocol parsing
+```jsonc
+{
+  "playerId":     "<guid hex, no dashes>",
+  "name":         "PlayerName",
+  "weaponItemId": "T8_MAIN_FIRESTAFF",   // null until item data loads
+  "totalDamage":  12345,
+  "totalHeal":    0,
+  "totalTaken":   1200,
+  "fame":         0,    // see note
+  "silver":       0     // see note
+}
+```
+
+> **Note on `fame`/`silver`:** The game only sends your *own* fame and silver over the wire, so these fields are non-zero **only for the local player** in `players[]`. Other party members will always show `0` for these two. Per-player fame attribution is not possible from packet capture alone.
+
+### Quick test (no Albion required)
+
+```powershell
+$ws = New-Object System.Net.WebSockets.ClientWebSocket
+$ws.ConnectAsync([Uri]"ws://127.0.0.1:9696", [Threading.CancellationToken]::None).Wait()
+$buf = New-Object byte[] 8192
+$seg = [ArraySegment[byte]]::new($buf)
+$r = $ws.ReceiveAsync($seg, [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+[Text.Encoding]::UTF8.GetString($buf, 0, $r.Count)   # → {"type":"hello",...}
+```
+
+## How it works
+
+```
+UDP packets ─► Libpcap / raw sockets
+            │
+            ▼
+   StatisticsAnalysisTool.Network  (Photon decoder, vendored)
+            │
+            ▼
+   Event handlers (NewCharacter, HealthUpdate, PartyJoined, …)
+            │
+            ▼
+   EntityController + CombatController  (party-scoped aggregation)
+            │
+            ▼
+   WebSocketBroadcaster  (Fleck, 127.0.0.1:9696, snapshot stream)
+            │
+            ▼
+        Your frontend
+```
+
+| Component | Role |
+|---|---|
+| `Network/NetworkManager.cs` | Wires the chosen `PacketProvider` to the SAT receiver and registers all handlers |
+| `Services/TrackingController.cs` | Composition root for tracking; owns the network-manager lifecycle |
+| `Services/EntityController.cs` | Tracks known players + party membership; emits `OnProfileOrPartyChanged` |
+| `Services/CombatController.cs` | Per-player damage/heal/taken aggregates + session fame/silver counters; emits throttled `OnDamageUpdate` and `OnFameOrSilverUpdate` |
+| `Services/ItemController.cs` | Maps item indices → unique names from [ao-data/ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps) (cached daily under `%LOCALAPPDATA%/AlbionDpsMeter/`) |
+| `Services/WebSocketBroadcaster.cs` | Fleck `IHostedService`; subscribes to the controllers, serializes events to JSON, broadcasts to connected clients, handles `reset` |
+| `Services/TrackingHostedService.cs` | Starts/stops packet capture as part of the generic host lifecycle |
+| `vendor/AlbionOnline-StatisticsAnalysis/` | Vendored [Triky313/AlbionOnline-StatisticsAnalysis](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis) source pinned at commit `883ea17a` (last `net9.0` state) — provides Photon decoding |
+
+## Constraints (by design)
+
+- **Capture-only.** No packet modification, no injection, no memory reading, no game-client overlay.
+- **Party-scope only.** Combat aggregation is filtered to party members in `CombatController.AddDamage` and `AddTakenDamage`. This is the policy boundary set by Sandbox Interactive ([forum policy thread](https://forum.albiononline.com/index.php/Thread/124819-)).
+- **Localhost only.** WebSocket binds to `127.0.0.1`, never `0.0.0.0`.
+
+## Logs
+
+Rolling daily, kept 7 days, written next to the binary:
+
+```
+bin/Release/net9.0/logs/albion-info-tracker-YYYYMMDD.log
+```
+
+Console shows `Information+`; the file captures `Debug+` (including every outbound WebSocket message).
+
+## Troubleshooting
+
+- **"Npcap is not installed" / `DllNotFoundException 'pcap'`** — install [Npcap](https://npcap.com/#download) with WinPcap-compatible mode, or use `--PacketProvider Sockets` and run as Administrator.
+- **Service starts but `players[]` is always empty** — the meter only sees players whose `NewCharacter` packet you captured. Start the service *before* zoning in, or have your party leave + rejoin.
+- **`fame`/`silver` never increment** — only the local player's fame/silver are sent over the wire; party members will always be `0` for these.
 
 ## Credits
 
-Made by **Akashi**
+- Original WinUI app: [akashi-sym](https://github.com/akashi-sym/Minimal-Albion-Online-DPS-Meter)
+- Photon decoder + event/op-code mapping: [Triky313/AlbionOnline-StatisticsAnalysis](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis)
+- Item data: [ao-data/ao-bin-dumps](https://github.com/ao-data/ao-bin-dumps)
 
 ## License
 
-This project is for personal/educational use. Albion Online is a registered trademark of Sandbox Interactive GmbH.
+Personal / educational use. Albion Online is a registered trademark of Sandbox Interactive GmbH.

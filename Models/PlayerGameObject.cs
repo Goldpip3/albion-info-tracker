@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class PlayerGameObject : GameObject
 {

@@ -1,13 +1,11 @@
-using AlbionDpsMeter.Enums;
-using AlbionDpsMeter.Network;
-using AlbionDpsMeter.Network.PacketProviders;
-using Microsoft.UI.Dispatching;
+using AlbionInfoTracker.Enums;
+using AlbionInfoTracker.Network;
 using Serilog;
 using System;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 
-namespace AlbionDpsMeter.Services;
+namespace AlbionInfoTracker.Services;
 
 public class TrackingController
 {
@@ -21,10 +19,10 @@ public class TrackingController
     public event Action<string>? OnTrackingError;
     public event Action<bool>? OnTrackingStateChanged;
 
-    public TrackingController(DispatcherQueue dispatcherQueue)
+    public TrackingController(EntityController entityController, CombatController combatController)
     {
-        EntityController = new EntityController();
-        CombatController = new CombatController(this, dispatcherQueue);
+        EntityController = entityController;
+        CombatController = combatController;
     }
 
     public Task StartTrackingAsync()

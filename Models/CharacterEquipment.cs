@@ -1,4 +1,4 @@
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class CharacterEquipment
 {

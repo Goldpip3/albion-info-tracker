@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public static class Extensions
 {

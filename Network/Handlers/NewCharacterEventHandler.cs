@@ -1,12 +1,12 @@
-using AlbionDpsMeter.Enums;
-using AlbionDpsMeter.Models;
-using AlbionDpsMeter.Network.Events;
-using AlbionDpsMeter.Services;
+using AlbionInfoTracker.Enums;
+using AlbionInfoTracker.Models;
+using AlbionInfoTracker.Network.Events;
+using AlbionInfoTracker.Services;
 using StatisticsAnalysisTool.Network;
 using System;
 using System.Threading.Tasks;
 
-namespace AlbionDpsMeter.Network.Handlers;
+namespace AlbionInfoTracker.Network.Handlers;
 
 public class NewCharacterEventHandler : EventPacketHandler<NewCharacterEvent>
 {

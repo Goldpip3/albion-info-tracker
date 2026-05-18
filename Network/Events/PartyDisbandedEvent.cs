@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace AlbionDpsMeter.Network.Events;
+namespace AlbionInfoTracker.Network.Events;
 
 public class PartyDisbandedEvent
 {

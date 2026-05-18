@@ -1,6 +1,6 @@
-using AlbionDpsMeter.Enums;
+using AlbionInfoTracker.Enums;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class UsedSpell
 {

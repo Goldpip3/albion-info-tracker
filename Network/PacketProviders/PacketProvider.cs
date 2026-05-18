@@ -1,4 +1,4 @@
-namespace AlbionDpsMeter.Network.PacketProviders;
+namespace AlbionInfoTracker.Network.PacketProviders;
 
 public abstract class PacketProvider
 {

@@ -1,0 +1,69 @@
+﻿using StatisticsAnalysisTool.Common;
+using StatisticsAnalysisTool.Enumerations;
+using StatisticsAnalysisTool.EstimatedMarketValue;
+using StatisticsAnalysisTool.Localization;
+using StatisticsAnalysisTool.Models.ItemsJsonModel;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text.Json.Serialization;
+using System.Windows;
+using System.Windows.Media.Imaging;
+
+namespace StatisticsAnalysisTool.Models;
+
+public class Item
+{
+    public string LocalizationNameVariable { get; set; }
+    public string LocalizationDescriptionVariable { get; set; }
+    public LocalizedNames LocalizedNames { get; set; }
+    public int Index { get; set; }
+    public string UniqueName { get; set; }
+    [JsonIgnore]
+    public string LocalizedNameAndEnglish => CultureInfo.DefaultThreadCurrentUICulture?.TextInfo.CultureName.ToUpper() == "EN-US"
+        ? $"{ItemController.LocalizedName(LocalizedNames, null, UniqueName)}{GetUniqueNameIfDebug()}"
+        : $"{ItemController.LocalizedName(LocalizedNames, null, UniqueName)}" +
+          $"\n{ItemController.LocalizedName(LocalizedNames, "EN-US", string.Empty)}{GetUniqueNameIfDebug()}";
+    public string LocalizedName => ItemController.LocalizedName(LocalizedNames, null, UniqueName);
+
+    public int Level => ItemController.GetItemLevel(UniqueName);
+    public int Tier => ItemController.GetItemTier(UniqueName);
+    public int BasicItemPower => ItemController.GetBasicItemPower(this);
+
+    public string TierLevelString
+    {
+        get
+        {
+            var tier = (Tier is <= 8 and >= 1) ? Tier.ToString() : "?";
+            return $"T{tier}.{Level}";
+        }
+    }
+
+    [JsonIgnore]
+    public BitmapImage Icon => Application.Current.Dispatcher.Invoke(() => ImageController.GetItemImage(UniqueName));
+
+    public ItemJsonObject FullItemInformation { get; set; }
+    public int AlertModeMinSellPriceIsUndercutPrice { get; set; }
+    public bool IsAlertActive { get; set; }
+    public bool IsFavorite { get; set; }
+
+    [JsonIgnore]
+    public List<EstQualityValue> EstimatedMarketValues { get; set; }
+
+    [JsonIgnore]
+    public long AverageEstMarketValue => EstimatedMarketValueController.CalculateNearestToAverage(EstimatedMarketValues).MarketValue.IntegerValue;
+    [JsonIgnore]
+    public string LastEstimatedUpdateTimeString =>
+        $"{LocalizationController.Translation("LAST_ESTIMATED_VALUE_UPDATE")}: {EstimatedMarketValueController.CalculateNearestToAverage(EstimatedMarketValues).Timestamp.DateTimeToLastUpdateTime()}";
+    [JsonIgnore]
+    public PastTime EstimatedMarketValueStatus => EstimatedMarketValueController.CalculateNearestToAverage(EstimatedMarketValues).Timestamp.GetPastTimeEnumByDateTime();
+    [JsonIgnore]
+    public string TranslationEstMarketValue => LocalizationController.Translation("EST_MARKET_VALUE");
+    private string GetUniqueNameIfDebug()
+    {
+#if DEBUG
+        return $"\n{UniqueName}";
+#else
+            return string.Empty;
+#endif
+    }
+}

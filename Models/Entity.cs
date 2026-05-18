@@ -1,7 +1,7 @@
-using AlbionDpsMeter.Enums;
+using AlbionInfoTracker.Enums;
 using System;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class Entity
 {

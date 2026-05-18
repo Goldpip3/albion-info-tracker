@@ -1,12 +1,12 @@
-using AlbionDpsMeter.Enums;
-using AlbionDpsMeter.Network.Handlers;
-using AlbionDpsMeter.Network.PacketProviders;
-using AlbionDpsMeter.Services;
+using AlbionInfoTracker.Enums;
+using AlbionInfoTracker.Network.Handlers;
+using AlbionInfoTracker.Network.PacketProviders;
+using AlbionInfoTracker.Services;
 using Serilog;
 using StatisticsAnalysisTool.Abstractions;
 using StatisticsAnalysisTool.Network;
 
-namespace AlbionDpsMeter.Network;
+namespace AlbionInfoTracker.Network;
 
 public class NetworkManager
 {

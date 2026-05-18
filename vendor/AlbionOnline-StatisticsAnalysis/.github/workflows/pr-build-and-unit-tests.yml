@@ -1,0 +1,41 @@
+name: 🛠️ Build + Unit tests
+
+on:
+  pull_request:
+    types: [review_requested, opened, reopened, synchronize]
+    branches:
+      - dev
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.gitignore'
+      - '**/*.gitattributes'
+      - '**/donations.json'
+
+jobs:
+
+  build:
+    if: "!contains(github.event.head_commit.message, '--wip')"
+    strategy:
+      matrix:
+        configuration: [Release]
+    runs-on: windows-2022
+    env:
+      Solution_Name: StatisticsAnalysisTool.sln
+      Test_Project_Path: src\StatisticsAnalysisTool.UnitTests\StatisticsAnalysisTool.UnitTests.csproj
+
+    steps:
+    - name: 🛒 Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: 🏗 dotnet restore
+      run: dotnet restore src\StatisticsAnalysisTool
+      
+    - name: 🛠 dotnet build
+      run: dotnet build src\StatisticsAnalysisTool --no-restore
+
+    - name: 🧪 Execute unit tests
+      run: dotnet test $env:Test_Project_Path

@@ -1,4 +1,4 @@
-namespace AlbionDpsMeter.Enums;
+namespace AlbionInfoTracker.Enums;
 
 public enum GameObjectSubType
 {

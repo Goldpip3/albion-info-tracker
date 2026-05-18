@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public class ItemData
 {

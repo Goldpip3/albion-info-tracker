@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace AlbionDpsMeter.Models;
+namespace AlbionInfoTracker.Models;
 
 public static class Converter
 {

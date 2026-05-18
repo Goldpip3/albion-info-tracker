@@ -10,7 +10,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 
-namespace AlbionDpsMeter.Network.PacketProviders;
+namespace AlbionInfoTracker.Network.PacketProviders;
 
 public class SocketsPacketProvider(IPhotonReceiver photonReceiver) : PacketProvider
 {

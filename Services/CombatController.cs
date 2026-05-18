@@ -1,20 +1,17 @@
-using AlbionDpsMeter.Enums;
-using AlbionDpsMeter.Models;
-using Microsoft.UI.Dispatching;
+using AlbionInfoTracker.Enums;
+using AlbionInfoTracker.Models;
 using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace AlbionDpsMeter.Services;
+namespace AlbionInfoTracker.Services;
 
 public class CombatController
 {
-    private readonly TrackingController _trackingController;
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly EntityController _entityController;
     private static bool _isUiUpdateActive;
     private DateTime _lastDamageUiUpdate;
 
@@ -28,15 +25,16 @@ public class CombatController
     private long _sessionCombatFame;
     private long _sessionSilver;
 
-    // Settings - exposed for ViewModel binding
+    public long SessionFame => _sessionFame;
+    public long SessionCombatFame => _sessionCombatFame;
+    public long SessionSilver => _sessionSilver;
+
     public bool IsTrackingActive { get; set; } = true;
     public bool IsResetByMapChangeActive { get; set; }
 
-    public CombatController(TrackingController trackingController, DispatcherQueue dispatcherQueue)
+    public CombatController(EntityController entityController)
     {
-        _trackingController = trackingController;
-        _dispatcherQueue = dispatcherQueue;
-
+        _entityController = entityController;
         OnChangeCombatMode += AddCombatTime;
     }
 
@@ -48,10 +46,10 @@ public class CombatController
         if (!IsTrackingActive || (affectedId == causerId && healthChangeType == HealthChangeType.Damage))
             return Task.CompletedTask;
 
-        var causerGameObject = _trackingController.EntityController.GetEntity(causerId);
+        var causerGameObject = _entityController.GetEntity(causerId);
         var causerGameObjectValue = causerGameObject?.Value;
 
-        if (causerGameObject?.Value is not { ObjectType: GameObjectType.Player } || !_trackingController.EntityController.IsEntityInParty(causerGameObject.Value.Key))
+        if (causerGameObject?.Value is not { ObjectType: GameObjectType.Player } || !_entityController.IsEntityInParty(causerGameObject.Value.Key))
             return Task.CompletedTask;
 
         if (healthChangeType == HealthChangeType.Damage)
@@ -84,7 +82,7 @@ public class CombatController
 
         if (IsUiUpdateAllowed())
         {
-            var entities = _trackingController.EntityController.GetAllEntitiesWithDamageOrHealAndInParty();
+            var entities = _entityController.GetAllEntitiesWithDamageOrHealAndInParty();
             OnDamageUpdate?.Invoke(entities);
         }
 
@@ -97,10 +95,10 @@ public class CombatController
         if (!IsTrackingActive || (affectedId == causerId && healthChangeType == HealthChangeType.Damage))
             return Task.CompletedTask;
 
-        var gameObject = _trackingController.EntityController.GetEntity(affectedId);
+        var gameObject = _entityController.GetEntity(affectedId);
         var gameObjectValue = gameObject?.Value;
 
-        if (gameObject?.Value is not { ObjectType: GameObjectType.Player } || !_trackingController.EntityController.IsEntityInParty(gameObject.Value.Key))
+        if (gameObject?.Value is not { ObjectType: GameObjectType.Player } || !_entityController.IsEntityInParty(gameObject.Value.Key))
             return Task.CompletedTask;
 
         if (healthChangeType == HealthChangeType.Damage)
@@ -151,13 +149,13 @@ public class CombatController
 
     public void ResetDamageMeter()
     {
-        _trackingController.EntityController.ResetEntitiesDamageTimes();
-        _trackingController.EntityController.ResetEntitiesDamage();
-        _trackingController.EntityController.ResetEntitiesHeal();
-        _trackingController.EntityController.ResetEntitiesTakeDamage();
-        _trackingController.EntityController.ResetSpells();
-        _trackingController.EntityController.ResetEntitiesHealAndOverhealed();
-        _trackingController.EntityController.ResetEntitiesDamageStartTime();
+        _entityController.ResetEntitiesDamageTimes();
+        _entityController.ResetEntitiesDamage();
+        _entityController.ResetEntitiesHeal();
+        _entityController.ResetEntitiesTakeDamage();
+        _entityController.ResetSpells();
+        _entityController.ResetEntitiesHealAndOverhealed();
+        _entityController.ResetEntitiesDamageStartTime();
 
         _sessionFame = 0;
         _sessionCombatFame = 0;
@@ -167,7 +165,7 @@ public class CombatController
 
     public bool IsMaxHealthReached(long objectId, double newHealthValue)
     {
-        var gameObject = _trackingController.EntityController.GetEntity(objectId);
+        var gameObject = _entityController.GetEntity(objectId);
         var playerHealth = LastPlayersHealth.ToArray().FirstOrDefault(x => x.Key == gameObject?.Value?.UserGuid);
         if (playerHealth.Value.CompareTo(newHealthValue) == 0) return true;
         SetLastPlayersHealth(gameObject?.Value?.UserGuid, newHealthValue);
@@ -248,9 +246,9 @@ public class CombatController
 
     private void AddCombatTime(long objectId, bool inActiveCombat, bool inPassiveCombat)
     {
-        if (!_trackingController.EntityController.IsEntityInParty(objectId)) return;
+        if (!_entityController.IsEntityInParty(objectId)) return;
 
-        var playerObject = _trackingController.EntityController.GetEntity(objectId);
+        var playerObject = _entityController.GetEntity(objectId);
         if (playerObject?.Value == null) return;
 
         if ((inActiveCombat || inPassiveCombat) && playerObject.Value.Value.CombatTimes.Any(x => x?.EndTime == null))
