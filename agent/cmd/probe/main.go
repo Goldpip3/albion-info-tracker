@@ -63,17 +63,30 @@ func main() {
 		fmt.Println("localization.bin:", err)
 	} else {
 		fmt.Printf("localization.bin OK — %d EN-US strings\n", loc.Len())
-		// Reverse-lookup: find @SPELLS_ tu-ids whose English value
-		// contains "explosive bolt" or similar so we can wire the
-		// real spell uniquename to the right user-visible name.
-		fmt.Println("  --- localization reverse-lookup ---")
-		searchTerms := []string{"explosive bolt", "frost bolt", "flickershot", "chain slash", "auto attack"}
-		hits := loc.Search(searchTerms, 12)
-		for term, results := range hits {
-			fmt.Printf("  %q matches:\n", term)
-			for _, r := range results {
-				fmt.Printf("    %-50s → %q\n", r.Tuid, r.Value)
+		// Sanity-check the naming pipeline. For each uniquename the user
+		// might encounter, walk localization → override → prettifier and
+		// print what they'd see in the meter.
+		fmt.Println("  --- naming pipeline ---")
+		samples := []string{
+			"CROSSBOW_AUTO_ATTACK_JUMP",
+			"BOLTSHOT",
+			"CHAINDASH",
+			"BOLTCASTER_CALTROPS_E",
+			"CROSSBOW_FLICKERSHOT_E",
+			"CROSSBOW_ARMORPIERCER",
+			"FROSTSHOT_E",
+			"CROSSBOW_AUTO_ATTACK",
+			"SOME_UNKNOWN_ABILITY_E",
+		}
+		for _, u := range samples {
+			pipeline := loc.SpellName(u)
+			if pipeline == "" {
+				pipeline = gamedata.SpellOverride(u)
+				if pipeline == "" {
+					pipeline = gamedata.PrettifySpell(u)
+				}
 			}
+			fmt.Printf("  %-32s → %q\n", u, pipeline)
 		}
 	}
 }

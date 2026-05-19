@@ -7,9 +7,12 @@ export interface PlayerSnapshot {
 	name: string;
 	guild?: string;
 	isLocal?: boolean;
-	classCode?: string; // 3-letter chip text ("DGR", "FIR", …) or "—"
-	role?: string;      // "T" | "H" | "R" | "M" | "S" | "?"
-	roleLabel?: string; // "MELEE DPS · DAGGERS"
+	classCode?: string; // 3-letter chip text ("DGR", "FIR", …) or "—" — still
+	                    // used internally to tint the bar / DPS column.
+	role?: string;      // "T" | "H" | "R" | "M" | "S" | "C" | "?"
+	roleLabel?: string; // "DAGGERS" / "ADEPT'S ARCLIGHT BLASTERS"
+	itemPower?: number; // Averaged IP across core gear slots — rendered in the
+	                    // IPChip in place of the old XBW-style 3-letter chip.
 	currentDamage: number;
 	currentDps: number;
 	overallDamage: number;
@@ -116,6 +119,7 @@ export interface FightPlayerArchive {
 	classCode?: string;
 	role?: string;
 	roleLabel?: string;
+	itemPower?: number;
 	isLocal?: boolean;
 	damage: number;
 	dps: number;

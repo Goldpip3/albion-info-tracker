@@ -185,6 +185,11 @@ type PlayerSnapshot struct {
 	Role      string `json:"role,omitempty"`
 	RoleLabel string `json:"roleLabel,omitempty"`
 
+	// ItemPower is the averaged IP across the player's core gear slots
+	// (MainHand, OffHand, Head, Chest, Shoes, Cape). The web renders
+	// this as the IPChip in place of the 3-letter class code.
+	ItemPower int `json:"itemPower,omitempty"`
+
 	CurrentDamage int64   `json:"currentDamage"`
 	CurrentDPS    float64 `json:"currentDps"`
 	OverallDamage int64   `json:"overallDamage"`
@@ -353,6 +358,7 @@ func (e *Engine) Snapshot() Snapshot {
 			ClassCode: m.ClassCode,
 			Role:      m.Role,
 			RoleLabel: m.RoleLabel,
+			ItemPower: m.ItemPower,
 
 			CurrentDamage: m.Current.DamageDealt,
 			CurrentDPS:    m.Current.DPS(),

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AssistBreakdown, PlayerSnapshot, SpellBreakdown, TargetBreakdown } from "./types.ts";
-import { ClassChip } from "./ClassChip.tsx";
+import { IPChip } from "./IPChip.tsx";
 import { classAccent, fmt, fmtRate, prettySpell, roleKeyOf } from "./format.ts";
 
 interface DrillInProps {
@@ -83,7 +83,7 @@ function DrillHeader({
 				>
 					←
 				</button>
-				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={28} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={28} />
 				<div>
 					<div style={{ fontSize: 16, fontWeight: 600, color: "var(--sk-fg-0)" }}>
 						{player.name || "(unknown)"}

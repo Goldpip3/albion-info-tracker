@@ -91,17 +91,63 @@ func (l *Localization) ItemName(uniqueName string) string {
 }
 
 // SpellName resolves a spells.bin uniquename to its in-game display name.
-// Returns "" if the spell has no localization entry (passive sub-effects
-// like "SKILLSHOT_TELEPORT_END" frequently don't).
+// Walks a fallback chain of prefix variants because Albion sprinkles spell
+// tu-ids across multiple keyspaces:
+//
+//   @SPELLS_<U>            — the canonical 90% case ("BOLTSHOT" → "Explosive Bolt")
+//   @SPELL_<U>             — older or one-off spells use the singular form
+//   @MOB_ABILITIES_<U>     — mob abilities ("MOB_HER_DUALXBOW_ATTACK")
+//   @SPELLDESC_<U>         — a handful of artifact spells live under desc keys
+//   @ITEMS_<U>_SPELL       — some weapon-bound passives ("BOLTCASTER...")
+//
+// For each prefix variant, we also try a trailing _<digit> strip — Albion
+// versions abilities with _1/_2/_3 suffixes that don't get separate
+// localization rows. Returns "" if NONE of the variants matched. The
+// caller (engine.go::localizedSpellName) decides whether to fall back to
+// an override table or the prettifier.
 func (l *Localization) SpellName(uniqueName string) string {
 	if l == nil || uniqueName == "" {
 		return ""
 	}
-	if name := l.byTuid["@SPELLS_"+uniqueName]; name != "" {
-		return name
+	candidates := []string{uniqueName}
+	if stripped := stripTrailingDigit(uniqueName); stripped != uniqueName {
+		candidates = append(candidates, stripped)
 	}
-	// Fallback — some spells use the @MOB_ABILITIES_ prefix instead.
-	return l.byTuid["@MOB_ABILITIES_"+uniqueName]
+	prefixes := []string{
+		"@SPELLS_",
+		"@SPELL_",
+		"@MOB_ABILITIES_",
+		"@SPELLDESC_",
+		"@ITEMS_%s_SPELL", // %s placeholder — special-cased below
+	}
+	for _, cand := range candidates {
+		for _, pfx := range prefixes {
+			var key string
+			if strings.Contains(pfx, "%s") {
+				key = strings.Replace(pfx, "%s", cand, 1)
+			} else {
+				key = pfx + cand
+			}
+			if name := l.byTuid[key]; name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// stripTrailingDigit removes a trailing "_<digit>" suffix. Used so that
+// CROSSBOW_FLICKERSHOT_E_3 falls back to CROSSBOW_FLICKERSHOT_E in the
+// localization lookup.
+func stripTrailingDigit(s string) string {
+	if len(s) < 3 || s[len(s)-2] != '_' {
+		return s
+	}
+	last := s[len(s)-1]
+	if last < '0' || last > '9' {
+		return s
+	}
+	return s[:len(s)-2]
 }
 
 // LoadLocalization decrypts localization.bin and builds the lookup table.

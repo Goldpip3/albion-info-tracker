@@ -78,6 +78,7 @@ func main() {
 			Token:        cfg.PushToken,
 			AgentVersion: version,
 			Snapshot:     engine.Snapshot,
+			DirtyGen:     engine.DirtyGen,
 			OnCommand:    engine.HandleCommand,
 		}
 		fmt.Printf("\n  Streaming to %s\n", maskedURL(cfg.PushURL))

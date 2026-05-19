@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
 import { DEFAULT_SUB_METRIC, SUB_METRICS_BY_MODE } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
-import { ClassChip } from "./ClassChip.tsx";
+import { IPChip } from "./IPChip.tsx";
 import { classAccent, fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
 
 interface MeterTableProps {
@@ -54,20 +54,34 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 	// player list from a Go map each snapshot and map iteration order is
 	// randomized, so without an explicit tie-break the input order leaks
 	// through stable sort and players visibly swap places.
-	let sorted = [...players].sort((a, b) => {
-		const d = primaryFor(b).cur - primaryFor(a).cur;
-		if (d !== 0) return d;
-		return a.userGuid < b.userGuid ? -1 : a.userGuid > b.userGuid ? 1 : 0;
-	});
-
-	if (settings.pinLocal) {
-		const local = sorted.find((p) => p.isLocal);
-		if (local) sorted = [local, ...sorted.filter((p) => p !== local)];
-	}
-
-	const max = sorted[0] ? primaryFor(sorted[0]).cur : 0;
-	// Party total for the active metric — drives the per-row share (%).
-	const partyTotal = sorted.reduce((s, p) => s + primaryFor(p).cur, 0);
+	//
+	// useMemo on (generatedAt, activeSub, pinLocal) — sort + reduce skips
+	// on tooltips opening/closing or unrelated state changes.
+	const { sorted, max, partyTotal } = useMemo(() => {
+		const arr = [...players].sort((a, b) => {
+			const d = primaryFor(b).cur - primaryFor(a).cur;
+			if (d !== 0) return d;
+			return a.userGuid < b.userGuid ? -1 : a.userGuid > b.userGuid ? 1 : 0;
+		});
+		if (settings.pinLocal) {
+			const local = arr.find((p) => p.isLocal);
+			if (local) {
+				const rest = arr.filter((p) => p !== local);
+				rest.unshift(local);
+				return {
+					sorted: rest,
+					max: rest[0] ? primaryFor(rest[0]).cur : 0,
+					partyTotal: rest.reduce((s, p) => s + primaryFor(p).cur, 0),
+				};
+			}
+		}
+		return {
+			sorted: arr,
+			max: arr[0] ? primaryFor(arr[0]).cur : 0,
+			partyTotal: arr.reduce((s, p) => s + primaryFor(p).cur, 0),
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [snapshot?.generatedAt, activeSub, settings.pinLocal, players.length]);
 
 	if (sorted.length === 0) {
 		return (
@@ -245,7 +259,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 
 			{/* Class chip + name + role label */}
 			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
-				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={Math.min(28, Math.max(22, rowH - 14))} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={Math.min(28, Math.max(22, rowH - 14))} />
 				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.15, gap: 2 }}>
 					<span
 						className="truncate"
@@ -409,7 +423,7 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 				className="flex items-center"
 				style={{ gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--sk-line)" }}
 			>
-				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={22} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={22} />
 				<div className="min-w-0">
 					<div
 						style={{

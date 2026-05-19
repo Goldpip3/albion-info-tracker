@@ -22,6 +22,7 @@ interface DemoPlayer {
 	classCode: string;
 	role: string;
 	roleLabel: string;
+	itemPower: number;
 	dps: number;     // current DPS to tween toward
 	taken: number;   // accumulated session taken
 	heal: number;    // accumulated session heal
@@ -29,16 +30,16 @@ interface DemoPlayer {
 }
 
 const ROSTER: DemoPlayer[] = [
-	{ guid: "01", name: "Nyla",        classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6600, taken: 115000, heal: 0 },
-	{ guid: "02", name: "Lirien",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6900, taken: 115000, heal: 0 },
-	{ guid: "03", name: "Hesper",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6400, taken: 113000, heal: 0, isLocal: true },
-	{ guid: "04", name: "Aldric",      classCode: "FIR", role: "R", roleLabel: "FIRE STAFF",  dps: 4800, taken:  51000, heal: 0 },
-	{ guid: "05", name: "Kestrel",     classCode: "FRO", role: "C", roleLabel: "FROST STAFF", dps: 3200, taken:  45000, heal: 0 },
-	{ guid: "06", name: "Mervyn",      classCode: "FRO", role: "C", roleLabel: "FROST STAFF", dps: 4000, taken:  45000, heal: 0 },
-	{ guid: "07", name: "Fenwick",     classCode: "HAM", role: "T", roleLabel: "HAMMER",      dps: 2100, taken: 270000, heal: 0 },
-	{ guid: "08", name: "Edda",        classCode: "ARC", role: "S", roleLabel: "ARCANE STAFF",dps: 2100, taken:  65000, heal: 1130000 },
-	{ guid: "09", name: "Jorah",       classCode: "NTR", role: "H", roleLabel: "NATURE STAFF",dps:  789, taken:  90000, heal: 4570000 },
-	{ guid: "10", name: "Orson",       classCode: "HLY", role: "H", roleLabel: "HOLY STAFF",  dps:  900, taken:  88000, heal: 3920000 },
+	{ guid: "01", name: "Nyla",        classCode: "DGR", role: "M", roleLabel: "DAGGERS",     itemPower: 1340, dps: 6600, taken: 115000, heal: 0 },
+	{ guid: "02", name: "Lirien",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     itemPower: 1310, dps: 6900, taken: 115000, heal: 0 },
+	{ guid: "03", name: "Hesper",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     itemPower: 1320, dps: 6400, taken: 113000, heal: 0, isLocal: true },
+	{ guid: "04", name: "Aldric",      classCode: "FIR", role: "R", roleLabel: "FIRE STAFF",  itemPower: 1290, dps: 4800, taken:  51000, heal: 0 },
+	{ guid: "05", name: "Kestrel",     classCode: "FRO", role: "C", roleLabel: "FROST STAFF", itemPower: 1280, dps: 3200, taken:  45000, heal: 0 },
+	{ guid: "06", name: "Mervyn",      classCode: "FRO", role: "C", roleLabel: "FROST STAFF", itemPower: 1310, dps: 4000, taken:  45000, heal: 0 },
+	{ guid: "07", name: "Fenwick",     classCode: "HAM", role: "T", roleLabel: "HAMMER",      itemPower: 1360, dps: 2100, taken: 270000, heal: 0 },
+	{ guid: "08", name: "Edda",        classCode: "ARC", role: "S", roleLabel: "ARCANE STAFF",itemPower: 1300, dps: 2100, taken:  65000, heal: 1130000 },
+	{ guid: "09", name: "Jorah",       classCode: "NTR", role: "H", roleLabel: "NATURE STAFF",itemPower: 1330, dps:  789, taken:  90000, heal: 4570000 },
+	{ guid: "10", name: "Orson",       classCode: "HLY", role: "H", roleLabel: "HOLY STAFF",  itemPower: 1350, dps:  900, taken:  88000, heal: 3920000 },
 ];
 
 export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number } {
@@ -64,6 +65,7 @@ export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number }
 			classCode: p.classCode,
 			role: p.role,
 			roleLabel: p.roleLabel,
+			itemPower: p.itemPower,
 			isLocal: p.isLocal,
 			currentDamage: curDamage,
 			currentDps: curDps,

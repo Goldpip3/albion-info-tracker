@@ -79,9 +79,16 @@ export function classAccent(classCode: string | undefined, role: RoleKey): strin
 	return ROLE_ACCENT[role];
 }
 
-// Pretty-print a spell uniquename. TOKEN_CASE → Title case.
+// Pretty-print a spell uniquename. The agent does the heavy lifting now —
+// localization + override + Title-Case prettifier — so by the time names
+// reach the web they're already in human form ("Caltrops", "Auto Attack",
+// "Flickershot"). This function exists for one case: an old agent build
+// that still ships raw "CROSSBOW_FLICKERSHOT_E" uniquenames over the
+// wire. Names without underscores pass through unchanged so we don't
+// mangle "Auto Attack" into "Auto attack".
 export function prettySpell(name?: string): string {
 	if (!name) return "";
+	if (!name.includes("_")) return name; // already clean, leave it alone
 	const parts = name.split("_").filter(Boolean);
 	if (parts.length === 0) return name;
 	const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();

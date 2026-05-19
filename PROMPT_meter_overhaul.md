@@ -15,15 +15,17 @@ Work is gated on each section: do not skip ahead. After parts 1–3, run `go bui
 
 ## Part 1 — Naming fixes (agent + web)
 
+**Scope: every weapon, every spell, every ability — no per-weapon allowlists.** The crossbow examples in this prompt are illustrative because that's what the user happened to be holding, but every fix in Part 1 is generic and must handle the full game catalog (dagger pair, holy staff, frost staff, hammer, quarterstaff, axe, fire staff, cursed staff, nature staff, arcane staff, spear, bow, longbow, warbow, sword, greatsword, mace, knuckles, and every artifact variant of all of those). When in doubt, design for "any uniquename Albion can emit," not for a specific weapon. The code paths below already work this way by pattern — the explicit instruction is: don't add weapon-specific branches; if you find yourself writing `if classCode == "XBW"`, stop and generalize.
+
 All three name bugs share one root cause: the agent emits a uniquename string and the web UI prettifies it via `prettySpell()` (`web/src/format.ts`). When localization.bin has no entry, the prettifier hides the bug behind a Title-Case mangling. Fix this in the **agent**, not the web side — keep the wire format as resolved English where possible, and have the web only fall back to `prettySpell()` when the agent admits it has no name.
 
-### 1a. Auto-attack normalization
+### 1a. Auto-attack normalization (every weapon)
 
-Albion's auto-attack ability uniquenames follow patterns like `CROSSBOW_AUTO_ATTACK_JUMP`, `DAGGER_AUTO_ATTACK`, `2H_HAMMER_AUTO_ATTACK_1`, etc. Their localization entries (when they exist) often say `"1"`, `"Light Attack"`, or are missing entirely — none of which are useful. Treat all of them as "Auto Attack" before the snapshot is built.
+Every Albion weapon's left-click is a spell uniquename matching the pattern `*AUTO_ATTACK*` — e.g. `CROSSBOW_AUTO_ATTACK_JUMP`, `DAGGER_AUTO_ATTACK`, `2H_HAMMER_AUTO_ATTACK_1`, `HOLYSTAFF_AUTO_ATTACK`, `FROSTSTAFF_AUTO_ATTACK_HIT`, `BOW_AUTO_ATTACK`, and so on. The pattern is universal across the game catalog; one substring check covers all of them. Their localization entries are inconsistent — some say `"1"`, some say `"Light Attack"`, some are missing — so don't trust localization here.
 
-- Edit `agent/internal/domain/engine.go::localizedSpellName(idx int)` so that after resolving the uniquename it checks `strings.Contains(strings.ToUpper(uniqueName), "AUTO_ATTACK")` (and `AUTOATTACK` as a defensive variant) and returns the string `"Auto Attack"` early.
+- Edit `agent/internal/domain/engine.go::localizedSpellName(idx int)` so that after resolving the uniquename it checks `strings.Contains(strings.ToUpper(uniqueName), "AUTO_ATTACK")` (and `AUTOATTACK` as a defensive variant) and returns the string `"Auto Attack"` early. **One check, every weapon.** Do not enumerate weapon-prefix variants.
 - Don't put this in `web/src/format.ts` — every consumer of `localizedSpellName` (Fight tab, Session tab, Assists tab, ActivityLog) needs the same answer, and centralizing in Go keeps the snapshot self-describing.
-- Verify: in admin PowerShell run `.\agent.exe` with `ALBION_AGENT_VERBOSE=1`, fire a few left-clicks in a training dummy zone, watch the Fight tab in the meter — the entry that used to read `1` or `Crossbow auto attack jump` should now read `Auto Attack`.
+- Verify with multiple weapons: swap to at least three different weapon families in-game (a crossbow, a melee weapon, a staff) and confirm each one's auto-attack collapses to `Auto Attack`. Don't ship if any weapon's left-click still shows the raw uniquename or a numeric label.
 
 ### 1b. Spell-name localization fallback chain
 

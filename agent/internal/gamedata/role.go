@@ -43,14 +43,20 @@ func ClassifyWeapon(uniqueName string) WeaponClassification {
 		return cls("XBW", RoleRangedDPS, "WEEPING REPEATER")
 	case contains(u, "MORGANA_CROSSBOW"), contains(u, "CROSSBOWLARGE_MORGANA"):
 		return cls("XBW", RoleRangedDPS, "ENERGY SHAPER")
-	case contains(u, "AVALON_CROSSBOW"), contains(u, "CROSSBOW_AVALON"):
-		return cls("XBW", RoleRangedDPS, "ARLIGHT BLASTER")
-	case contains(u, "CROSSBOW_CANNON"):
-		return cls("XBW", RoleRangedDPS, "SIEGEBOW")
+	// DualCrossbow variants must be matched BEFORE the generic Crossbow
+	// family — both share "CROSSBOW" as a substring, and order matters
+	// because we fall through on first match.
+	case contains(u, "DUALCROSSBOW_AVALON"), contains(u, "AVALON_DUALCROSSBOW"):
+		return cls("XBW", RoleRangedDPS, "ARCLIGHT BLASTERS")
 	case contains(u, "DUALCROSSBOW_CRYSTAL"):
 		return cls("XBW", RoleRangedDPS, "CRYSTAL DUAL CROSSBOWS")
 	case contains(u, "DUALCROSSBOW"):
 		return cls("XBW", RoleRangedDPS, "DUAL CROSSBOWS")
+	// Single-crossbow artifact variants.
+	case contains(u, "AVALON_CROSSBOW"), contains(u, "CROSSBOW_AVALON"):
+		return cls("XBW", RoleRangedDPS, "ARCLIGHT BLASTERS")
+	case contains(u, "CROSSBOW_CANNON"):
+		return cls("XBW", RoleRangedDPS, "SIEGEBOW")
 	case contains(u, "CROSSBOWLARGE"):
 		return cls("XBW", RoleRangedDPS, "HEAVY CROSSBOW")
 	case contains(u, "CROSSBOWSMALL"):

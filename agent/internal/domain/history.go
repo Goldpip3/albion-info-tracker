@@ -27,6 +27,7 @@ type FightPlayerArchive struct {
 	ClassCode   string           `json:"classCode,omitempty"`
 	Role        string           `json:"role,omitempty"`
 	RoleLabel   string           `json:"roleLabel,omitempty"`
+	ItemPower   int              `json:"itemPower,omitempty"`
 	IsLocal     bool             `json:"isLocal,omitempty"`
 	Damage      int64            `json:"damage"`
 	DPS         float64          `json:"dps"`

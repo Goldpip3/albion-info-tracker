@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
@@ -77,13 +78,30 @@ type Engine struct {
 	recentCasts    []recentCast                    // ring of recent CastFinished events
 	recentCastsCap int
 
-	// pendingEquip caches MainHand item indices from CharacterEquipmentChanged
-	// events that arrived before we knew about the target entity. Albion fires
-	// equipment events for the local player BEFORE the Join response, so
-	// without this cache the local player's class never resolves.
+	// dirtyGen ticks every time a Photon handler mutates state the
+	// snapshot consumer cares about. The push client compares against
+	// its last-sent generation and skips the send when nothing has
+	// changed — collapses 95% of out-of-combat traffic to a heartbeat
+	// roughly every second (the heartbeat still goes out so viewers
+	// know the agent is alive).
+	dirtyGen atomic.Uint64
+
+	// pendingEquip caches FULL equipment arrays + qualities from
+	// CharacterEquipmentChanged events that arrived before we knew about
+	// the target entity. Albion fires equipment events for the local player
+	// BEFORE the Join response, so without this cache the local player's
+	// class and IP never resolve.
 	// Keyed by ObjectId. Cleared when consumed.
 	pendingEquipMu sync.Mutex
-	pendingEquip   map[int64]int
+	pendingEquip   map[int64]pendingEquipEntry
+}
+
+// pendingEquipEntry holds a 10-slot equipment + qualities array for an
+// ObjectId whose entity hasn't been registered yet. Replayed by
+// applyCachedEquipment as soon as the entity appears.
+type pendingEquipEntry struct {
+	Equipment [10]int
+	Qualities [10]int
 }
 
 // debuffWindow is one open "this player's debuff is on this target right
@@ -133,7 +151,7 @@ func NewEngine() *Engine {
 		session:        SessionStats{Start: now},
 		activeWindows:  make(map[int64]map[int]*debuffWindow),
 		recentCastsCap: 64,
-		pendingEquip:   make(map[int64]int),
+		pendingEquip:   make(map[int64]pendingEquipEntry),
 	}
 }
 
@@ -212,9 +230,22 @@ func (e *Engine) SetLocalization(l *gamedata.Localization) {
 	e.loc = l
 }
 
-// localizedSpellName resolves a spell index to its in-game display name,
-// falling back to the uniquename when localization is missing or doesn't
-// have an entry for the spell (passive sub-effects often don't).
+// localizedSpellName resolves a spell index to its in-game display name.
+// Fallback chain (in order):
+//   1. Auto-attack uniquenames ("CROSSBOW_AUTO_ATTACK_JUMP" etc.) collapse
+//      to "Auto Attack" — Albion's own localization for these is "1" or
+//      "Light Attack" which isn't useful in the drill-in.
+//   2. localization.bin lookup via @SPELLS_/ @SPELL_ / @MOB_ABILITIES_ /
+//      @SPELLDESC_ / @ITEMS_<u>_SPELL prefix family (with trailing
+//      _<digit> stripping).
+//   3. Hardcoded overrides for stubborn abilities (Caltrops, Flickershot,
+//      etc.) that don't show up anywhere in localization.bin.
+//   4. Final prettifier: strip known weapon-family prefixes + slot
+//      suffixes, Title-Case what's left. "BOLTCASTER_CALTROPS_E" → "Caltrops",
+//      "CROSSBOW_FLICKERSHOT_E" → "Flickershot".
+//
+// Returns "" only when there's no spell at that index. Callers can fall
+// back to a numeric label ("#1234") in that case.
 func (e *Engine) localizedSpellName(idx int) string {
 	if e.spells == nil {
 		return ""
@@ -223,12 +254,19 @@ func (e *Engine) localizedSpellName(idx int) string {
 	if uniqueName == "" {
 		return ""
 	}
+	upperName := strings.ToUpper(uniqueName)
+	if strings.Contains(upperName, "AUTO_ATTACK") || strings.Contains(upperName, "AUTOATTACK") {
+		return "Auto Attack"
+	}
 	if e.loc != nil {
 		if loc := e.loc.SpellName(uniqueName); loc != "" {
 			return loc
 		}
 	}
-	return uniqueName
+	if name := gamedata.SpellOverride(uniqueName); name != "" {
+		return name
+	}
+	return gamedata.PrettifySpell(uniqueName)
 }
 
 // SpellCatalog returns the configured spell catalog, or nil.
@@ -249,8 +287,23 @@ func (e *Engine) Handlers() photon.Handlers {
 	}
 }
 
+// markDirty bumps the snapshot generation counter. Called from every
+// Photon handler that touches state the snapshot consumer reads. Atomic
+// because handlers may run on different goroutines than the push client's
+// reader. Cheap — a single Add(1).
+func (e *Engine) markDirty() {
+	e.dirtyGen.Add(1)
+}
+
+// DirtyGen returns the current snapshot generation. The push client
+// compares against its last-sent value to decide whether to skip a tick.
+func (e *Engine) DirtyGen() uint64 {
+	return e.dirtyGen.Load()
+}
+
 func (e *Engine) onEvent(ev photon.EventData) {
 	code := realCode(ev.Parameters, ev.Code)
+	e.markDirty()
 	switch gamecodes.Event(code) {
 	case gamecodes.EventHealthUpdate:
 		e.handleHealthUpdate(ev.Parameters)
@@ -782,6 +835,7 @@ func (e *Engine) archiveCurrentFight(endedAt time.Time) {
 			ClassCode: ent.ClassCode,
 			Role:      ent.Role,
 			RoleLabel: ent.RoleLabel,
+			ItemPower: ent.ItemPower,
 			IsLocal:   ent.IsLocal,
 			Damage:    ent.Current.DamageDealt,
 			DPS:       ent.Current.DPS(),
@@ -1050,28 +1104,22 @@ func readIntArray(v any) []int {
 	return nil
 }
 
-// handleEquipmentChanged updates a tracked entity's class chip + role when
-// they swap weapons. Critical for the local player — Albion fires equipment
-// events for the local user BEFORE the Join response, so we cache the
-// MainHand item index by ObjectId and replay when the entity registers.
+// handleEquipmentChanged updates a tracked entity's class chip + role +
+// IP when they swap weapons. Critical for the local player — Albion fires
+// equipment events for the local user BEFORE the Join response, so we
+// cache the full 10-slot equipment + qualities array by ObjectId and
+// replay when the entity registers.
 //
-// Param 0 = ObjectId, param 2 = short[] equipment array (index 0 = MainHand).
+// Param 0 = ObjectId, param 2 = short[] equipment array; on NewCharacter
+// the equipment lives at param 40 instead.
 func (e *Engine) handleEquipmentChanged(p map[byte]any) {
 	objectId, ok := paramLong(p, 0)
 	if !ok || objectId == 0 {
 		return
 	}
-	// Always cache the mainhand index — useful even if the entity is
-	// already known, because subsequent weapon swaps overwrite the cache.
-	if equip, ok := p[40]; ok {
-		if mh := firstIntOfArray(equip); mh > 0 {
-			e.cachePendingEquip(objectId, mh)
-		}
-	}
-	if equip, ok := p[2]; ok {
-		if mh := firstIntOfArray(equip); mh > 0 {
-			e.cachePendingEquip(objectId, mh)
-		}
+	equip, qualities, found := parseEquipmentParams(p)
+	if found {
+		e.cachePendingEquip(objectId, equip, qualities)
 	}
 	ent := e.store.ByObjectId(objectId)
 	if ent == nil {
@@ -1080,39 +1128,72 @@ func (e *Engine) handleEquipmentChanged(p map[byte]any) {
 	e.applyEquipment(ent, p)
 }
 
-// cachePendingEquip stashes the MainHand item index for an ObjectId so a
-// later UpsertByGuid (typically the Join response for the local player)
-// can pick it up. Safe for concurrent use.
-func (e *Engine) cachePendingEquip(objectId int64, mainHand int) {
+// parseEquipmentParams reads the equipment + quality arrays from either
+// NewCharacter (param 40 + maybe 41/42 for qualities) or
+// CharacterEquipmentChanged (param 2 + maybe 3 for qualities). Returns
+// (empty, false) when no equipment array is present in the event.
+//
+// Quality is the 1..5 byte; if the event doesn't ship a quality array
+// we default to 0 (treated as Normal=1 downstream).
+func parseEquipmentParams(p map[byte]any) ([10]int, [10]int, bool) {
+	var equip, qualities [10]int
+	rawEquip, ok := p[40]
+	if !ok {
+		rawEquip, ok = p[2]
+	}
+	if !ok {
+		return equip, qualities, false
+	}
+	for i, v := range intsOfArray(rawEquip, 10) {
+		equip[i] = v
+	}
+	// Quality lives at param 41 (NewCharacter) or 3
+	// (CharacterEquipmentChanged) in SAT — try both. May not be present
+	// on older patches; we silently default to 0.
+	if rawQ, ok := p[41]; ok {
+		for i, v := range intsOfArray(rawQ, 10) {
+			qualities[i] = v
+		}
+	} else if rawQ, ok := p[3]; ok {
+		for i, v := range intsOfArray(rawQ, 10) {
+			qualities[i] = v
+		}
+	}
+	return equip, qualities, true
+}
+
+// cachePendingEquip stashes the full equipment+qualities for an ObjectId
+// so a later UpsertByGuid can pick it up. Safe for concurrent use.
+func (e *Engine) cachePendingEquip(objectId int64, equip [10]int, qualities [10]int) {
 	e.pendingEquipMu.Lock()
-	e.pendingEquip[objectId] = mainHand
+	e.pendingEquip[objectId] = pendingEquipEntry{Equipment: equip, Qualities: qualities}
 	e.pendingEquipMu.Unlock()
 }
 
-// takePendingEquip returns and clears the cached MainHand for an ObjectId.
-// Caller will apply the classification and the cache entry is gone.
-func (e *Engine) takePendingEquip(objectId int64) (int, bool) {
+// takePendingEquip returns and clears the cached entry for an ObjectId.
+func (e *Engine) takePendingEquip(objectId int64) (pendingEquipEntry, bool) {
 	e.pendingEquipMu.Lock()
 	defer e.pendingEquipMu.Unlock()
-	mh, ok := e.pendingEquip[objectId]
+	entry, ok := e.pendingEquip[objectId]
 	if ok {
 		delete(e.pendingEquip, objectId)
 	}
-	return mh, ok
+	return entry, ok
 }
 
-// applyCachedEquipment classifies an entity using the cached MainHand item
-// index (if any). Called from handleJoinResponse after the local player's
-// entity is finally registered.
+// applyCachedEquipment classifies an entity using the cached equipment
+// array (if any). Called from handleJoinResponse after the local player's
+// entity is finally registered, and from handleNewCharacter for race
+// symmetry with non-local players.
 func (e *Engine) applyCachedEquipment(ent *Entity) {
 	if ent == nil || e.items == nil || ent.ObjectId == 0 {
 		return
 	}
-	mh, ok := e.takePendingEquip(ent.ObjectId)
-	if !ok || mh <= 0 {
+	entry, ok := e.takePendingEquip(ent.ObjectId)
+	if !ok {
 		return
 	}
-	e.classifyMainHand(ent, mh)
+	e.applyEquipmentArray(ent, entry.Equipment, entry.Qualities)
 }
 
 func (e *Engine) handleNewCharacter(p map[byte]any) {
@@ -1138,25 +1219,38 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	}
 }
 
-// applyEquipment reads a 10-slot equipment array and uses index 0
-// (MainHand) to classify the weapon. NewCharacter ships the array in
-// param 40; CharacterEquipmentChanged ships it in param 2.
+// applyEquipment reads the equipment + quality arrays from the event,
+// classifies the player's class from the MainHand slot, computes average
+// IP across the core slots, and writes everything onto the entity.
 func (e *Engine) applyEquipment(ent *Entity, p map[byte]any) {
 	if ent == nil || e.items == nil {
 		return
 	}
-	equip, ok := p[40]
-	if !ok {
-		equip, ok = p[2]
-	}
+	equip, qualities, ok := parseEquipmentParams(p)
 	if !ok {
 		return
 	}
-	mainHand := firstIntOfArray(equip)
-	if mainHand <= 0 {
+	e.applyEquipmentArray(ent, equip, qualities)
+}
+
+// applyEquipmentArray is the inner write — used both by live equipment
+// events and by the cached-equipment replay path.
+func (e *Engine) applyEquipmentArray(ent *Entity, equip [10]int, qualities [10]int) {
+	if ent == nil || e.items == nil {
 		return
 	}
-	e.classifyMainHand(ent, mainHand)
+	// Class chip + role + label come from MainHand.
+	if mh := equip[0]; mh > 0 {
+		e.classifyMainHand(ent, mh)
+	}
+	// IP across core slots — MainHand, OffHand, Head, Chest, Shoes, Cape.
+	// AverageItemPower handles the 2H "occupies both hands" rule.
+	ip := gamedata.AverageItemPower(e.items, equip, qualities)
+	e.store.mu.Lock()
+	ent.Equipment = equip
+	ent.Qualities = qualities
+	ent.ItemPower = ip
+	e.store.mu.Unlock()
 }
 
 // classifyMainHand resolves a MainHand item index to the entity's class
@@ -1184,8 +1278,66 @@ func (e *Engine) classifyMainHand(ent *Entity, mainHand int) {
 	e.store.mu.Unlock()
 }
 
+// intsOfArray flattens up to n leading integer elements of a Protocol18
+// numeric array into a Go []int. Used to read 10-slot equipment +
+// quality arrays. Returns nil when the value isn't a recognised slice
+// shape; caller treats nil as "empty".
+func intsOfArray(v any, n int) []int {
+	out := make([]int, 0, n)
+	take := func(i int) {
+		if len(out) < n {
+			out = append(out, i)
+		}
+	}
+	switch a := v.(type) {
+	case []int16:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []int32:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []int64:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []uint16:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []uint32:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []byte:
+		for _, x := range a {
+			take(int(x))
+		}
+	case []any:
+		for _, x := range a {
+			switch xx := x.(type) {
+			case byte:
+				take(int(xx))
+			case int16:
+				take(int(xx))
+			case int32:
+				take(int(xx))
+			case int64:
+				take(int(xx))
+			case uint16:
+				take(int(xx))
+			case uint32:
+				take(int(xx))
+			}
+		}
+	}
+	return out
+}
+
 // firstIntOfArray returns the first integer element of a Protocol18 array
 // parameter (int16/int32/int64 / their unsigned cousins / any). 0 on miss.
+// Kept for backwards compatibility — callers should prefer intsOfArray.
 func firstIntOfArray(v any) int {
 	switch a := v.(type) {
 	case []int16:

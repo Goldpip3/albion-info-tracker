@@ -32,6 +32,18 @@ type Client struct {
 	// Snapshot is called from the push goroutine to fetch the current state.
 	Snapshot func() domain.Snapshot
 
+	// DirtyGen returns the engine's snapshot generation counter. When two
+	// consecutive ticks have the same generation AND we've recently
+	// pushed within HeartbeatInterval, the snapshot send is skipped —
+	// nothing meaningful changed. Optional; absent → push every tick.
+	DirtyGen func() uint64
+
+	// HeartbeatInterval is the maximum gap between sends regardless of
+	// dirty state. Defaults to 1s — viewers still see a fresh
+	// generatedAt timestamp at least that often so the "stale" badge
+	// doesn't flicker. Only consulted when DirtyGen is set.
+	HeartbeatInterval time.Duration
+
 	// LocalGuid is included in the Hello message when set.
 	LocalGuid func() string
 
@@ -119,9 +131,16 @@ func (c *Client) connectAndPump(ctx context.Context) error {
 	defer readCancel()
 	go c.readLoop(readCtx, conn)
 
-	// Periodic snapshot pump.
+	// Periodic snapshot pump. With DirtyGen wired, idle ticks are skipped
+	// — we only send when state actually changed OR a HeartbeatInterval
+	// has elapsed since the last send.
 	t := time.NewTicker(c.SendInterval)
 	defer t.Stop()
+	if c.HeartbeatInterval == 0 {
+		c.HeartbeatInterval = time.Second
+	}
+	var lastGen uint64
+	var lastSent time.Time
 
 	for {
 		select {
@@ -130,6 +149,17 @@ func (c *Client) connectAndPump(ctx context.Context) error {
 		case <-t.C:
 			if c.Snapshot == nil {
 				continue
+			}
+			// Dirty-gen short-circuit: when the engine reports no
+			// state change since our last push AND we sent within
+			// HeartbeatInterval, skip this tick. ~5x bandwidth saving
+			// during idle periods.
+			if c.DirtyGen != nil {
+				gen := c.DirtyGen()
+				if gen == lastGen && time.Since(lastSent) < c.HeartbeatInterval {
+					continue
+				}
+				lastGen = gen
 			}
 			snap := c.Snapshot()
 			env := Envelope{
@@ -142,6 +172,7 @@ func (c *Client) connectAndPump(ctx context.Context) error {
 				return fmt.Errorf("send snapshot: %w", err)
 			}
 			c.sent.Add(1)
+			lastSent = time.Now()
 		}
 	}
 }

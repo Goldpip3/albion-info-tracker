@@ -20,7 +20,21 @@ type Entity struct {
 	MainHandItemId int
 	ClassCode      string // "DGR", "FIR", … or "—" if unknown
 	Role           string // "T", "H", "R", "M", "S", or "?"
-	RoleLabel      string // "MELEE DPS · DAGGERS"
+	RoleLabel      string // "DAGGERS" / "ADEPT'S ARCLIGHT BLASTERS"
+
+	// Equipment is the 10-slot indexed-by-position array as Albion sends it.
+	// Order: 0 MainHand, 1 OffHand, 2 Head, 3 Chest, 4 Shoes, 5 Bag,
+	// 6 Cape, 7 Mount, 8 Potion, 9 Food.
+	Equipment [10]int
+
+	// Qualities mirrors Equipment, holding the 1..5 quality byte per slot.
+	// Zero means "unknown / use Normal default".
+	Qualities [10]int
+
+	// ItemPower is the averaged IP across core slots (MainHand, OffHand,
+	// Head, Chest, Shoes, Cape). Computed once on every equipment-event
+	// landing — see gamedata.AverageItemPower for the formula.
+	ItemPower int
 
 	IsLocal   bool
 	IsInParty bool
@@ -90,6 +104,14 @@ type Store struct {
 	mu     sync.RWMutex
 	byGuid map[Guid]*Entity
 
+	// byObject is an O(1) ObjectId → Entity index, maintained alongside
+	// byGuid. Every place that mutates Entity.ObjectId must call rebind
+	// to keep this map consistent. Hot-path callers (HealthUpdate runs
+	// twice per damage event) used to scan byGuid linearly — at 5v5+ ZvZ
+	// rates that's O(events × players) per second, easily 10k+ map
+	// iterations per tick. The map lookup is constant.
+	byObject map[int64]*Entity
+
 	// pendingMountObjectId is filled by MountStart and consumed by the next
 	// NewMountObject to bind ObjectId <-> UserGuid.
 	pendingMountObjectId int64
@@ -101,7 +123,22 @@ type Store struct {
 
 // NewStore constructs an empty store.
 func NewStore() *Store {
-	return &Store{byGuid: make(map[Guid]*Entity)}
+	return &Store{
+		byGuid:   make(map[Guid]*Entity),
+		byObject: make(map[int64]*Entity),
+	}
+}
+
+// rebind keeps byObject in sync when an entity's ObjectId changes.
+// Caller must hold the write lock.
+func (s *Store) rebind(e *Entity, newObjectId int64) {
+	if e.ObjectId != 0 && s.byObject[e.ObjectId] == e {
+		delete(s.byObject, e.ObjectId)
+	}
+	e.ObjectId = newObjectId
+	if newObjectId != 0 {
+		s.byObject[newObjectId] = e
+	}
 }
 
 // SetLocalGuid records the local user's Guid. Any existing matching entity
@@ -130,8 +167,8 @@ func (s *Store) UpsertByGuid(g Guid, objectId int64, name, guild string) *Entity
 		e = &Entity{UserGuid: g}
 		s.byGuid[g] = e
 	}
-	if objectId != 0 {
-		e.ObjectId = objectId
+	if objectId != 0 && objectId != e.ObjectId {
+		s.rebind(e, objectId)
 	}
 	if name != "" {
 		e.Name = name
@@ -148,29 +185,23 @@ func (s *Store) UpsertByGuid(g Guid, objectId int64, name, guild string) *Entity
 }
 
 // byObjectIdLocked returns the entity with the given ObjectId. Caller
-// must already hold store.mu (read or write).
+// must already hold store.mu (read or write). O(1) via byObject map.
 func (s *Store) byObjectIdLocked(id int64) *Entity {
 	if id == 0 {
 		return nil
 	}
-	for _, e := range s.byGuid {
-		if e.ObjectId == id {
-			return e
-		}
-	}
-	return nil
+	return s.byObject[id]
 }
 
 // ByObjectId returns the entity with the given ObjectId, or nil if none.
+// O(1) via byObject map.
 func (s *Store) ByObjectId(id int64) *Entity {
+	if id == 0 {
+		return nil
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, e := range s.byGuid {
-		if e.ObjectId == id && id != 0 {
-			return e
-		}
-	}
-	return nil
+	return s.byObject[id]
 }
 
 // ByGuid returns the entity with the given Guid, or nil if none.
@@ -251,7 +282,7 @@ func (s *Store) BindRiderGuid(g Guid) {
 		return
 	}
 	if e.ObjectId == 0 {
-		e.ObjectId = pending
+		s.rebind(e, pending)
 	}
 }
 
