@@ -70,6 +70,7 @@ func main() {
 			Token:        cfg.PushToken,
 			AgentVersion: version,
 			Snapshot:     engine.Snapshot,
+			OnCommand:    engine.HandleCommand,
 		}
 		fmt.Printf("\n  Streaming to %s\n", maskedURL(cfg.PushURL))
 		fmt.Printf("  View at      %s\n\n", defaultViewURL)

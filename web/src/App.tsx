@@ -6,6 +6,7 @@ import { Footer } from "./Footer.tsx";
 import { SettingsPanel } from "./SettingsPanel.tsx";
 import { DrillIn } from "./DrillIn.tsx";
 import { ActivityLog } from "./ActivityLog.tsx";
+import { SessionStrip } from "./SessionStrip.tsx";
 import { accentOklch, useSettings } from "./useSettings.ts";
 import type { Mode, PlayerSnapshot } from "./types.ts";
 
@@ -73,11 +74,21 @@ export default function App(): React.ReactElement {
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 
 	const configured = url.trim() !== "" && token.trim() !== "";
-	const { state, snapshot, lastMessageAt, error } = useMeterSocket({
+	const { state, snapshot, lastMessageAt, error, sendCommand } = useMeterSocket({
 		url: url.trim(),
 		token: token.trim(),
 		enabled: configured,
 	});
+
+	const onNewSession = (): void => {
+		if (!confirm("Reset the session? This wipes combat stats, fight count, fame/silver/respec totals, and the activity log on the agent.")) {
+			return;
+		}
+		const ok = sendCommand("resetSession");
+		if (!ok) {
+			alert("Couldn't reach the agent — connection isn't open. Make sure agent.exe is running.");
+		}
+	};
 
 	// Apply the chosen accent color as CSS variables so every component
 	// re-tints without a re-render. Drives --sk-local + --sk-local-tint
@@ -118,6 +129,7 @@ export default function App(): React.ReactElement {
 				showLog={settings.showActivityLog}
 				hideTabs={triple}
 			/>
+			<SessionStrip snapshot={snapshot} onReset={onNewSession} />
 			<main className="flex-1 overflow-hidden flex flex-col">
 				<div className="flex-1 overflow-hidden">
 					{triple ? (

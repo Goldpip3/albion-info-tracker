@@ -53,6 +53,10 @@ type Engine struct {
 	fightStart    time.Time
 	lastDamageAt  time.Time
 	inCombat      bool
+
+	// Session economy + lifecycle, protected by sessionMu.
+	sessionMu sync.Mutex
+	session   SessionStats
 }
 
 const (
@@ -67,7 +71,52 @@ const (
 
 // NewEngine constructs an Engine backed by a fresh Store.
 func NewEngine() *Engine {
-	return &Engine{store: NewStore(), now: time.Now, events: newEventBuffer()}
+	now := time.Now()
+	return &Engine{
+		store:   NewStore(),
+		now:     time.Now,
+		events:  newEventBuffer(),
+		session: SessionStats{Start: now},
+	}
+}
+
+// ResetSession clears every running counter — combat stats, per-spell
+// breakdowns, deaths, session economy, fight counter, activity log — and
+// stamps a fresh session start time. Called when the user clicks
+// "New session" in the UI, dispatched as a command over the WS.
+func (e *Engine) ResetSession() {
+	now := e.now()
+	e.store.mu.Lock()
+	for _, ent := range e.store.byGuid {
+		ent.Current.Reset()
+		ent.Overall.Reset()
+		ent.BySpell = nil
+		ent.Deaths = 0
+	}
+	e.store.mu.Unlock()
+
+	e.fightMu.Lock()
+	e.fightNumber = 0
+	e.fightStart = time.Time{}
+	e.lastDamageAt = time.Time{}
+	e.inCombat = false
+	e.fightMu.Unlock()
+
+	e.sessionMu.Lock()
+	e.session.Reset(now)
+	e.sessionMu.Unlock()
+
+	e.events = newEventBuffer()
+}
+
+// HandleCommand dispatches a command from the browser (forwarded by the
+// Worker over the same WebSocket). Currently only "resetSession" is
+// recognised; future actions go here too.
+func (e *Engine) HandleCommand(action string) {
+	switch action {
+	case "resetSession":
+		e.ResetSession()
+	}
 }
 
 // spellName looks up a uniquename for a spell index, or returns "".
@@ -140,6 +189,14 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventDied:
 		dbg("Died %v", ev.Parameters)
 		e.handleDied(ev.Parameters)
+	case gamecodes.EventUpdateFame:
+		e.handleUpdateFame(ev.Parameters)
+	case gamecodes.EventUpdateMoney:
+		e.handleUpdateMoney(ev.Parameters)
+	case gamecodes.EventUpdateReSpecPoints:
+		e.handleUpdateReSpec(ev.Parameters)
+	case gamecodes.EventTakeSilver:
+		// covered by UpdateMoney delta; ignore to avoid double counting
 	}
 }
 
@@ -223,17 +280,41 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 		if heal <= 0 {
 			return
 		}
+		newHP := int64(0)
+		if v, ok := paramDouble(p, 3); ok {
+			newHP = int64(v + 0.5)
+		}
+		effective, overheal := splitOverheal(affEnt, heal, newHP)
 		if causerEnt != nil {
 			e.store.mu.Lock()
-			recordHeal(&causerEnt.Current, &causerEnt.Overall, heal, now)
+			recordHeal(&causerEnt.Current, &causerEnt.Overall, effective, overheal, now)
 			e.store.mu.Unlock()
-			e.recordHealEvent(causerEnt, affEnt, heal, int(spellIdx), now)
+			e.recordHealEvent(causerEnt, affEnt, effective, int(spellIdx), now)
 		}
 	}
 }
 
-// handleDied logs the death into the activity log. Mirrors SAT's
-// DiedEvent — param 2 is the victim's name, param 10 is the killer's name.
+// splitOverheal divides a raw heal value into (effective, overheal). With
+// no MaxHealth known for the target, the heal is taken at face value and
+// no overheal is counted — better to under-report than to fabricate.
+func splitOverheal(target *Entity, heal, newHP int64) (effective, overheal int64) {
+	if target == nil || target.MaxHealth <= 0 || newHP <= 0 {
+		return heal, 0
+	}
+	prevHP := newHP - heal
+	if prevHP >= target.MaxHealth {
+		return 0, heal
+	}
+	headroom := target.MaxHealth - prevHP
+	if heal <= headroom {
+		return heal, 0
+	}
+	return headroom, heal - headroom
+}
+
+// handleDied logs the death into the activity log AND bumps the death
+// counter on the matching tracked entity + the session total. Mirrors
+// SAT's DiedEvent — param 2 is the victim's name, param 10 is the killer.
 func (e *Engine) handleDied(p map[byte]any) {
 	victim, _ := paramString(p, 2)
 	killer, _ := paramString(p, 10)
@@ -241,6 +322,54 @@ func (e *Engine) handleDied(p map[byte]any) {
 		return
 	}
 	e.recordDeathEvent(victim, killer, e.now())
+	e.store.mu.Lock()
+	for _, ent := range e.store.byGuid {
+		if ent.Name == victim {
+			ent.Deaths++
+			break
+		}
+	}
+	e.store.mu.Unlock()
+	e.sessionMu.Lock()
+	e.session.DeathsTotal++
+	e.sessionMu.Unlock()
+}
+
+// handleUpdateFame folds a fame-change event into the session total. The
+// event carries the LIFETIME total (param 1) so we track delta-to-previous.
+func (e *Engine) handleUpdateFame(p map[byte]any) {
+	total, ok := paramLong(p, 1)
+	if !ok {
+		return
+	}
+	e.sessionMu.Lock()
+	e.session.AccumulateFame(total)
+	e.sessionMu.Unlock()
+}
+
+// handleUpdateMoney folds a wallet-change event into session silver gained.
+// Param 1 = CurrentPlayerSilver (lifetime / wallet total in FixPoint
+// internal units; 10_000 = 1 silver). Only positive deltas count.
+func (e *Engine) handleUpdateMoney(p map[byte]any) {
+	total, ok := paramLong(p, 1)
+	if !ok {
+		return
+	}
+	e.sessionMu.Lock()
+	e.session.AccumulateSilver(total)
+	e.sessionMu.Unlock()
+}
+
+// handleUpdateReSpec adds the gained respec credits delta (param 2) to the
+// session total. Param 2 is FixPoint internal units (10_000 = 1 credit).
+func (e *Engine) handleUpdateReSpec(p map[byte]any) {
+	gained, ok := paramLong(p, 2)
+	if !ok || gained <= 0 {
+		return
+	}
+	e.sessionMu.Lock()
+	e.session.AccumulateRespec(gained)
+	e.sessionMu.Unlock()
 }
 
 // recordSpell increments the per-spell totals for an entity. Caller must
@@ -317,6 +446,14 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	}
 	ent := e.store.UpsertByGuid(guid, objectId, name, guild)
 	e.applyEquipment(ent, p)
+	// Param 22 carries MaxHealth (the entity's HP cap at spawn). Capturing
+	// it here is the only reliable way to compute overheal later, since
+	// HealthUpdate only tells us the new HP after the change, not the cap.
+	if mh, ok := paramLong(p, 22); ok && mh > 0 {
+		e.store.mu.Lock()
+		ent.MaxHealth = mh
+		e.store.mu.Unlock()
+	}
 }
 
 // applyEquipment reads param 40 (the 10-slot equipment array) from a

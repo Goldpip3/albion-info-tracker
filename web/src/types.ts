@@ -21,6 +21,9 @@ export interface PlayerSnapshot {
 	currentTaken: number;
 	overallTaken: number;
 
+	deaths?: number;
+	overheal?: number;
+
 	spells?: SpellBreakdown[];
 }
 
@@ -48,6 +51,15 @@ export interface Fight {
 	inCombat: boolean;
 }
 
+export interface Session {
+	startedAt: string;
+	elapsedMs: number;
+	fameTotal: number;
+	silverTotal: number; // FixPoint internal, divide by 10_000 in UI
+	respecTotal: number; // FixPoint internal, divide by 10_000 in UI
+	deathsTotal: number;
+}
+
 export interface ActivityEvent {
 	ts: number;
 	kind: "hit" | "heal" | "death";
@@ -64,6 +76,7 @@ export interface Snapshot {
 	players: PlayerSnapshot[];
 	composition?: Composition;
 	fight?: Fight;
+	session?: Session;
 	events?: ActivityEvent[];
 }
 

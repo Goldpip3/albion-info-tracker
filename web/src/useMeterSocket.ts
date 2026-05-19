@@ -12,6 +12,7 @@ interface UseMeterSocketResult {
 	snapshot: Snapshot | null;
 	lastMessageAt: number | null;
 	error: string | null;
+	sendCommand: (action: string) => boolean;
 }
 
 // useMeterSocket maintains a single WebSocket to the Worker /view endpoint
@@ -101,5 +102,19 @@ export function useMeterSocket({ url, token, enabled }: UseMeterSocketArgs): Use
 		};
 	}, [url, token, enabled]);
 
-	return { state, snapshot, lastMessageAt, error };
+	// sendCommand pushes a viewer→agent control envelope. Returns true if
+	// the message reached the WS buffer, false if there's no open connection.
+	// The Worker forwards command envelopes to every agent in the room.
+	const sendCommand = (action: string): boolean => {
+		const ws = wsRef.current;
+		if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+		try {
+			ws.send(JSON.stringify({ v: 1, type: "command", ts: Date.now(), command: { action } }));
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
+	return { state, snapshot, lastMessageAt, error, sendCommand };
 }

@@ -29,7 +29,14 @@ interface HelloEnvelope {
 	hello: { agentVersion: string; localGuid?: string };
 }
 
-type AgentMessage = SnapshotEnvelope | HelloEnvelope;
+interface CommandEnvelope {
+	v: number;
+	type: "command";
+	ts?: number;
+	command: { action: string };
+}
+
+type AnyMessage = SnapshotEnvelope | HelloEnvelope | CommandEnvelope;
 
 // Tag set when accepting an agent socket vs a viewer socket. Used in
 // dispatch so we know which role each WS is playing without storing extra
@@ -64,36 +71,41 @@ export class MeterRoom extends DurableObject<Env> {
 	}
 
 	override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-		const tags = this.ctx.getTags(ws);
-		if (!tags.includes(TAG_AGENT)) {
-			// Viewers don't talk to us. Drop silently.
-			return;
-		}
-		if (typeof message !== "string") {
-			return;
-		}
+		if (typeof message !== "string") return;
 
-		let parsed: AgentMessage;
+		let parsed: AnyMessage;
 		try {
-			parsed = JSON.parse(message) as AgentMessage;
+			parsed = JSON.parse(message) as AnyMessage;
 		} catch {
 			return;
 		}
 		if (parsed.v !== 1) return;
 
-		if (parsed.type === "snapshot") {
-			this.latest = parsed;
-			// Forward to every viewer.
-			const viewers = this.ctx.getWebSockets(TAG_VIEWER);
-			for (const v of viewers) {
-				try {
-					v.send(message);
-				} catch {
-					/* viewer disconnected; the runtime will close it */
+		const tags = this.ctx.getTags(ws);
+
+		if (tags.includes(TAG_AGENT)) {
+			// Agent → viewers. Snapshots get cached so a late-joining viewer
+			// gets the latest state immediately; hello is informational.
+			if (parsed.type === "snapshot") {
+				this.latest = parsed as SnapshotEnvelope;
+				const viewers = this.ctx.getWebSockets(TAG_VIEWER);
+				for (const v of viewers) {
+					try { v.send(message); } catch { /* closed */ }
+				}
+			}
+			return;
+		}
+
+		if (tags.includes(TAG_VIEWER)) {
+			// Viewer → agents. Currently only "command" envelopes are forwarded.
+			// Any agent in this room (typically just one) gets the message.
+			if (parsed.type === "command") {
+				const agents = this.ctx.getWebSockets(TAG_AGENT);
+				for (const a of agents) {
+					try { a.send(message); } catch { /* closed */ }
 				}
 			}
 		}
-		// "hello" is informational — no action required for MVP.
 	}
 
 	override async webSocketClose(ws: WebSocket, code: number, _reason: string, _wasClean: boolean): Promise<void> {

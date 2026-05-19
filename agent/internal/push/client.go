@@ -34,6 +34,10 @@ type Client struct {
 	// LocalGuid is included in the Hello message when set.
 	LocalGuid func() string
 
+	// OnCommand is invoked when the backend forwards a viewer command
+	// (e.g. {type:"command", action:"resetSession"}). Optional.
+	OnCommand func(action string)
+
 	// counters
 	connects  atomic.Uint64
 	sent      atomic.Uint64
@@ -106,6 +110,14 @@ func (c *Client) connectAndPump(ctx context.Context) error {
 		return fmt.Errorf("send hello: %w", err)
 	}
 
+	// Start a goroutine that reads inbound messages so command envelopes
+	// from viewers (forwarded by the Worker) can be dispatched. Errors
+	// terminate the read loop but don't kill the writer — the writer's
+	// next send will hit the same broken socket and reconnect.
+	readCtx, readCancel := context.WithCancel(ctx)
+	defer readCancel()
+	go c.readLoop(readCtx, conn)
+
 	// Periodic snapshot pump.
 	t := time.NewTicker(c.SendInterval)
 	defer t.Stop()
@@ -138,6 +150,27 @@ func safeGuid(f func() string) string {
 		return ""
 	}
 	return f()
+}
+
+// readLoop pulls inbound messages off the connection and routes command
+// envelopes to c.OnCommand. Unrecognised types are silently dropped.
+func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) {
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		var env Envelope
+		if jsonErr := json.Unmarshal(data, &env); jsonErr != nil {
+			continue
+		}
+		if env.V != ProtocolVersion {
+			continue
+		}
+		if env.Type == "command" && env.Command != nil && c.OnCommand != nil {
+			c.OnCommand(env.Command.Action)
+		}
+	}
 }
 
 func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {

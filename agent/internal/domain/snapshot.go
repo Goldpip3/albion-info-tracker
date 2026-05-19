@@ -47,6 +47,8 @@ type PlayerSnapshot struct {
 	Name     string `json:"name"`
 	Guild    string `json:"guild,omitempty"`
 	IsLocal  bool   `json:"isLocal,omitempty"`
+	Deaths   int    `json:"deaths,omitempty"`
+	Overheal int64  `json:"overheal,omitempty"`
 
 	// Weapon-derived role + class chip. ClassCode is a 3-letter token
 	// the frontend renders in a chip; Role is one of T/H/R/M/S/? for
@@ -98,12 +100,25 @@ type Fight struct {
 	InCombat  bool   `json:"inCombat"`
 }
 
+// Session is the running session-economy block shown above the meter.
+// Silver/respec values are FixPoint internal units (10_000 = 1 unit); the
+// frontend divides for display. Fame is already a whole number.
+type Session struct {
+	StartedAt   time.Time `json:"startedAt"`
+	ElapsedMs   int64     `json:"elapsedMs"`
+	FameTotal   int64     `json:"fameTotal"`
+	SilverTotal int64     `json:"silverTotal"`
+	RespecTotal int64     `json:"respecTotal"`
+	DeathsTotal int       `json:"deathsTotal"`
+}
+
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
 	GeneratedAt time.Time        `json:"generatedAt"`
 	Players     []PlayerSnapshot `json:"players"`
 	Composition Composition      `json:"composition"`
 	Fight       Fight            `json:"fight"`
+	Session     Session          `json:"session"`
 	Events      []ActivityEvent  `json:"events,omitempty"`
 }
 
@@ -123,6 +138,17 @@ func (e *Engine) Snapshot() Snapshot {
 	}
 	now := e.now()
 	fightN, elapsed, inCombat := e.FightStatus(now)
+	e.sessionMu.Lock()
+	sess := Session{
+		StartedAt:   e.session.Start,
+		ElapsedMs:   int64(e.session.ElapsedSeconds(now) * 1000),
+		FameTotal:   e.session.FameTotal,
+		SilverTotal: e.session.SilverTotal,
+		RespecTotal: e.session.RespecTotal,
+		DeathsTotal: e.session.DeathsTotal,
+	}
+	e.sessionMu.Unlock()
+
 	out := Snapshot{
 		GeneratedAt: now,
 		Players:     make([]PlayerSnapshot, 0, len(members)),
@@ -131,7 +157,8 @@ func (e *Engine) Snapshot() Snapshot {
 			ElapsedMs: elapsed.Milliseconds(),
 			InCombat:  inCombat,
 		},
-		Events: e.events.SnapshotLatest(48),
+		Session: sess,
+		Events:  e.events.SnapshotLatest(48),
 	}
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
@@ -142,6 +169,8 @@ func (e *Engine) Snapshot() Snapshot {
 			Name:      m.Name,
 			Guild:     m.Guild,
 			IsLocal:   m.IsLocal,
+			Deaths:    m.Deaths,
+			Overheal:  m.Overall.Overhealing,
 			ClassCode: m.ClassCode,
 			Role:      m.Role,
 			RoleLabel: m.RoleLabel,

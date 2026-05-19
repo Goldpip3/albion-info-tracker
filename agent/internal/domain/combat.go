@@ -9,6 +9,7 @@ import "time"
 type CombatStats struct {
 	DamageDealt int64
 	HealDone    int64
+	Overhealing int64 // healing that exceeded the target's max HP
 	DamageTaken int64
 
 	CombatStart time.Time
@@ -62,13 +63,18 @@ func recordDamage(cur, overall *CombatStats, amount int64, now time.Time) {
 	overall.LastAction = now
 }
 
-func recordHeal(cur, overall *CombatStats, amount int64, now time.Time) {
+func recordHeal(cur, overall *CombatStats, effective, overheal int64, now time.Time) {
+	if effective <= 0 && overheal <= 0 {
+		return
+	}
 	if cur.CombatStart.IsZero() {
 		cur.CombatStart = now
 	}
-	cur.HealDone += amount
+	cur.HealDone += effective
+	cur.Overhealing += overheal
 	cur.LastAction = now
-	overall.HealDone += amount
+	overall.HealDone += effective
+	overall.Overhealing += overheal
 	if overall.CombatStart.IsZero() {
 		overall.CombatStart = now
 	}

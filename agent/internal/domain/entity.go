@@ -25,6 +25,14 @@ type Entity struct {
 	IsLocal   bool
 	IsInParty bool
 
+	// MaxHealth is the entity's max HP, captured from NewCharacter param 22
+	// at spawn time. Used to compute overheal in handleHealthUpdate.
+	MaxHealth int64
+
+	// Deaths is the running death count for this entity since the last
+	// session reset.
+	Deaths int
+
 	Current CombatStats
 	Overall CombatStats
 
