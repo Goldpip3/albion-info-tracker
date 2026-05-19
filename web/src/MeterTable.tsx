@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { Mode, PlayerSnapshot, Snapshot } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
 import { ClassChip } from "./ClassChip.tsx";
@@ -318,19 +319,21 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 		{ label: "Damage taken",  value: fmt(player.overallTaken),  tint: "var(--sk-taken)" },
 		{ label: "DPS · current", value: fmtRate(player.currentDps),tint: "var(--sk-fg-0)" },
 	];
-	return (
+	// Portal'd to document.body so it can render over the multi-pane
+	// overflow-hidden containers without getting clipped at the pane edge.
+	return createPortal(
 		<div
 			style={{
-				position: "absolute",
-				right: 14,
-				bottom: 14,
+				position: "fixed",
+				right: 24,
+				bottom: 56,
 				width: 240,
 				background: "var(--sk-bg-2)",
 				border: "1px solid var(--sk-line-2)",
 				borderRadius: 6,
 				padding: 12,
 				boxShadow: "0 12px 32px -8px rgba(0,0,0,0.6), 0 2px 0 var(--sk-line)",
-				zIndex: 5,
+				zIndex: 50,
 				pointerEvents: "none",
 			}}
 		>
@@ -370,7 +373,8 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 			>
 				<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>Click row → drill in</span>
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
