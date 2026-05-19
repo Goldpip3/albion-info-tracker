@@ -56,7 +56,11 @@ const DEFAULT: Settings = {
 	panes: { damage: true, heal: false, taken: false },
 };
 
-const KEY = "skirmish:settings";
+// Storage key carries a generation tag. Bumping it (e.g. v1 → v2) forces
+// everyone's localStorage back to DEFAULT on the next visit — useful when
+// design-token changes shift the visual default (row density, accent set,
+// etc.) and we don't want returning users stuck on a stale config.
+const KEY = "gda:settings:v2";
 
 export function useSettings(): {
 	settings: Settings;

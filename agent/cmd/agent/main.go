@@ -245,18 +245,23 @@ func guessAlbionInstall() string {
 func loadGameData(cfg config.Config, engine *domain.Engine) {
 	if cfg.AlbionInstallRoot == "" {
 		fmt.Println("  (Albion install not found — class chips and spell names will be blank.)")
+		fmt.Println("  Set AlbionInstallRoot in agent.json, or set $env:ALBION_INSTALL before launch.")
 		return
 	}
+	fmt.Printf("  Game data: loading from %s\n", cfg.AlbionInstallRoot)
 	if items, err := gamedata.LoadItemCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
-		log.Printf("items.bin: %v", err)
+		log.Printf("  items.bin: %v (class chips will be blank)", err)
 	} else {
+		fmt.Printf("  items.bin OK — %d entries\n", items.Len())
 		engine.SetItemCatalog(items)
 	}
 	if spells, err := gamedata.LoadSpellCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
-		log.Printf("spells.bin: %v", err)
+		log.Printf("  spells.bin: %v (spell names will be blank)", err)
 	} else {
+		fmt.Printf("  spells.bin OK — %d entries\n", spells.Len())
 		engine.SetSpellCatalog(spells)
 	}
+	fmt.Println()
 }
 
 func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
