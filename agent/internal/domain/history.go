@@ -3,9 +3,10 @@ package domain
 import "time"
 
 // maxFightHistory caps how many completed fights the engine retains in
-// memory. Older fights drop off the front. 10 is enough for "scroll back
-// the last few pulls" without bloating the snapshot.
-const maxFightHistory = 10
+// memory. Older fights drop off the front. RAM-only — never written to
+// disk. 20 covers an evening's worth of pulls without bloating the
+// snapshot we ship every 500 ms.
+const maxFightHistory = 20
 
 // FightArchive is a frozen copy of one completed fight: who was there,
 // what they did, and when. Sent in the snapshot's Recent list so the

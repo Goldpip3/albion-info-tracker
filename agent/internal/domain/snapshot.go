@@ -109,6 +109,7 @@ type Session struct {
 	FameTotal   int64     `json:"fameTotal"`
 	SilverTotal int64     `json:"silverTotal"`
 	RespecTotal int64     `json:"respecTotal"`
+	MightTotal  int64     `json:"mightTotal"`
 	DeathsTotal int       `json:"deathsTotal"`
 }
 
@@ -146,6 +147,7 @@ func (e *Engine) Snapshot() Snapshot {
 		FameTotal:   e.session.FameTotal,
 		SilverTotal: e.session.SilverTotal,
 		RespecTotal: e.session.RespecTotal,
+		MightTotal:  e.session.MightTotal,
 		DeathsTotal: e.session.DeathsTotal,
 	}
 	e.sessionMu.Unlock()

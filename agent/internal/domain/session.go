@@ -11,6 +11,7 @@ type SessionStats struct {
 	FameTotal     int64 // raw fame points (TotalPlayerFame delta sum)
 	SilverTotal   int64 // raw silver units (10_000 = 1 silver per SAT's FixPoint)
 	RespecTotal   int64 // raw respec credits (FixPoint internal)
+	MightTotal    int64 // raw might (FixPoint internal; 10_000 = 1 might)
 	DeathsTotal   int   // total deaths recorded across all entities
 	prevFame      int64 // running TotalPlayerFame for delta calc
 	prevSilver    int64 // running CurrentPlayerSilver for delta calc
@@ -61,6 +62,16 @@ func (s *SessionStats) AccumulateSilver(currentPlayerSilver int64) {
 func (s *SessionStats) AccumulateRespec(gained int64) {
 	if gained > 0 {
 		s.RespecTotal += gained
+	}
+}
+
+// AccumulateMight adds a gained might delta. MightAndFavorReceivedEvent
+// fires per-gain (e.g. each daily quest, mob kill streak); param 1 is
+// the gained amount in FixPoint internal units, not a lifetime running
+// total. Same pattern as Respec.
+func (s *SessionStats) AccumulateMight(gained int64) {
+	if gained > 0 {
+		s.MightTotal += gained
 	}
 }
 

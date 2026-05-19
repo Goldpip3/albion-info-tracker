@@ -57,6 +57,7 @@ export interface Session {
 	fameTotal: number;
 	silverTotal: number; // FixPoint internal, divide by 10_000 in UI
 	respecTotal: number; // FixPoint internal, divide by 10_000 in UI
+	mightTotal: number;  // FixPoint internal, divide by 10_000 in UI
 	deathsTotal: number;
 }
 

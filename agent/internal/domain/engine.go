@@ -199,6 +199,8 @@ func (e *Engine) onEvent(ev photon.EventData) {
 		e.handleUpdateMoney(ev.Parameters)
 	case gamecodes.EventUpdateReSpecPoints:
 		e.handleUpdateReSpec(ev.Parameters)
+	case gamecodes.EventMightAndFavorReceivedEvent:
+		e.handleMightAndFavor(ev.Parameters)
 	case gamecodes.EventTakeSilver:
 		// covered by UpdateMoney delta; ignore to avoid double counting
 	}
@@ -373,6 +375,20 @@ func (e *Engine) handleUpdateReSpec(p map[byte]any) {
 	}
 	e.sessionMu.Lock()
 	e.session.AccumulateRespec(gained)
+	e.sessionMu.Unlock()
+}
+
+// handleMightAndFavor folds a MightAndFavorReceivedEvent into the session.
+// Param 1 = Might gained (FixPoint internal; 10_000 = 1 might). The event
+// also carries Premium/Bonus might + Favor variants in params 2-7 but we
+// only surface Might in the meter UI.
+func (e *Engine) handleMightAndFavor(p map[byte]any) {
+	gained, ok := paramLong(p, 1)
+	if !ok || gained <= 0 {
+		return
+	}
+	e.sessionMu.Lock()
+	e.session.AccumulateMight(gained)
 	e.sessionMu.Unlock()
 }
 
