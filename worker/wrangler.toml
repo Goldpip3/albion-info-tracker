@@ -1,0 +1,21 @@
+name = "albion-meter"
+main = "src/index.ts"
+compatibility_date = "2026-05-19"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Object class that holds the live state for one user's meter and
+# fans out to connected browsers.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "MeterRoom"
+
+# Cloudflare's free tier requires SQLite-backed Durable Objects (the older
+# KV-backed flavour is paid-only). We only use in-memory state, so SQLite
+# isn't exercised, but the class still needs to be declared this way.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MeterRoom"]
+
+# Tail logs are useful while iterating.
+[observability.logs]
+enabled = true
