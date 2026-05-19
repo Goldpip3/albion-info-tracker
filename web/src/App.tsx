@@ -11,6 +11,7 @@ import { SessionsPanel } from "./SessionsPanel.tsx";
 import { PartyPanel } from "./PartyPanel.tsx";
 import { DungeonStrip } from "./DungeonStrip.tsx";
 import { LootPanel } from "./LootPanel.tsx";
+import { LootPage } from "./LootPage.tsx";
 import { isDemoMode, useDemoSnapshot } from "./demo.ts";
 import { accentOklch, useSettings } from "./useSettings.ts";
 import type { FightArchive, Mode, PlayerSnapshot, Snapshot } from "./types.ts";
@@ -55,6 +56,13 @@ function readPairFromURL(): string | null {
 }
 
 export default function App(): React.ReactElement {
+	// One-route check, no router library. /loot is the only secondary
+	// surface today; if more arrive, swap to a real router. Strip the
+	// trailing slash so /loot and /loot/ both resolve.
+	const path = typeof window !== "undefined"
+		? window.location.pathname.replace(/\/$/, "")
+		: "";
+	if (path === "/loot") return <LootPage />;
 	const demo = isDemoMode();
 	if (demo) return <DemoApp />;
 	return <LiveApp />;
@@ -261,7 +269,15 @@ function LiveApp(): React.ReactElement {
 				<LootPanel
 					loot={snapshot?.loot ?? []}
 					looterTotals={snapshot?.looterTotals ?? []}
+					players={snapshot?.players ?? []}
+					session={snapshot?.session ?? null}
+					generatedAt={snapshot?.generatedAt}
 					onClose={() => setShowLoot(false)}
+					onOpenAsPage={() => {
+						const t = token.trim();
+						if (!t) return;
+						window.open(`/loot?token=${encodeURIComponent(t)}`, "_blank", "noopener,noreferrer");
+					}}
 				/>
 			)}
 			{drillGuid && meterSnapshot && (() => {
@@ -407,6 +423,9 @@ function DemoApp(): React.ReactElement {
 				<LootPanel
 					loot={snapshot?.loot ?? []}
 					looterTotals={snapshot?.looterTotals ?? []}
+					players={snapshot?.players ?? []}
+					session={snapshot?.session ?? null}
+					generatedAt={snapshot?.generatedAt}
 					onClose={() => setShowLoot(false)}
 				/>
 			)}

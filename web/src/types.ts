@@ -130,9 +130,13 @@ export interface LootEntry {
 export interface LooterTotals {
 	name: string;
 	isLocal?: boolean;
-	itemCount: number;
-	silverTotal: number;
-	valueTotal: number;
+	pickups: number;          // number of OtherGrabbedLoot events
+	unitsTotal: number;       // sum of stack quantities for items (not silver piles)
+	silverPicked: number;     // direct silver picked off corpses / chests
+	silverValueLoot: number;  // AODP-estimated market value of looted items
+	topItemName?: string;     // display name of highest-priced single drop
+	topItemValue?: number;    // silver value of that top item
+	lastPickupAt: string;     // ISO timestamp of most-recent pickup
 }
 
 export interface SlotInfo {
