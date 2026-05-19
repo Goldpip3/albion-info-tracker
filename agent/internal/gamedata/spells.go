@@ -4,21 +4,21 @@ import (
 	"encoding/xml"
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
 // SpellEntry is a minimal view of one row from spells.bin — enough to render
 // a spell's display name on a damage-meter sub-row.
 type SpellEntry struct {
-	Index      int    // numeric ID Photon HealthUpdate refers to
-	UniqueName string // e.g. "FIREBALL_AOE"
-	Category   string // "active", "passive", etc. (omitted if missing)
+	Index      int    // numeric ID (assigned by document order; see LoadSpellCatalog)
+	UniqueName string // e.g. "FIREBALL_AOE" — Albion's canonical identifier
+	Kind       string // XML tag name: activespell, passivespell, etc.
 }
 
 // SpellCatalog is an Index → SpellEntry lookup, built once at agent startup.
 type SpellCatalog struct {
 	byIndex map[int]SpellEntry
+	byName  map[string]int
 }
 
 // Name returns the unique name for a spell index, or "" if unknown.
@@ -32,19 +32,82 @@ func (c *SpellCatalog) Name(index int) string {
 	return ""
 }
 
-// LoadSpellCatalog reads spells.bin from the given Albion install and returns
-// an indexed catalog. The .bin file is XML once decrypted; we walk every
-// element looking for an `index` + `uniquename` attribute pair, which catches
-// every spell-shaped row regardless of the wrapping tag name.
+// IndexOf returns the assigned numeric index for a uniquename, or -1.
+func (c *SpellCatalog) IndexOf(name string) int {
+	if c == nil {
+		return -1
+	}
+	if i, ok := c.byName[name]; ok {
+		return i
+	}
+	return -1
+}
+
+// Len reports how many spells were loaded.
+func (c *SpellCatalog) Len() int {
+	if c == nil {
+		return 0
+	}
+	return len(c.byIndex)
+}
+
+// spellKinds enumerates the XML element names that count as "a spell"
+// in spells.bin. Order-derived indexing only walks these elements;
+// the colortag / comment / schema-declaration nodes at the top of the
+// file are skipped.
+var spellKinds = map[string]bool{
+	"activespell":             true,
+	"passivespell":            true,
+	"targetedspell":           true,
+	"selfspell":               true,
+	"areaspell":               true,
+	"projectilespell":         true,
+	"channelspell":            true,
+	"backgroundspell":         true,
+	"interactivespell":        true,
+	"persistentspell":         true,
+	"toggleablespell":         true,
+	"targetedchanneledspell":  true,
+	"vectorprojectilespell":   true,
+	"summonspell":             true,
+	"resurrectspell":          true,
+	"chargedspell":            true,
+	"targetedchargedspell":    true,
+	"summontemporaryspell":    true,
+	"meleeattackspell":        true,
+	"meleeattackchainspell":   true,
+	"targetedaoespell":        true,
+	"targetedreactionspell":   true,
+	"reactionspell":           true,
+	"escapereactionspell":     true,
+	"vectortargetedaoespell":  true,
+	"areadropdebuffspell":     true,
+	"trapspell":               true,
+	"manualtriggerspell":      true,
+	"chainspell":              true,
+	"summondropspell":         true,
+	"persistentaurawhilemovingspell": true,
+}
+
+// LoadSpellCatalog decrypts spells.bin and walks the XML, assigning a
+// sequential index to every element whose tag name is a known spell kind
+// and that carries a uniquename attribute. Albion's CausingSpellIndex over
+// the wire is *not* this document-order index in general — to map between
+// them we'd need a snapshot from ao-bin-dumps or similar — but UniqueName
+// remains the canonical identifier for display.
 func LoadSpellCatalog(installRoot string, server ServerType) (*SpellCatalog, error) {
 	binPath := filepath.Join(BinDir(installRoot, server), "spells.bin")
 	xmlBytes, err := DecryptAndDecompress(binPath)
 	if err != nil {
 		return nil, err
 	}
-	cat := &SpellCatalog{byIndex: make(map[int]SpellEntry, 4096)}
+	cat := &SpellCatalog{
+		byIndex: make(map[int]SpellEntry, 4096),
+		byName:  make(map[string]int, 4096),
+	}
 
 	dec := xml.NewDecoder(strings.NewReader(string(xmlBytes)))
+	idx := 0
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -54,43 +117,29 @@ func LoadSpellCatalog(installRoot string, server ServerType) (*SpellCatalog, err
 		if !ok {
 			continue
 		}
-		entry, ok := spellFromAttrs(start.Attr)
-		if !ok {
+		kind := strings.ToLower(start.Name.Local)
+		if !spellKinds[kind] {
 			continue
 		}
-		if existing, dup := cat.byIndex[entry.Index]; dup && existing.UniqueName != "" {
-			// Don't overwrite a real name with a sub-row's blank entry.
-			if entry.UniqueName == "" {
-				continue
+		var name string
+		for _, a := range start.Attr {
+			if strings.EqualFold(a.Name.Local, "uniquename") {
+				name = a.Value
+				break
 			}
 		}
-		cat.byIndex[entry.Index] = entry
+		if name == "" {
+			continue
+		}
+		entry := SpellEntry{Index: idx, UniqueName: name, Kind: kind}
+		cat.byIndex[idx] = entry
+		if _, exists := cat.byName[name]; !exists {
+			cat.byName[name] = idx
+		}
+		idx++
 	}
-	if len(cat.byIndex) == 0 {
+	if cat.Len() == 0 {
 		return nil, fmt.Errorf("spells.bin parsed but produced no entries (XML schema may have changed)")
 	}
 	return cat, nil
-}
-
-func spellFromAttrs(attrs []xml.Attr) (SpellEntry, bool) {
-	var (
-		e        SpellEntry
-		gotIndex bool
-		gotName  bool
-	)
-	for _, a := range attrs {
-		switch strings.ToLower(a.Name.Local) {
-		case "index":
-			if n, err := strconv.Atoi(a.Value); err == nil {
-				e.Index = n
-				gotIndex = true
-			}
-		case "uniquename":
-			e.UniqueName = a.Value
-			gotName = true
-		case "category":
-			e.Category = a.Value
-		}
-	}
-	return e, gotIndex && gotName
 }
