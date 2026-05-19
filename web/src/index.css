@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Variable-width tabular figures so digit columns line up while still
+   allowing proportional letters in names. */
+.tnum {
+	font-variant-numeric: tabular-nums;
+}
