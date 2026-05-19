@@ -3,6 +3,8 @@ import { useMeterSocket } from "./useMeterSocket.ts";
 import { MeterTable } from "./MeterTable.tsx";
 import { Header } from "./Header.tsx";
 import { Footer } from "./Footer.tsx";
+import { SettingsPanel } from "./SettingsPanel.tsx";
+import { accentOklch, useSettings } from "./useSettings.ts";
 import type { Mode } from "./types.ts";
 
 function useStored(key: string, initial: string): [string, (v: string) => void] {
@@ -31,12 +33,24 @@ export default function App(): React.ReactElement {
 		? modeStored
 		: "damage") as Mode;
 
+	const { settings, update, reset } = useSettings();
+	const [showSettings, setShowSettings] = useState(false);
+
 	const configured = url.trim() !== "" && token.trim() !== "";
 	const { state, snapshot, lastMessageAt, error } = useMeterSocket({
 		url: url.trim(),
 		token: token.trim(),
 		enabled: configured,
 	});
+
+	// Apply the chosen accent color as CSS variables so existing utility
+	// classes (text-skirmish-amber, bg-skirmish-amber/15 …) shift palette
+	// without a re-render of every component.
+	useEffect(() => {
+		const { fg, dim } = accentOklch(settings.accent);
+		document.documentElement.style.setProperty("--color-skirmish-amber", fg);
+		document.documentElement.style.setProperty("--color-skirmish-amber-dim", dim);
+	}, [settings.accent]);
 
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
@@ -55,7 +69,7 @@ export default function App(): React.ReactElement {
 				snapshot={snapshot}
 				mode={mode}
 				setMode={(m) => setModeStored(m)}
-				onSettings={() => alert("Settings panel — coming in T2")}
+				onSettings={() => setShowSettings(true)}
 				onReset={() => {
 					if (confirm("Disconnect and clear settings?")) {
 						setUrl("");
@@ -64,12 +78,20 @@ export default function App(): React.ReactElement {
 				}}
 			/>
 			<main className="flex-1 overflow-auto">
-				<MeterTable snapshot={snapshot} mode={mode} />
+				<MeterTable snapshot={snapshot} mode={mode} settings={settings} />
 				{error && (
 					<div className="px-4 py-2 text-xs text-rose-300">connection: {error}</div>
 				)}
 			</main>
 			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
+			{showSettings && (
+				<SettingsPanel
+					settings={settings}
+					update={update}
+					reset={reset}
+					onClose={() => setShowSettings(false)}
+				/>
+			)}
 		</div>
 	);
 }
