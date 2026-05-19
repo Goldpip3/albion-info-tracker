@@ -39,14 +39,22 @@ func main() {
 	log.SetFlags(0)
 	printBanner()
 
+	openBrowser := hasFlag("--open-browser") || hasFlag("-b") || os.Getenv("ALBION_AGENT_OPEN_BROWSER") != ""
+
 	cfg, err := config.Load()
 	if err != nil {
 		fatal("agent.json", err)
 	}
 
 	// First-run wizard: if pushToken or pushUrl is missing, walk the user
-	// through pairing without making them edit JSON by hand.
+	// through pairing without making them edit JSON by hand. autoPair opens
+	// the browser on its own; if we already had a token we still honor the
+	// launcher's --open-browser flag below.
+	firstRun := cfg.PushToken == ""
 	cfg = ensureConfigured(cfg)
+	if openBrowser && !firstRun {
+		openViewURL(cfg.PushToken)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -142,6 +150,36 @@ func autoPair(token string) {
 		fmt.Println("  Couldn't launch a browser automatically — copy the URL above.")
 	}
 	fmt.Println()
+}
+
+// openViewURL opens the web meter for an already-paired session. Passing
+// ?pair=<token> is idempotent — the web app no-ops if the same token is
+// already saved, and silently re-saves if not, so this works equally well
+// on the user's own machine and on a friend's first run from the shared
+// launcher. Invoked when the launcher passes --open-browser.
+func openViewURL(token string) {
+	url := defaultViewURL + "/"
+	if token != "" {
+		url = fmt.Sprintf("%s/?pair=%s", defaultViewURL, token)
+	}
+	fmt.Println("  Opening the meter in your browser:")
+	fmt.Println("      " + url)
+	fmt.Println()
+	if !openInBrowser(url) {
+		fmt.Println("  (Couldn't launch a browser automatically — open the URL above.)")
+		fmt.Println()
+	}
+}
+
+// hasFlag returns true if any CLI argument matches name. Tiny purpose-
+// built check; we don't need a real flag library for one toggle.
+func hasFlag(name string) bool {
+	for _, a := range os.Args[1:] {
+		if a == name {
+			return true
+		}
+	}
+	return false
 }
 
 // openInBrowser tries to open url in the user's default browser. Returns
@@ -259,8 +297,8 @@ func topName(s domain.Snapshot) string {
 
 func printBanner() {
 	fmt.Println()
-	fmt.Println("  ╭─ SKIRMISH ────────────────────────────────────────")
-	fmt.Printf("  │   agent v%s\n", version)
+	fmt.Println("  ╭─ GDA ─────────────────────────────────────────────")
+	fmt.Printf("  │   Goldpipe's Data Analytics · agent v%s\n", version)
 	fmt.Println("  │   capturing Photon UDP and streaming to the website")
 	fmt.Println("  ╰───────────────────────────────────────────────────")
 	fmt.Println()
