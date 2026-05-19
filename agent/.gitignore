@@ -1,3 +1,5 @@
 /agent
 /agent.exe
+/extract.exe
+*.exe
 *.out
