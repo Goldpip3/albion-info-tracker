@@ -32,10 +32,17 @@ export interface Composition {
 	total: number;
 }
 
+export interface Fight {
+	number: number;
+	elapsedMs: number;
+	inCombat: boolean;
+}
+
 export interface Snapshot {
 	generatedAt: string;
 	players: PlayerSnapshot[];
 	composition?: Composition;
+	fight?: Fight;
 }
 
 export interface SnapshotEnvelope {

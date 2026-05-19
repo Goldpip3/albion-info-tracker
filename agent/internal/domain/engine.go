@@ -35,7 +35,27 @@ type Engine struct {
 	// into a role + 3-letter class chip. Nil is fine — entities just get
 	// "?" / "—" until the catalog loads or never loads.
 	items *gamedata.ItemCatalog
+
+	// Fight lifecycle. CombatStart is when the current fight began;
+	// LastDamageAt is the most-recent damage tick we saw. Out → in
+	// transitions increment FightNumber and reset every entity's
+	// Current bucket (Overall persists for the session total).
+	fightMu       sync.Mutex
+	fightNumber   int
+	fightStart    time.Time
+	lastDamageAt  time.Time
+	inCombat      bool
 }
+
+const (
+	// combatEnterIdle: how long after the prior damage tick we still
+	// consider the player engaged. Albion's own in-combat flag stays on
+	// for ~5s of inactivity; we want a slightly tighter window so distinct
+	// pulls don't merge into one fight.
+	combatEnterIdle = 4 * time.Second
+	// fightAutoEnd: longer idle threshold that closes the current fight.
+	fightAutoEnd = 6 * time.Second
+)
 
 // NewEngine constructs an Engine backed by a fresh Store.
 func NewEngine() *Engine {
@@ -136,6 +156,10 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 
 	now := e.now()
 
+	// Combat / fight bookkeeping. Has to happen before stats accumulate so
+	// a brand-new fight zeroes the Current bucket first.
+	e.touchCombat(now)
+
 	// Damage is delivered as negative HealthChange; heal as positive.
 	if change < 0 {
 		dmg := int64(-change + 0.5)
@@ -165,6 +189,50 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 			e.store.mu.Unlock()
 		}
 	}
+}
+
+// touchCombat updates lastDamageAt and, if we were idle long enough, ends
+// the prior fight and starts a new one — bumping FightNumber and zeroing
+// every entity's Current bucket. Called from handleHealthUpdate before any
+// stat accumulation.
+func (e *Engine) touchCombat(now time.Time) {
+	e.fightMu.Lock()
+	defer e.fightMu.Unlock()
+	if !e.inCombat || now.Sub(e.lastDamageAt) > fightAutoEnd {
+		// Start a new fight.
+		e.fightNumber++
+		e.fightStart = now
+		e.inCombat = true
+		e.resetAllCurrent()
+	}
+	e.lastDamageAt = now
+}
+
+// resetAllCurrent zeroes the per-fight stats for every tracked entity.
+// Overall persists for the session.
+func (e *Engine) resetAllCurrent() {
+	e.store.mu.Lock()
+	defer e.store.mu.Unlock()
+	for _, ent := range e.store.byGuid {
+		ent.Current.Reset()
+	}
+}
+
+// FightStatus returns a snapshot of the current combat-lifecycle state.
+func (e *Engine) FightStatus(now time.Time) (number int, elapsed time.Duration, inCombat bool) {
+	e.fightMu.Lock()
+	defer e.fightMu.Unlock()
+	stillIn := e.inCombat && now.Sub(e.lastDamageAt) <= combatEnterIdle
+	if e.inCombat && !stillIn {
+		// Lazy transition: fight auto-ends on read once the idle gap is
+		// past combatEnterIdle. We don't bump fight number here — the
+		// next damage tick handles that.
+		e.inCombat = false
+	}
+	if e.fightStart.IsZero() {
+		return e.fightNumber, 0, stillIn
+	}
+	return e.fightNumber, now.Sub(e.fightStart), stillIn
 }
 
 func (e *Engine) handleNewCharacter(p map[byte]any) {

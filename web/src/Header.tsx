@@ -50,9 +50,7 @@ export function Header({ state, stale, snapshot, mode, setMode, onSettings, onRe
 
 			<div className="flex items-center gap-4 px-4 h-10 text-xs border-t border-skirmish-line/60">
 				<CombatBadge snapshot={snapshot} />
-				<div className="text-skirmish-muted tracking-wider uppercase truncate">
-					Fight — · — {/* T3: fight number + zone */}
-				</div>
+				<FightInfo snapshot={snapshot} />
 
 				<div className="ml-auto flex items-center gap-1">
 					<ModeTab current={mode} value="damage" onClick={setMode}>Damage</ModeTab>
@@ -87,17 +85,41 @@ function AgentPill({ state, stale }: { state: ConnectionState; stale: boolean })
 }
 
 function CombatBadge({ snapshot }: { snapshot: Snapshot | null }): React.ReactElement {
-	const inCombat = (snapshot?.players ?? []).some((p) => p.currentDps > 0 || p.currentHps > 0);
-	// Mode-time-elapsed will arrive from the engine in T3.
+	const inCombat = snapshot?.fight?.inCombat ?? false;
 	const dot = inCombat ? "bg-rose-500" : "bg-skirmish-muted";
 	const label = inCombat ? "IN COMBAT" : "OUT OF COMBAT";
 	return (
 		<span className="inline-flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase">
 			<span className={`w-1.5 h-1.5 rounded-full ${dot} ${inCombat ? "animate-pulse" : ""}`} />
 			<span className={inCombat ? "text-rose-300" : "text-skirmish-muted"}>{label}</span>
-			<span className="tnum text-skirmish-dim">--:--</span>
+			<span className="tnum text-skirmish-dim">{formatElapsed(snapshot?.fight?.elapsedMs ?? 0)}</span>
 		</span>
 	);
+}
+
+function FightInfo({ snapshot }: { snapshot: Snapshot | null }): React.ReactElement {
+	const n = snapshot?.fight?.number ?? 0;
+	if (n === 0) {
+		return (
+			<div className="text-skirmish-muted tracking-wider uppercase truncate">
+				Awaiting first fight
+			</div>
+		);
+	}
+	return (
+		<div className="text-skirmish-dim tracking-wider uppercase truncate">
+			Fight {n.toString().padStart(2, "0")}
+			{/* TODO: zone name when LoadCluster handler ships */}
+		</div>
+	);
+}
+
+function formatElapsed(ms: number): string {
+	if (ms <= 0) return "--:--";
+	const totalSec = Math.floor(ms / 1000);
+	const mm = Math.floor(totalSec / 60).toString().padStart(2, "0");
+	const ss = (totalSec % 60).toString().padStart(2, "0");
+	return `${mm}:${ss}`;
 }
 
 function PartyStat({ label, value, mono = true }: { label: string; value: string; mono?: boolean }): React.ReactElement {

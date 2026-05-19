@@ -49,11 +49,19 @@ type Composition struct {
 	Total     int `json:"total"`
 }
 
+// Fight is the running state of the current combat encounter.
+type Fight struct {
+	Number    int    `json:"number"`     // 1-indexed; 0 means no fight yet
+	ElapsedMs int64  `json:"elapsedMs"`  // milliseconds since the fight started
+	InCombat  bool   `json:"inCombat"`
+}
+
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
 	GeneratedAt time.Time        `json:"generatedAt"`
 	Players     []PlayerSnapshot `json:"players"`
 	Composition Composition      `json:"composition"`
+	Fight       Fight            `json:"fight"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
@@ -70,9 +78,16 @@ func (e *Engine) Snapshot() Snapshot {
 	} else {
 		members = e.store.PartyMembers()
 	}
+	now := e.now()
+	fightN, elapsed, inCombat := e.FightStatus(now)
 	out := Snapshot{
-		GeneratedAt: e.now(),
+		GeneratedAt: now,
 		Players:     make([]PlayerSnapshot, 0, len(members)),
+		Fight: Fight{
+			Number:    fightN,
+			ElapsedMs: elapsed.Milliseconds(),
+			InCombat:  inCombat,
+		},
 	}
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
