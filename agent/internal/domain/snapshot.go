@@ -3,6 +3,7 @@ package domain
 import (
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -12,7 +13,12 @@ var showAll = os.Getenv("ALBION_AGENT_SHOW_ALL") != ""
 
 // topSpells returns the top n spells for an entity by total damage,
 // resolving names via the engine's SpellCatalog when available. Caller
-// must hold store.mu.
+// must hold store.mu. Filters out passive/aura/armor/food entries — those
+// are emitted by Albion as damage events too but they're noise in the
+// "what abilities am I using" view.
+//
+// Sort is deterministic: total damage descending, then by spell index so
+// rows with the same numeric value don't shuffle each tick.
 func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
 	if len(ent.BySpell) == 0 {
 		return nil
@@ -23,33 +29,8 @@ func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
 		if e.spells != nil {
 			name = e.spells.Name(idx)
 		}
-		out = append(out, SpellBreakdown{
-			Index:       idx,
-			Name:        name,
-			TotalDamage: s.TotalDamage,
-			MaxHit:      s.MaxHit,
-			Hits:        s.Hits,
-			Casts:       s.Casts,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].TotalDamage > out[j].TotalDamage })
-	if len(out) > n {
-		out = out[:n]
-	}
-	return out
-}
-
-// sessionSpells is the session-level analogue of topSpells. Same shape;
-// reads from BySpellSession which never resets between fights.
-func (e *Engine) sessionSpells(ent *Entity, n int) []SpellBreakdown {
-	if len(ent.BySpellSession) == 0 {
-		return nil
-	}
-	out := make([]SpellBreakdown, 0, len(ent.BySpellSession))
-	for idx, s := range ent.BySpellSession {
-		var name string
-		if e.spells != nil {
-			name = e.spells.Name(idx)
+		if isPassiveSpell(name) {
+			continue
 		}
 		out = append(out, SpellBreakdown{
 			Index:       idx,
@@ -60,12 +41,90 @@ func (e *Engine) sessionSpells(ent *Entity, n int) []SpellBreakdown {
 			Casts:       s.Casts,
 		})
 	}
-	// Order by cast count descending — this view is "what am I casting".
-	sort.Slice(out, func(i, j int) bool { return out[i].Casts > out[j].Casts })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TotalDamage != out[j].TotalDamage {
+			return out[i].TotalDamage > out[j].TotalDamage
+		}
+		return out[i].Index < out[j].Index
+	})
 	if len(out) > n {
 		out = out[:n]
 	}
 	return out
+}
+
+// sessionSpells is the session-level analogue of topSpells. Same shape;
+// reads from BySpellSession which never resets between fights. Sorted by
+// cast count then total damage, deterministic tie-break by index.
+func (e *Engine) sessionSpells(ent *Entity, n int) []SpellBreakdown {
+	if len(ent.BySpellSession) == 0 {
+		return nil
+	}
+	out := make([]SpellBreakdown, 0, len(ent.BySpellSession))
+	for idx, s := range ent.BySpellSession {
+		var name string
+		if e.spells != nil {
+			name = e.spells.Name(idx)
+		}
+		if isPassiveSpell(name) {
+			continue
+		}
+		out = append(out, SpellBreakdown{
+			Index:       idx,
+			Name:        name,
+			TotalDamage: s.TotalDamage,
+			MaxHit:      s.MaxHit,
+			Hits:        s.Hits,
+			Casts:       s.Casts,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Casts != out[j].Casts {
+			return out[i].Casts > out[j].Casts
+		}
+		if out[i].TotalDamage != out[j].TotalDamage {
+			return out[i].TotalDamage > out[j].TotalDamage
+		}
+		return out[i].Index < out[j].Index
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// isPassiveSpell returns true for spell uniquenames that represent armor
+// procs, food buffs, or movement-skill sub-effects — things that fire
+// damage events but aren't "abilities the player chose to cast." Filters
+// out clutter like "Dynamic curse cloth", "Food crafting p1", and
+// "Skillshot teleport end" that confuses the drill-in.
+func isPassiveSpell(name string) bool {
+	if name == "" {
+		return false // keep unknown indices; might be the real ability
+	}
+	u := strings.ToUpper(name)
+	patterns := []string{
+		"DYNAMIC_",         // armor passives ("DYNAMIC_CURSE_CLOTH")
+		"FOOD_",            // food buffs
+		"_FOOD",
+		"_EFFECT",          // sub-effect bookkeeping
+		"_END",             // ability-end markers ("SKILLSHOT_TELEPORT_END")
+		"_BUFF",            // self-buffs
+		"_DEBUFF",          // debuffs handled in Assists tab
+		"_PASSIVE",         // passive trigger
+		"_AURA",            // aura ticks
+		"_BLEED_",          // bleed dot label
+		"_POISON_",         // poison dot label
+		"_PROC",            // armor proc
+		"SET_BONUS",        // armor set bonus
+		"CONSUMABLE_",      // potions / food etc.
+	}
+	for _, p := range patterns {
+		if strings.Contains(u, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // topAssists returns the top n debuff windows by damage-during, resolving

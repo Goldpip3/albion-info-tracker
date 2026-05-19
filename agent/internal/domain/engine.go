@@ -802,6 +802,11 @@ func (e *Engine) FightStatus(now time.Time) (number int, elapsed time.Duration, 
 //
 // Also adds the cast to recentCasts so a debuff that appears within the
 // next ~2 seconds can be attributed back to this caster.
+//
+// If the caster is the local player and we haven't classified them yet,
+// try to infer the weapon class from the spell name — CharacterEquipment-
+// Changed doesn't always fire for the local user, but their spell IDs
+// usually carry "CROSSBOW", "FROSTSTAFF", etc. in the uniquename.
 func (e *Engine) handleCastFinished(p map[byte]any) {
 	caster, _ := paramLong(p, 0)
 	idx, _ := paramLong(p, 2)
@@ -814,7 +819,19 @@ func (e *Engine) handleCastFinished(p map[byte]any) {
 	}
 	e.store.mu.Lock()
 	recordCast(ent, int(idx))
+	needsInfer := ent.IsLocal && ent.ClassCode == ""
 	e.store.mu.Unlock()
+	if needsInfer && e.spells != nil {
+		if name := e.spells.Name(int(idx)); name != "" {
+			if c, ok := gamedata.InferClassFromSpell(name); ok {
+				e.store.mu.Lock()
+				ent.ClassCode = c.Code
+				ent.Role = string(c.Role)
+				ent.RoleLabel = c.Label
+				e.store.mu.Unlock()
+			}
+		}
+	}
 	e.rememberCast(caster, int(idx), e.now())
 }
 

@@ -220,6 +220,25 @@ func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
 
+// InferClassFromSpell looks at a spell uniquename and guesses the caster's
+// weapon class. Used as a fallback for the local player when Albion never
+// fires a CharacterEquipmentChanged we can see — your own ability spells
+// usually carry the weapon family in their uniquename (e.g. CROSSBOW_
+// FLICKERSHOT, FROSTSTAFF_FROZENGROUND, NATURESTAFF_REJUVENATING_AURA).
+// Returns the same classification ClassifyWeapon would for a matching
+// weapon family. ok=false if nothing recognisable.
+func InferClassFromSpell(spellName string) (WeaponClassification, bool) {
+	if spellName == "" {
+		return WeaponClassification{}, false
+	}
+	u := strings.ToUpper(spellName)
+	c := ClassifyWeapon(u)
+	if c.Role == RoleUnknown {
+		return WeaponClassification{}, false
+	}
+	return c, true
+}
+
 func cls(code string, role Role, label string) WeaponClassification {
 	return WeaponClassification{Code: code, Role: role, Label: label}
 }
