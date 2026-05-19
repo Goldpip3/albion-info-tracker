@@ -3,6 +3,14 @@ import type { LootEntry, LooterTotals, PlayerSnapshot, Session } from "./types.t
 import { fmt, roleKeyOf } from "./format.ts";
 import { IPChip } from "./IPChip.tsx";
 
+// Silver-pile pickups arrive on the wire as FixPoint copper (1 silver
+// = 10_000 copper) to mirror Albion's internal accounting. AODP item
+// values come back already in silver. These helpers keep the two
+// scales straight at the display boundary so callers never have to
+// remember which way a particular field is denominated.
+const toSilver = (copper: number): number => Math.floor(copper / 10_000);
+const totalSilverOf = (l: LooterTotals): number => toSilver(l.silverPicked) + l.silverValueLoot;
+
 export interface LootBodyProps {
 	loot: LootEntry[];
 	looterTotals: LooterTotals[];
@@ -30,14 +38,13 @@ export function LootBody({ loot, looterTotals, players, session, generatedAt, on
 	// posts a new snapshot (generatedAt flips) — not on every internal
 	// state change like opening a tooltip.
 	const { sorted, topValue, grandTotal } = useMemo(() => {
-		const totalOf = (l: LooterTotals): number => l.silverPicked + l.silverValueLoot;
 		const arr = [...looterTotals].sort((a, b) => {
-			const d = totalOf(b) - totalOf(a);
+			const d = totalSilverOf(b) - totalSilverOf(a);
 			if (d !== 0) return d;
 			return a.name.localeCompare(b.name);
 		});
-		const top = arr.length > 0 ? totalOf(arr[0]) : 0;
-		const grand = arr.reduce((s, l) => s + totalOf(l), 0);
+		const top = arr.length > 0 ? totalSilverOf(arr[0]) : 0;
+		const grand = arr.reduce((s, l) => s + totalSilverOf(l), 0);
 		return { sorted: arr, topValue: top, grandTotal: grand };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [generatedAt, looterTotals.length]);
@@ -67,9 +74,8 @@ export function LootBody({ loot, looterTotals, players, session, generatedAt, on
 	const onCopySummary = (): void => {
 		const lines = [`Session loot · ${sessionMin}m`];
 		sorted.forEach((l, i) => {
-			const total = l.silverPicked + l.silverValueLoot;
 			const top = l.topItemName ? `  ·  top: ${l.topItemName} (${fmt(l.topItemValue ?? 0)})` : "";
-			lines.push(`${i + 1}. ${l.name}  ${fmt(total)} silver  ·  ${l.pickups} pickups${top}`);
+			lines.push(`${i + 1}. ${l.name}  ${fmt(totalSilverOf(l))} silver  ·  ${l.pickups} pickups${top}`);
 		});
 		navigator.clipboard.writeText(lines.join("\n")).then(
 			() => fireToast("Copied"),
@@ -79,7 +85,7 @@ export function LootBody({ loot, looterTotals, players, session, generatedAt, on
 
 	const onCopyTable = (): void => {
 		const rows = sorted.map((l, i) => {
-			const total = fmt(l.silverPicked + l.silverValueLoot);
+			const total = fmt(totalSilverOf(l));
 			const top = l.topItemName ? `${l.topItemName} (${fmt(l.topItemValue ?? 0)})` : "—";
 			return [String(i + 1), l.name, total, String(l.pickups), top];
 		});
@@ -186,6 +192,7 @@ function PerPlayerTab({
 	return (
 		<div style={{ overflowY: "auto", flex: 1 }}>
 			<TopFarmerCard l={top} playerByName={playerByName} />
+			<LooterHeader />
 			<div>
 				{rest.map((l) => (
 					<LooterRow
@@ -202,8 +209,41 @@ function PerPlayerTab({
 	);
 }
 
+// LooterHeader is the sticky column-label row that sits between the
+// Top Farmer card and the per-player list. Without it the bare `34`
+// and `473K` cells read as "what does this mean" — the user explicitly
+// asked for headers so the units travel with the numbers.
+function LooterHeader(): React.ReactElement {
+	return (
+		<div
+			className="grid items-center sk-upper"
+			style={{
+				gridTemplateColumns: "44px minmax(180px, 1.4fr) minmax(0, 2fr) 70px 100px 16px",
+				gap: 12,
+				padding: "8px 16px",
+				position: "sticky",
+				top: 0,
+				background: "var(--sk-bg-inset)",
+				borderBottom: "1px solid var(--sk-line)",
+				fontSize: 10,
+				color: "var(--sk-fg-3)",
+				letterSpacing: "0.08em",
+				fontWeight: 600,
+				zIndex: 1,
+			}}
+		>
+			<span />
+			<span>Player</span>
+			<span>Relative to top</span>
+			<span style={{ textAlign: "right" }}>Pickups</span>
+			<span style={{ textAlign: "right" }}>Silver</span>
+			<span />
+		</div>
+	);
+}
+
 function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map<string, PlayerSnapshot> }): React.ReactElement {
-	const total = l.silverPicked + l.silverValueLoot;
+	const total = totalSilverOf(l);
 	const player = playerByName.get(l.name);
 	const roleKey = roleKeyOf(player?.role);
 	return (
@@ -244,13 +284,10 @@ function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map
 						{l.name}
 					</span>
 					{l.isLocal && <span className="sk-upper" style={{ fontSize: 9, color: "var(--sk-local)" }}>You</span>}
+					{!l.isLocal && <SourceBadge source={l.source} />}
 				</div>
 				<div style={{ fontSize: 12, color: "var(--sk-fg-2)" }}>
-					{l.topItemName ? (
-						<>top item: <span style={{ color: "var(--sk-fg-1)" }}>{l.topItemName}</span> · <span className="sk-mono">{fmt(l.topItemValue ?? 0)}</span></>
-					) : (
-						<span style={{ color: "var(--sk-fg-3)" }}>no priced items yet</span>
-					)}
+					<LooterSubline l={l} />
 				</div>
 			</div>
 			<div className="flex flex-col items-end" style={{ gap: 2 }}>
@@ -279,7 +316,7 @@ function LooterRow({
 	player?: PlayerSnapshot;
 	onClick: () => void;
 }): React.ReactElement {
-	const total = l.silverPicked + l.silverValueLoot;
+	const total = totalSilverOf(l);
 	const pct = topValue > 0 ? Math.min(100, (total / topValue) * 100) : 0;
 	const roleKey = roleKeyOf(player?.role);
 	const goldFill = "var(--sk-card-fame, #d4af37)";
@@ -317,11 +354,10 @@ function LooterRow({
 				>
 					{l.name}
 					{l.isLocal && <span className="sk-upper" style={{ fontSize: 9, color: "var(--sk-local)", marginLeft: 6 }}>You</span>}
+					{!l.isLocal && <SourceBadge source={l.source} inline />}
 				</span>
 				<span className="truncate" style={{ fontSize: 11, color: "var(--sk-fg-3)" }}>
-					{l.topItemName
-						? <>top: <span style={{ color: "var(--sk-fg-2)" }}>{l.topItemName}</span> · <span className="sk-mono">{fmt(l.topItemValue ?? 0)}</span></>
-						: <span>—</span>}
+					<LooterSubline l={l} />
 				</span>
 			</div>
 
@@ -385,7 +421,7 @@ function DrillView({
 	const limit = 200;
 	const shown = entries.slice(0, limit);
 	const overflow = entries.length - shown.length;
-	const total = row ? row.silverPicked + row.silverValueLoot : 0;
+	const total = row ? totalSilverOf(row) : 0;
 	return (
 		<div style={{ overflowY: "auto", flex: 1 }}>
 			<div
@@ -440,7 +476,7 @@ function DrillView({
 								)}
 							</div>
 							<span className="sk-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--sk-fg-1)" }}>
-								{e.quantity}
+								{e.isSilver ? "—" : e.quantity}
 							</span>
 							<span
 								className="sk-mono"
@@ -454,7 +490,7 @@ function DrillView({
 								}}
 							>
 								{e.isSilver
-									? fmt(e.quantity)
+									? fmt(toSilver(e.quantity))
 									: (e.silverValue && e.silverValue > 0 ? fmt(e.silverValue) : "—")}
 							</span>
 						</div>
@@ -521,10 +557,10 @@ function ItemsTab({ loot }: { loot: LootEntry[] }): React.ReactElement {
 						</span>
 					</div>
 					<span className="sk-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--sk-fg-1)" }}>
-						{l.quantity}
+						{l.isSilver ? "—" : l.quantity}
 					</span>
 					<span className="sk-mono" style={{ textAlign: "right", fontSize: 11, color: l.isSilver ? "var(--sk-card-silver)" : "var(--sk-fg-3)" }}>
-						{l.isSilver ? fmt(l.quantity) : "—"}
+						{l.isSilver ? fmt(toSilver(l.quantity)) : "—"}
 					</span>
 					<span className="sk-mono" style={{ textAlign: "right", fontSize: 11, color: l.silverValue && l.silverValue > 0 ? "var(--sk-card-fame)" : "var(--sk-fg-3)" }}>
 						{l.silverValue && l.silverValue > 0 ? fmt(l.silverValue) : "—"}
@@ -576,17 +612,94 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 	);
 }
 
+function LooterSubline({ l }: { l: LooterTotals }): React.ReactElement {
+	// Three-way fallback so the row never reads as a bare em-dash:
+	//   1. Priced top item → "top: <name> · <value>"
+	//   2. Item-but-unpriced fall-back via RecentItemName
+	//   3. Only silver pickups → "silver only · <amount>"
+	if (l.topItemName && (l.topItemValue ?? 0) > 0) {
+		return (
+			<>
+				top: <span style={{ color: "var(--sk-fg-2)" }}>{l.topItemName}</span>
+				{" · "}
+				<span className="sk-mono">{fmt(l.topItemValue ?? 0)}</span>
+			</>
+		);
+	}
+	if (l.onlySilver) {
+		return (
+			<>
+				silver only · <span className="sk-mono">{fmt(toSilver(l.silverPicked))} K</span>
+			</>
+		);
+	}
+	if (l.recentItemName) {
+		return (
+			<>
+				recent: <span style={{ color: "var(--sk-fg-2)" }}>{l.recentItemName}</span>
+				{" "}
+				<span className="sk-mono" style={{ color: "var(--sk-fg-3)" }}>(unpriced)</span>
+			</>
+		);
+	}
+	return <span style={{ color: "var(--sk-fg-3)" }}>no pickups yet</span>;
+}
+
+// SourceBadge colors why a non-local row is on screen. "party" is
+// orange to ride the damage accent (active fight context), "guild" is
+// violet (membership context), "friend" is cyan (manual allowlist).
+function SourceBadge({ source, inline = false }: { source?: string; inline?: boolean }): React.ReactElement | null {
+	if (!source || source === "local") return null;
+	const map: Record<string, { label: string; fg: string; bg: string; border: string }> = {
+		party:  { label: "PARTY",  fg: "var(--sk-damage)",   bg: "color-mix(in oklab, var(--sk-damage) 12%, var(--sk-bg-2))",     border: "color-mix(in oklab, var(--sk-damage) 45%, var(--sk-line))" },
+		guild:  { label: "GUILD",  fg: "#c08cff",            bg: "color-mix(in oklab, #c08cff 12%, var(--sk-bg-2))",              border: "color-mix(in oklab, #c08cff 45%, var(--sk-line))" },
+		friend: { label: "FRIEND", fg: "#6fd8ff",            bg: "color-mix(in oklab, #6fd8ff 12%, var(--sk-bg-2))",              border: "color-mix(in oklab, #6fd8ff 45%, var(--sk-line))" },
+	};
+	const entry = map[source];
+	if (!entry) return null;
+	return (
+		<span
+			className="sk-upper"
+			style={{
+				fontSize: 8.5,
+				letterSpacing: "0.08em",
+				fontWeight: 700,
+				padding: "1px 6px",
+				borderRadius: 99,
+				color: entry.fg,
+				background: entry.bg,
+				border: `1px solid ${entry.border}`,
+				marginLeft: inline ? 6 : 0,
+				lineHeight: 1.4,
+			}}
+			title={`Visible because: ${source}`}
+		>
+			{entry.label}
+		</span>
+	);
+}
+
 function Placeholder({ size }: { size: number }): React.ReactElement {
 	return (
 		<div
+			title="IP unknown — agent hasn't seen this looter's equipment yet"
 			style={{
 				width: size,
 				height: size,
 				borderRadius: 4,
-				background: "var(--sk-bg-2)",
-				border: "1px dashed var(--sk-line-2)",
+				background: "transparent",
+				border: "1px solid var(--sk-line)",
+				color: "var(--sk-fg-3)",
+				display: "inline-flex",
+				alignItems: "center",
+				justifyContent: "center",
+				fontFamily: "var(--sk-font-mono)",
+				fontSize: Math.max(11, Math.floor(size * 0.45)),
+				lineHeight: 1,
 			}}
-		/>
+		>
+			—
+		</div>
 	);
 }
 

@@ -51,7 +51,23 @@ type LooterTotals struct {
 	SilverValueLoot int64     `json:"silverValueLoot"`
 	TopItemName     string    `json:"topItemName,omitempty"`
 	TopItemValue    int64     `json:"topItemValue,omitempty"`
-	LastPickupAt    time.Time `json:"lastPickupAt"`
+	// RecentItemName is the display name of the most-recent non-silver
+	// pickup for this looter — used by the UI when TopItemName is empty
+	// (every priced lookup missed) so the row still says what was
+	// looted rather than rendering a bare em-dash.
+	RecentItemName string `json:"recentItemName,omitempty"`
+	// OnlySilver is true when every entry for this looter was a silver
+	// pile. Lets the UI render "silver only" copy honestly instead of
+	// implying there's an item-side number to look at.
+	OnlySilver   bool      `json:"onlySilver,omitempty"`
+	LastPickupAt time.Time `json:"lastPickupAt"`
+	// Source documents why this looter passes the membership filter:
+	//   "local"  — the agent's local player
+	//   "party"  — Albion told us they're in the party via PartyJoined
+	//   "guild"  — same Guild tag as the local player
+	//   "friend" — on the agent.json::alwaysIncludeNames allowlist
+	// Empty means we couldn't classify, which the UI hides.
+	Source string `json:"source,omitempty"`
 }
 
 const lootLogCap = 500
@@ -74,15 +90,30 @@ func (e *Engine) noteLoot(entry LootEntry) {
 }
 
 // LootLog returns a defensive copy of the loot ring buffer with the
-// latest AODP price estimates applied for each non-silver entry.
+// latest AODP price estimates applied. Entries are filtered to the
+// same membership scope as the meter (local + same-guild + party +
+// alwaysIncludeNames), so the loot panel doesn't drag in every pub
+// looting in render range. ALBION_AGENT_SHOW_ALL bypasses the filter.
 func (e *Engine) LootLog() []LootEntry {
+	var allowed map[string]struct{}
+	if !showAll {
+		allowed = e.allowedLooters()
+	}
+
 	e.lootMu.Lock()
 	defer e.lootMu.Unlock()
 	if len(e.lootLog) == 0 {
 		return nil
 	}
-	out := make([]LootEntry, len(e.lootLog))
-	copy(out, e.lootLog)
+	out := make([]LootEntry, 0, len(e.lootLog))
+	for _, entry := range e.lootLog {
+		if allowed != nil {
+			if _, ok := allowed[entry.Looter]; !ok {
+				continue
+			}
+		}
+		out = append(out, entry)
+	}
 	if e.prices != nil {
 		for i := range out {
 			if out[i].IsSilver || out[i].UniqueName == "" {
@@ -91,6 +122,49 @@ func (e *Engine) LootLog() []LootEntry {
 			if p, ok := e.prices.Lookup(out[i].UniqueName); ok && p.Silver > 0 {
 				out[i].SilverValue = p.Silver * int64(out[i].Quantity)
 			}
+		}
+	}
+	return out
+}
+
+// allowedLooters returns the set of player names the loot views should
+// surface. Mirrors the meter's filter so the two stay consistent:
+//   - the local player
+//   - everyone Albion told us is in the party (PartyJoined succeeded)
+//   - same-guild players seen in this zone
+//   - explicit allowlist from agent.json::alwaysIncludeNames
+//
+// Returns nil when the local entity isn't known yet — caller treats
+// nil as "no filter" and falls through to whatever default they pick.
+func (e *Engine) allowedLooters() map[string]struct{} {
+	out := make(map[string]struct{}, 16)
+	e.alwaysIncludeMu.RLock()
+	for n := range e.alwaysInclude {
+		out[n] = struct{}{}
+	}
+	e.alwaysIncludeMu.RUnlock()
+
+	e.store.mu.RLock()
+	defer e.store.mu.RUnlock()
+	var localGuild string
+	if !e.store.localGuid.IsZero() {
+		if local := e.store.byGuid[e.store.localGuid]; local != nil {
+			if local.Name != "" {
+				out[local.Name] = struct{}{}
+			}
+			localGuild = local.Guild
+		}
+	}
+	for _, ent := range e.store.byGuid {
+		if ent.Name == "" {
+			continue
+		}
+		if ent.IsInParty {
+			out[ent.Name] = struct{}{}
+			continue
+		}
+		if localGuild != "" && ent.Guild == localGuild {
+			out[ent.Name] = struct{}{}
 		}
 	}
 	return out
@@ -112,11 +186,20 @@ func (e *Engine) LooterTotalsList() []LooterTotals {
 	if len(entries) == 0 {
 		return nil
 	}
+	sources := e.looterSources()
 	byName := make(map[string]*LooterTotals, 8)
+	// Track which looters have had at least one non-silver pickup so
+	// OnlySilver can flip false on the first item we see.
+	hasItem := make(map[string]bool, 8)
 	for _, e2 := range entries {
 		t, ok := byName[e2.Looter]
 		if !ok {
-			t = &LooterTotals{Name: e2.Looter, IsLocal: e2.LooterIsLocal}
+			t = &LooterTotals{
+				Name:       e2.Looter,
+				IsLocal:    e2.LooterIsLocal,
+				OnlySilver: true,
+				Source:     sources[e2.Looter],
+			}
 			byName[e2.Looter] = t
 		}
 		t.Pickups++
@@ -127,15 +210,24 @@ func (e *Engine) LooterTotalsList() []LooterTotals {
 			t.SilverPicked += int64(e2.Quantity)
 			continue
 		}
+		hasItem[e2.Looter] = true
+		t.OnlySilver = false
 		t.UnitsTotal += e2.Quantity
 		t.SilverValueLoot += e2.SilverValue
+		// Track the most-recent non-silver pickup name regardless of
+		// price so the UI has something to display when no item priced.
+		// "Most recent" walks the log forward so we end up with the
+		// latest entry — the log itself is append-only chronological.
+		nm := e2.DisplayName
+		if nm == "" {
+			nm = e2.UniqueName
+		}
+		if nm != "" {
+			t.RecentItemName = nm
+		}
 		if e2.SilverValue > 0 && e2.SilverValue >= t.TopItemValue {
 			t.TopItemValue = e2.SilverValue
-			if e2.DisplayName != "" {
-				t.TopItemName = e2.DisplayName
-			} else {
-				t.TopItemName = e2.UniqueName
-			}
+			t.TopItemName = nm
 		}
 	}
 	out := make([]LooterTotals, 0, len(byName))
@@ -143,6 +235,50 @@ func (e *Engine) LooterTotalsList() []LooterTotals {
 		out = append(out, *t)
 	}
 	sortLooterTotals(out)
+	return out
+}
+
+// looterSources mirrors allowedLooters but returns the reason each
+// name is allowed instead of just the set membership. Used by the
+// rollup to tag each LooterTotals row with a PARTY / GUILD / FRIEND
+// badge so the UI can show why a player is on screen.
+func (e *Engine) looterSources() map[string]string {
+	out := make(map[string]string, 16)
+
+	e.alwaysIncludeMu.RLock()
+	for n := range e.alwaysInclude {
+		out[n] = "friend"
+	}
+	e.alwaysIncludeMu.RUnlock()
+
+	e.store.mu.RLock()
+	defer e.store.mu.RUnlock()
+	var localGuild string
+	if !e.store.localGuid.IsZero() {
+		if local := e.store.byGuid[e.store.localGuid]; local != nil {
+			if local.Name != "" {
+				out[local.Name] = "local"
+			}
+			localGuild = local.Guild
+		}
+	}
+	for _, ent := range e.store.byGuid {
+		if ent.Name == "" {
+			continue
+		}
+		if _, ok := out[ent.Name]; ok && out[ent.Name] == "local" {
+			continue
+		}
+		if ent.IsInParty {
+			out[ent.Name] = "party"
+			continue
+		}
+		if localGuild != "" && ent.Guild == localGuild {
+			if _, taken := out[ent.Name]; !taken {
+				out[ent.Name] = "guild"
+			}
+		}
+	}
 	return out
 }
 

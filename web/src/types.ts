@@ -136,7 +136,10 @@ export interface LooterTotals {
 	silverValueLoot: number;  // AODP-estimated market value of looted items
 	topItemName?: string;     // display name of highest-priced single drop
 	topItemValue?: number;    // silver value of that top item
+	recentItemName?: string;  // display name of most-recent non-silver pickup
+	onlySilver?: boolean;     // true when every entry was a silver pile
 	lastPickupAt: string;     // ISO timestamp of most-recent pickup
+	source?: "local" | "party" | "guild" | "friend";
 }
 
 export interface SlotInfo {
@@ -228,11 +231,13 @@ export type ConnectionState = "disconnected" | "connecting" | "connected";
 export type Mode = "damage" | "heal" | "taken" | "mechanics";
 
 // SubMetric narrows what value drives the sort + bar within a Mode.
-// WoW Details has the same idea: in the Damage pane, you can flip
-// between Damage Done / DPS / Total to re-rank by that field.
+// Each pane shows two chips: Current (this-fight bucket) and Total
+// (session-wide bucket). DPS / HPS are still rendered in the rate
+// column on every row; they're just no longer sortable sub-metrics
+// because nobody ranks parties by instantaneous rate.
 export type SubMetric =
-	| "damageCurrent" | "damageDps"   | "damageTotal"
-	| "healCurrent"   | "healHps"     | "healTotal" | "healOverheal"
+	| "damageCurrent" | "damageTotal"
+	| "healCurrent"   | "healTotal"
 	| "takenCurrent"  | "takenTotal";
 
 // SubMetricsByMode tells the UI which sub-metric chips to show per mode,
@@ -240,18 +245,15 @@ export type SubMetric =
 // MeterTable.tsx.
 export const SUB_METRICS_BY_MODE: Record<Exclude<Mode, "mechanics">, Array<{ id: SubMetric; label: string }>> = {
 	damage: [
-		{ id: "damageCurrent", label: "Damage" },
-		{ id: "damageDps",     label: "DPS" },
+		{ id: "damageCurrent", label: "Current" },
 		{ id: "damageTotal",   label: "Total" },
 	],
 	heal: [
-		{ id: "healCurrent",  label: "Healing" },
-		{ id: "healHps",      label: "HPS" },
-		{ id: "healTotal",    label: "Total" },
-		{ id: "healOverheal", label: "Overheal" },
+		{ id: "healCurrent", label: "Current" },
+		{ id: "healTotal",   label: "Total" },
 	],
 	taken: [
-		{ id: "takenCurrent", label: "Taken" },
+		{ id: "takenCurrent", label: "Current" },
 		{ id: "takenTotal",   label: "Total" },
 	],
 };
