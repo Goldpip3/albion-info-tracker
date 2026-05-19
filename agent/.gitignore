@@ -3,3 +3,6 @@
 /extract.exe
 *.exe
 *.out
+
+# Per-machine config containing pushToken. Never commit.
+/agent.json
