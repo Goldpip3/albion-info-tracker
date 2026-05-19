@@ -140,6 +140,7 @@ export default function App(): React.ReactElement {
 				viewingFight={viewingFight}
 				setViewingFight={setViewingFight}
 				onSettings={() => setShowSettings(true)}
+				onNewSession={onNewSession}
 				onReset={() => {
 					if (confirm("Disconnect and clear settings?")) {
 						setUrl("");
@@ -149,7 +150,7 @@ export default function App(): React.ReactElement {
 				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
 				showLog={settings.showActivityLog}
 			/>
-			<SessionStrip snapshot={snapshot} onReset={onNewSession} />
+			<SessionStrip snapshot={snapshot} />
 			<main className="flex-1 overflow-hidden flex flex-col">
 				<div className="flex-1 overflow-hidden">
 					{activePanes.length === 1 ? (

@@ -12,6 +12,7 @@ interface HeaderProps {
 	viewingFight: number | null;
 	setViewingFight: (n: number | null) => void;
 	onSettings: () => void;
+	onNewSession: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
@@ -23,7 +24,7 @@ interface HeaderProps {
 export function Header({
 	state, stale, snapshot, panes, togglePane,
 	viewingFight, setViewingFight,
-	onSettings, onReset, onToggleLog, showLog,
+	onSettings, onNewSession, onReset, onToggleLog, showLog,
 }: HeaderProps): React.ReactElement {
 	const localPlayer = snapshot?.players.find((p) => p.isLocal);
 	const localName = localPlayer?.name;
@@ -40,6 +41,7 @@ export function Header({
 				state={state}
 				stale={stale}
 				onSettings={onSettings}
+				onNewSession={onNewSession}
 				onReset={onReset}
 				onToggleLog={onToggleLog}
 				showLog={showLog}
@@ -60,13 +62,14 @@ interface TitleBarProps {
 	state: ConnectionState;
 	stale: boolean;
 	onSettings: () => void;
+	onNewSession: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
 }
 
 function TitleBar({
-	localName, state, stale, onSettings, onReset, onToggleLog, showLog,
+	localName, state, stale, onSettings, onNewSession, onReset, onToggleLog, showLog,
 }: TitleBarProps): React.ReactElement {
 	const breadcrumb = localName ? `meter / ${localName.toLowerCase()}` : "meter / (waiting)";
 	return (
@@ -118,6 +121,25 @@ function TitleBar({
 			</div>
 			<div className="flex items-center" style={{ gap: 14 }}>
 				<AgentPill state={state} stale={stale} />
+				<button
+					onClick={onNewSession}
+					className="sk-upper"
+					style={{
+						appearance: "none",
+						border: "1px solid var(--sk-line-2)",
+						background: "var(--sk-bg-3)",
+						color: "var(--sk-fg-0)",
+						padding: "4px 9px",
+						borderRadius: 4,
+						cursor: "pointer",
+						fontSize: 10,
+						fontWeight: 600,
+						letterSpacing: "0.08em",
+					}}
+					title="Reset all session counters"
+				>
+					New session
+				</button>
 				<IconToggle onClick={onToggleLog} active={showLog} title="Activity log">≡</IconToggle>
 				<IconBtn onClick={onSettings} title="Settings">⋯</IconBtn>
 				<IconBtn onClick={onReset} title="Disconnect">⟲</IconBtn>

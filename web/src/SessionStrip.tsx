@@ -4,7 +4,6 @@ import { fmt } from "./format.ts";
 
 interface SessionStripProps {
 	snapshot: Snapshot | null;
-	onReset: () => void;
 }
 
 // SessionStrip renders the design's "FarmStrip": a full-bleed grid of
@@ -15,7 +14,7 @@ interface SessionStripProps {
 // All five metrics live in the Go agent's RAM; closing the agent clears
 // them, so the sparkline buffer is the only thing held in the browser
 // and it resets when "New session" fires (session.startedAt changes).
-export function SessionStrip({ snapshot, onReset }: SessionStripProps): React.ReactElement {
+export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElement {
 	const s = snapshot?.session;
 	const startedAt = s?.startedAt ?? "";
 	const elapsedSec = (s?.elapsedMs ?? 0) / 1000;
@@ -39,43 +38,18 @@ export function SessionStrip({ snapshot, onReset }: SessionStripProps): React.Re
 	const live = (snapshot?.fight?.inCombat) ?? false;
 
 	return (
-		<div style={{ position: "relative" }}>
-			<div
-				style={{
-					display: "grid",
-					gridTemplateColumns: "repeat(4, 1fr)",
-					gap: 1,
-					background: "var(--sk-line)",
-					borderBottom: "1px solid var(--sk-line)",
-				}}
-			>
-				{cards.map(({ key, ...rest }) => (
-					<FarmCard key={key} {...rest} live={live} />
-				))}
-			</div>
-			<button
-				onClick={onReset}
-				className="sk-upper"
-				style={{
-					position: "absolute",
-					top: 8,
-					right: 12,
-					appearance: "none",
-					border: "1px solid var(--sk-line-2)",
-					background: "var(--sk-bg-3)",
-					color: "var(--sk-fg-0)",
-					padding: "4px 10px",
-					borderRadius: 4,
-					cursor: "pointer",
-					fontSize: 10,
-					fontWeight: 600,
-					letterSpacing: "0.08em",
-					zIndex: 1,
-				}}
-				title="Reset all session counters"
-			>
-				New session
-			</button>
+		<div
+			style={{
+				display: "grid",
+				gridTemplateColumns: "repeat(4, 1fr)",
+				gap: 1,
+				background: "var(--sk-line)",
+				borderBottom: "1px solid var(--sk-line)",
+			}}
+		>
+			{cards.map(({ key, ...rest }) => (
+				<FarmCard key={key} {...rest} live={live} />
+			))}
 		</div>
 	);
 }

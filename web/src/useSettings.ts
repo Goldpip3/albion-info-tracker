@@ -40,7 +40,7 @@ export interface ColumnVisibility {
 
 const DEFAULT: Settings = {
 	accent: "cyan",
-	density: 28,
+	density: 34,
 	barStyle: "outline",
 	pinLocal: true,
 	groupByRole: false,

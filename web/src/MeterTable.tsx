@@ -134,13 +134,6 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 	// who without reading the role label. This matches the design.
 	const barColor = `var(--sk-role-${roleKey})`;
 	const barTint = `color-mix(in oklab, ${barColor} 16%, transparent)`;
-	// DPS / HPS rate column still uses the active pane tone so the rate
-	// reads as "the metric you're looking at" rather than per-player.
-	const tabColor =
-		mode === "damage" ? "var(--sk-damage)" :
-		mode === "heal"   ? "var(--sk-heal)"   :
-		mode === "taken"  ? "var(--sk-taken)"  : "var(--sk-fg-1)";
-
 	const pct = max > 0 ? Math.min(100, (primary.cur / max) * 100) : 0;
 	const rowH = settings.density;
 
@@ -269,14 +262,16 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				</div>
 			</div>
 
-			{/* DPS / HPS — tinted to active tab */}
+			{/* DPS / HPS — tinted to the player's class accent so the rate
+			    ties to the bar above it (matches the design's per-row colour
+			    coding). Falls back to the muted tone for Taken (no rate). */}
 			<div className="flex flex-col items-end" style={{ lineHeight: 1, gap: 2 }}>
 				<span
 					className="sk-mono"
 					style={{
 						fontSize: 16,
 						fontWeight: 600,
-						color: primary.rate != null ? tabColor : "var(--sk-fg-3)",
+						color: primary.rate != null ? barColor : "var(--sk-fg-3)",
 						letterSpacing: "-0.02em",
 					}}
 				>
