@@ -7,6 +7,9 @@ export interface PlayerSnapshot {
 	name: string;
 	guild?: string;
 	isLocal?: boolean;
+	classCode?: string; // 3-letter chip text ("DGR", "FIR", …) or "—"
+	role?: string;      // "T" | "H" | "R" | "M" | "S" | "?"
+	roleLabel?: string; // "MELEE DPS · DAGGERS"
 	currentDamage: number;
 	currentDps: number;
 	overallDamage: number;
@@ -19,9 +22,20 @@ export interface PlayerSnapshot {
 	overallTaken: number;
 }
 
+export interface Composition {
+	tank: number;
+	healer: number;
+	ranged: number;
+	melee: number;
+	support: number;
+	unknown: number;
+	total: number;
+}
+
 export interface Snapshot {
 	generatedAt: string;
 	players: PlayerSnapshot[];
+	composition?: Composition;
 }
 
 export interface SnapshotEnvelope {

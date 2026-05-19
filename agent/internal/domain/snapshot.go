@@ -19,6 +19,13 @@ type PlayerSnapshot struct {
 	Guild    string `json:"guild,omitempty"`
 	IsLocal  bool   `json:"isLocal,omitempty"`
 
+	// Weapon-derived role + class chip. ClassCode is a 3-letter token
+	// the frontend renders in a chip; Role is one of T/H/R/M/S/? for
+	// the composition strip; RoleLabel is the full subtitle.
+	ClassCode string `json:"classCode,omitempty"`
+	Role      string `json:"role,omitempty"`
+	RoleLabel string `json:"roleLabel,omitempty"`
+
 	CurrentDamage int64   `json:"currentDamage"`
 	CurrentDPS    float64 `json:"currentDps"`
 	OverallDamage int64   `json:"overallDamage"`
@@ -31,10 +38,22 @@ type PlayerSnapshot struct {
 	OverallTaken  int64   `json:"overallTaken"`
 }
 
+// Composition counts each role across the snapshot's players.
+type Composition struct {
+	Tank      int `json:"tank"`
+	Healer    int `json:"healer"`
+	Ranged    int `json:"ranged"`
+	Melee     int `json:"melee"`
+	Support   int `json:"support"`
+	Unknown   int `json:"unknown"`
+	Total     int `json:"total"`
+}
+
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
 	GeneratedAt time.Time        `json:"generatedAt"`
 	Players     []PlayerSnapshot `json:"players"`
+	Composition Composition      `json:"composition"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
@@ -59,11 +78,14 @@ func (e *Engine) Snapshot() Snapshot {
 	defer e.store.mu.RUnlock()
 	for _, m := range members {
 		out.Players = append(out.Players, PlayerSnapshot{
-			UserGuid: m.UserGuid.String(),
-			ObjectId: m.ObjectId,
-			Name:     m.Name,
-			Guild:    m.Guild,
-			IsLocal:  m.IsLocal,
+			UserGuid:  m.UserGuid.String(),
+			ObjectId:  m.ObjectId,
+			Name:      m.Name,
+			Guild:     m.Guild,
+			IsLocal:   m.IsLocal,
+			ClassCode: m.ClassCode,
+			Role:      m.Role,
+			RoleLabel: m.RoleLabel,
 
 			CurrentDamage: m.Current.DamageDealt,
 			CurrentDPS:    m.Current.DPS(),
@@ -76,6 +98,21 @@ func (e *Engine) Snapshot() Snapshot {
 			CurrentTaken:  m.Current.DamageTaken,
 			OverallTaken:  m.Overall.DamageTaken,
 		})
+		switch m.Role {
+		case "T":
+			out.Composition.Tank++
+		case "H":
+			out.Composition.Healer++
+		case "R":
+			out.Composition.Ranged++
+		case "M":
+			out.Composition.Melee++
+		case "S":
+			out.Composition.Support++
+		default:
+			out.Composition.Unknown++
+		}
+		out.Composition.Total++
 	}
 	return out
 }

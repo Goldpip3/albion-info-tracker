@@ -154,7 +154,7 @@ function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover }
 	const rate = mode === "heal" ? player.currentHps : mode === "taken" ? 0 : player.currentDps;
 	const pct = max > 0 ? (cur / max) * 100 : 0;
 
-	const chipText = player.isLocal ? "YOU" : "—";
+	const chipText = player.classCode && player.classCode !== "—" ? player.classCode : player.isLocal ? "YOU" : "—";
 	const pyPad = settings.density === 24 ? "py-1" : settings.density === 28 ? "py-1.5" : "py-2";
 
 	const barClass = barClassName(settings.barStyle, player.isLocal ?? false);
@@ -177,7 +177,7 @@ function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover }
 						{player.name || player.userGuid.slice(0, 8) + "…"}
 					</div>
 					<div className="truncate text-[10px] uppercase tracking-wider text-skirmish-muted">
-						{player.guild || "—"}
+						{player.roleLabel || player.guild || "—"}
 					</div>
 				</div>
 			</div>

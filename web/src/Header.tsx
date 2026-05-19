@@ -66,6 +66,7 @@ export function Header({ state, stale, snapshot, mode, setMode, onSettings, onRe
 				<div className="hidden md:flex items-center gap-4 pl-3 border-l border-skirmish-line/60">
 					<PartyStat label="Party DPS" value={partyDps(snapshot)} />
 					<PartyStat label="Top" value={topName(snapshot)} mono={false} />
+					<CompositionStrip snapshot={snapshot} />
 				</div>
 			</div>
 		</header>
@@ -151,4 +152,46 @@ function topName(snapshot: Snapshot | null): string {
 	if (players.length === 0) return "—";
 	const top = [...players].sort((a, b) => b.currentDamage - a.currentDamage)[0];
 	return top.name || "—";
+}
+
+function CompositionStrip({ snapshot }: { snapshot: Snapshot | null }): React.ReactElement {
+	const c = snapshot?.composition;
+	if (!c || c.total === 0) {
+		return (
+			<div className="flex flex-col items-end leading-none">
+				<span className="text-[9px] uppercase tracking-[0.15em] text-skirmish-muted">Composition</span>
+				<span className="text-sm text-skirmish-muted">—</span>
+			</div>
+		);
+	}
+	return (
+		<div className="flex flex-col items-end leading-none gap-1">
+			<span className="text-[9px] uppercase tracking-[0.15em] text-skirmish-muted">
+				Composition {c.total}/20
+			</span>
+			<div className="flex gap-1">
+				<RoleCount letter="T" count={c.tank}    tone="bg-blue-500/15 text-blue-300" />
+				<RoleCount letter="H" count={c.healer}  tone="bg-emerald-500/15 text-emerald-300" />
+				<RoleCount letter="R" count={c.ranged}  tone="bg-rose-500/15 text-rose-300" />
+				<RoleCount letter="M" count={c.melee}   tone="bg-amber-500/15 text-amber-300" />
+				<RoleCount letter="S" count={c.support} tone="bg-purple-500/15 text-purple-300" />
+			</div>
+		</div>
+	);
+}
+
+function RoleCount({ letter, count, tone }: { letter: string; count: number; tone: string }): React.ReactElement {
+	if (count === 0) {
+		return (
+			<span className="text-[10px] tnum text-skirmish-muted/60 px-1.5 py-0.5 rounded border border-skirmish-line">
+				{letter}0
+			</span>
+		);
+	}
+	return (
+		<span className={`text-[10px] tnum px-1.5 py-0.5 rounded ${tone}`}>
+			{letter}
+			{count}
+		</span>
+	);
 }

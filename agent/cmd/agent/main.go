@@ -14,6 +14,7 @@ import (
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/domain"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/push"
 )
@@ -33,6 +34,16 @@ func main() {
 	defer cancel()
 
 	engine := domain.NewEngine()
+	if cfg.AlbionInstallRoot != "" {
+		if items, err := gamedata.LoadItemCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
+			log.Printf("items.bin: %v (class chips will be blank)", err)
+		} else {
+			engine.SetItemCatalog(items)
+			log.Printf("items.bin: %d entries loaded for weapon classification", items.Len())
+		}
+	} else {
+		log.Print("AlbionInstallRoot not configured — class chips will be blank. Set ALBION_INSTALL or albionInstallRoot in agent.json.")
+	}
 	parser := photon.New(engine.Handlers())
 
 	var packetsSeen atomic.Uint64

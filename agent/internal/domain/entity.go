@@ -14,6 +14,14 @@ type Entity struct {
 	Name     string
 	Guild    string
 
+	// MainHandItemId is the item index from NewCharacter param 40[0]. Used
+	// to classify the player's weapon into a role + 3-letter class chip
+	// via gamedata.ClassifyWeapon.
+	MainHandItemId int
+	ClassCode      string // "DGR", "FIR", … or "—" if unknown
+	Role           string // "T", "H", "R", "M", "S", or "?"
+	RoleLabel      string // "MELEE DPS · DAGGERS"
+
 	IsLocal   bool
 	IsInParty bool
 

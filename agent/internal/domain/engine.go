@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 )
 
@@ -29,11 +30,22 @@ type Engine struct {
 	// has its own lock for entity state.
 	guard sync.Mutex
 	now   func() time.Time
+
+	// items, when set, lets handleNewCharacter classify a player's weapon
+	// into a role + 3-letter class chip. Nil is fine — entities just get
+	// "?" / "—" until the catalog loads or never loads.
+	items *gamedata.ItemCatalog
 }
 
 // NewEngine constructs an Engine backed by a fresh Store.
 func NewEngine() *Engine {
 	return &Engine{store: NewStore(), now: time.Now}
+}
+
+// SetItemCatalog wires an items.bin catalog into the engine for weapon-based
+// role classification. Safe to call before or after capture starts.
+func (e *Engine) SetItemCatalog(c *gamedata.ItemCatalog) {
+	e.items = c
 }
 
 // Store exposes the underlying store for read-only consumers like the
@@ -163,7 +175,82 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	if guid.IsZero() {
 		return
 	}
-	e.store.UpsertByGuid(guid, objectId, name, guild)
+	ent := e.store.UpsertByGuid(guid, objectId, name, guild)
+	e.applyEquipment(ent, p)
+}
+
+// applyEquipment reads param 40 (the 10-slot equipment array) from a
+// NewCharacter event and uses index 0 (MainHand) to classify the weapon.
+// Subsequent NewCharacter / CharacterEquipmentChanged events for the same
+// player will overwrite as the player re-equips.
+func (e *Engine) applyEquipment(ent *Entity, p map[byte]any) {
+	if ent == nil || e.items == nil {
+		return
+	}
+	equip, ok := p[40]
+	if !ok {
+		return
+	}
+	mainHand := firstIntOfArray(equip)
+	if mainHand <= 0 {
+		return
+	}
+	name := e.items.Name(mainHand)
+	if name == "" {
+		return
+	}
+	c := gamedata.ClassifyWeapon(name)
+	e.store.mu.Lock()
+	ent.MainHandItemId = mainHand
+	ent.ClassCode = c.Code
+	ent.Role = string(c.Role)
+	ent.RoleLabel = c.Label
+	e.store.mu.Unlock()
+}
+
+// firstIntOfArray returns the first integer element of a Protocol18 array
+// parameter (int16/int32/int64 / their unsigned cousins / any). 0 on miss.
+func firstIntOfArray(v any) int {
+	switch a := v.(type) {
+	case []int16:
+		if len(a) > 0 {
+			return int(a[0])
+		}
+	case []int32:
+		if len(a) > 0 {
+			return int(a[0])
+		}
+	case []int64:
+		if len(a) > 0 {
+			return int(a[0])
+		}
+	case []uint16:
+		if len(a) > 0 {
+			return int(a[0])
+		}
+	case []byte:
+		if len(a) > 0 {
+			return int(a[0])
+		}
+	case []any:
+		if len(a) > 0 {
+			switch x := a[0].(type) {
+			case byte:
+				return int(x)
+			case int16:
+				return int(x)
+			case int32:
+				return int(x)
+			case int64:
+				return int(x)
+			case uint16:
+				return int(x)
+			case uint32:
+				return int(x)
+			}
+		}
+	}
+	return 0
 }
 
 func (e *Engine) handlePartyJoined(p map[byte]any) {
