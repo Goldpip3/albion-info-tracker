@@ -81,10 +81,38 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	}
 }
 
-// onRequest and onResponse are stubs for now — damage meter MVP doesn't
-// consume operations. Hooks are in place for later phases.
-func (e *Engine) onRequest(photon.OperationRequest)   {}
-func (e *Engine) onResponse(photon.OperationResponse) {}
+func (e *Engine) onRequest(photon.OperationRequest) {}
+
+func (e *Engine) onResponse(resp photon.OperationResponse) {
+	code := realCode(resp.Parameters, resp.OperationCode)
+	switch gamecodes.Op(code) {
+	case gamecodes.OpJoin:
+		dbg("Join response %v", resp.Parameters)
+		e.handleJoinResponse(resp.Parameters)
+	}
+}
+
+// handleJoinResponse processes the operation response sent when the local
+// user enters a zone. It carries the only authoritative source of the
+// local player's identity — the server never broadcasts the local user
+// via NewCharacter, so this is how we learn our own ObjectId + Guid.
+//
+// Mirrors SAT's JoinResponseHandler. Params used:
+//   0 → UserObjectId, 1 → UserGuid, 2 → Username, 58 → GuildName.
+func (e *Engine) handleJoinResponse(p map[byte]any) {
+	objectId, _ := paramLong(p, 0)
+	guid, _ := paramGuid(p, 1)
+	name, _ := paramString(p, 2)
+	guild, _ := paramString(p, 58)
+	if guid.IsZero() {
+		return
+	}
+	e.store.UpsertByGuid(guid, objectId, name, guild)
+	e.store.SetLocalGuid(guid)
+	// Local player is always in their own party for damage-meter purposes,
+	// even when actually solo — that matches SAT's behaviour.
+	e.store.MarkInParty(guid, true)
+}
 
 func (e *Engine) handleHealthUpdate(p map[byte]any) {
 	affected, _ := paramLong(p, 0)
