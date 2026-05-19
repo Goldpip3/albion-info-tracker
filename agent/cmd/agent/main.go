@@ -261,6 +261,12 @@ func loadGameData(cfg config.Config, engine *domain.Engine) {
 		fmt.Printf("  spells.bin OK — %d entries\n", spells.Len())
 		engine.SetSpellCatalog(spells)
 	}
+	if loc, err := gamedata.LoadLocalization(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
+		log.Printf("  localization.bin: %v (in-game display names will be blank)", err)
+	} else {
+		fmt.Printf("  localization.bin OK — %d EN-US strings\n", loc.Len())
+		engine.SetLocalization(loc)
+	}
 	fmt.Println()
 }
 

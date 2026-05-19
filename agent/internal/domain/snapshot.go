@@ -25,10 +25,7 @@ func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
 	}
 	out := make([]SpellBreakdown, 0, len(ent.BySpell))
 	for idx, s := range ent.BySpell {
-		var name string
-		if e.spells != nil {
-			name = e.spells.Name(idx)
-		}
+		name := e.localizedSpellName(idx)
 		if isPassiveSpell(name) {
 			continue
 		}
@@ -62,10 +59,7 @@ func (e *Engine) sessionSpells(ent *Entity, n int) []SpellBreakdown {
 	}
 	out := make([]SpellBreakdown, 0, len(ent.BySpellSession))
 	for idx, s := range ent.BySpellSession {
-		var name string
-		if e.spells != nil {
-			name = e.spells.Name(idx)
-		}
+		name := e.localizedSpellName(idx)
 		if isPassiveSpell(name) {
 			continue
 		}
@@ -135,10 +129,7 @@ func (e *Engine) topAssists(ent *Entity, n int) []AssistBreakdown {
 	}
 	out := make([]AssistBreakdown, 0, len(ent.AssistsBySpell))
 	for idx, a := range ent.AssistsBySpell {
-		var name string
-		if e.spells != nil {
-			name = e.spells.Name(idx)
-		}
+		name := e.localizedSpellName(idx)
 		out = append(out, AssistBreakdown{
 			Index:        idx,
 			Name:         name,

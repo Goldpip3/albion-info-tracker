@@ -38,4 +38,22 @@ func main() {
 	} else {
 		fmt.Printf("spells.bin OK — %d entries\n", spells.Len())
 	}
+
+	loc, err := gamedata.LoadLocalization(cfg.AlbionInstallRoot, gamedata.ServerLive)
+	if err != nil {
+		fmt.Println("localization.bin:", err)
+	} else {
+		fmt.Printf("localization.bin OK — %d EN-US strings\n", loc.Len())
+		// Sample a few spell + item lookups to verify the wiring.
+		for _, uname := range []string{
+			"CROSSBOW_FLICKERSHOT_E",
+			"SKILLSHOT_TELEPORT_BUFF",
+			"CHAINDASH",
+			"T6_2H_CROSSBOWLARGE_HELL",
+			"T4_2H_DUALCROSSBOW_CRYSTAL",
+		} {
+			fmt.Printf("  spell %-35q → %q\n", uname, loc.SpellName(uname))
+			fmt.Printf("  item  %-35q → %q\n", uname, loc.ItemName(uname))
+		}
+	}
 }

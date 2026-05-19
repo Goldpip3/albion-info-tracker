@@ -3,6 +3,7 @@ package domain
 import (
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +41,11 @@ type Engine struct {
 	// uniquename for the drill-in screen. Nil is fine — the drill-in just
 	// shows the numeric index.
 	spells *gamedata.SpellCatalog
+
+	// loc, when set, turns spells.bin / items.bin uniquenames into the
+	// user-facing English names shown in Albion's tooltips
+	// ("Flickershot" instead of "CROSSBOW_FLICKERSHOT_E").
+	loc *gamedata.Localization
 
 	// events is the activity log ring buffer surfaced in the snapshot.
 	events *eventBuffer
@@ -198,6 +204,31 @@ func (e *Engine) SetItemCatalog(c *gamedata.ItemCatalog) {
 // screen can resolve a CausingSpellIndex to a uniquename.
 func (e *Engine) SetSpellCatalog(c *gamedata.SpellCatalog) {
 	e.spells = c
+}
+
+// SetLocalization wires a localization.bin lookup so spells/items resolve
+// to their in-game tooltip names instead of raw uniquenames.
+func (e *Engine) SetLocalization(l *gamedata.Localization) {
+	e.loc = l
+}
+
+// localizedSpellName resolves a spell index to its in-game display name,
+// falling back to the uniquename when localization is missing or doesn't
+// have an entry for the spell (passive sub-effects often don't).
+func (e *Engine) localizedSpellName(idx int) string {
+	if e.spells == nil {
+		return ""
+	}
+	uniqueName := e.spells.Name(idx)
+	if uniqueName == "" {
+		return ""
+	}
+	if e.loc != nil {
+		if loc := e.loc.SpellName(uniqueName); loc != "" {
+			return loc
+		}
+	}
+	return uniqueName
 }
 
 // SpellCatalog returns the configured spell catalog, or nil.
@@ -1081,17 +1112,7 @@ func (e *Engine) applyCachedEquipment(ent *Entity) {
 	if !ok || mh <= 0 {
 		return
 	}
-	name := e.items.Name(mh)
-	if name == "" {
-		return
-	}
-	c := gamedata.ClassifyWeapon(name)
-	e.store.mu.Lock()
-	ent.MainHandItemId = mh
-	ent.ClassCode = c.Code
-	ent.Role = string(c.Role)
-	ent.RoleLabel = c.Label
-	e.store.mu.Unlock()
+	e.classifyMainHand(ent, mh)
 }
 
 func (e *Engine) handleNewCharacter(p map[byte]any) {
@@ -1135,16 +1156,31 @@ func (e *Engine) applyEquipment(ent *Entity, p map[byte]any) {
 	if mainHand <= 0 {
 		return
 	}
+	e.classifyMainHand(ent, mainHand)
+}
+
+// classifyMainHand resolves a MainHand item index to the entity's class
+// chip + role + label. The chip + role come from pattern-matching the
+// uniquename ("DUALCROSSBOW" → XBW / RangedDPS). The label PREFERS the
+// localized in-game name ("Adept's Arclight Blasters") when available,
+// falling back to ClassifyWeapon's generic label when not.
+func (e *Engine) classifyMainHand(ent *Entity, mainHand int) {
 	name := e.items.Name(mainHand)
 	if name == "" {
 		return
 	}
 	c := gamedata.ClassifyWeapon(name)
+	label := c.Label
+	if e.loc != nil {
+		if loc := e.loc.ItemName(name); loc != "" {
+			label = strings.ToUpper(loc)
+		}
+	}
 	e.store.mu.Lock()
 	ent.MainHandItemId = mainHand
 	ent.ClassCode = c.Code
 	ent.Role = string(c.Role)
-	ent.RoleLabel = c.Label
+	ent.RoleLabel = label
 	e.store.mu.Unlock()
 }
 
