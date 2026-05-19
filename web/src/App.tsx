@@ -201,7 +201,6 @@ function LiveApp(): React.ReactElement {
 											snapshot={meterSnapshot}
 											mode={p.mode}
 											settings={settings}
-											compact={activePanes.length > 1}
 											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
 										/>
 									</div>
@@ -324,7 +323,6 @@ function DemoApp(): React.ReactElement {
 											snapshot={snapshot}
 											mode={p.mode}
 											settings={settings}
-											compact={activePanes.length > 1}
 											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
 										/>
 									</div>
