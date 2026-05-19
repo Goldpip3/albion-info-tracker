@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
-	"sort"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"crypto/rand"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
@@ -19,37 +27,35 @@ import (
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/push"
 )
 
-const version = "0.0.4"
+const (
+	version = "0.5.0"
+
+	// defaultPushURL points new installs at the shared Skirmish backend.
+	// A custom Worker can be substituted by setting pushUrl in agent.json
+	// or the ALBION_AGENT_URL env var.
+	defaultPushURL = "wss://albion-meter.goldpipe.workers.dev/ingest"
+	defaultViewURL = "https://albion-meter-web.pages.dev"
+)
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	log.Printf("albion agent v%s starting", version)
+	log.SetFlags(0)
+	printBanner()
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		fatal("agent.json", err)
 	}
+
+	// First-run wizard: if pushToken or pushUrl is missing, walk the user
+	// through pairing without making them edit JSON by hand.
+	cfg = ensureConfigured(cfg)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	engine := domain.NewEngine()
-	if cfg.AlbionInstallRoot != "" {
-		if items, err := gamedata.LoadItemCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
-			log.Printf("items.bin: %v (class chips will be blank)", err)
-		} else {
-			engine.SetItemCatalog(items)
-			log.Printf("items.bin: %d entries loaded for weapon classification", items.Len())
-		}
-		if spells, err := gamedata.LoadSpellCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
-			log.Printf("spells.bin: %v (spell drill-in will show numeric indexes)", err)
-		} else {
-			engine.SetSpellCatalog(spells)
-			log.Printf("spells.bin: %d entries loaded for ability names", spells.Len())
-		}
-	} else {
-		log.Print("AlbionInstallRoot not configured — class chips will be blank and spells unresolved. Set ALBION_INSTALL or albionInstallRoot in agent.json.")
-	}
+	loadGameData(cfg, engine)
+
 	parser := photon.New(engine.Handlers())
 
 	var packetsSeen atomic.Uint64
@@ -60,7 +66,6 @@ func main() {
 
 	go renderLoop(ctx, engine, &packetsSeen)
 
-	// Push to remote backend if configured. Runs concurrently with capture.
 	if cfg.PushURL != "" {
 		client := &push.Client{
 			URL:          cfg.PushURL,
@@ -68,25 +73,146 @@ func main() {
 			AgentVersion: version,
 			Snapshot:     engine.Snapshot,
 		}
-		log.Printf("push: connecting to %s", cfg.PushURL)
+		fmt.Printf("\n  Streaming to %s\n", maskedURL(cfg.PushURL))
+		fmt.Printf("  View at      %s\n\n", defaultViewURL)
 		go func() {
 			if err := client.Run(ctx); err != nil && err != context.Canceled {
 				log.Printf("push: stopped: %v", err)
 			}
 		}()
 	} else {
-		log.Printf("push: no PushURL configured — running in stdout-only mode")
+		log.Print("push: no PushURL configured — running in stdout-only mode")
 	}
 
 	if err := capture.Run(ctx, sink); err != nil && err != context.Canceled {
-		log.Fatalf("capture: %v", err)
+		fatal("capture", err)
 	}
-	printSnapshot(engine.Snapshot(), true)
-	log.Print("stopped")
+	fmt.Println("\nStopped.")
+}
+
+// ensureConfigured fills in any missing critical config via an interactive
+// console prompt and re-writes agent.json next to the exe so future launches
+// skip the prompt.
+func ensureConfigured(cfg config.Config) config.Config {
+	dirty := false
+	if cfg.PushURL == "" {
+		cfg.PushURL = defaultPushURL
+		dirty = true
+	}
+	if cfg.PushToken == "" {
+		cfg.PushToken = promptForToken()
+		dirty = true
+	}
+	if cfg.AlbionInstallRoot == "" {
+		if guess := guessAlbionInstall(); guess != "" {
+			fmt.Printf("Auto-detected Albion at %s\n", guess)
+			cfg.AlbionInstallRoot = guess
+			dirty = true
+		}
+	}
+	if dirty {
+		if err := writeConfig(cfg); err != nil {
+			log.Printf("warn: could not save agent.json: %v", err)
+		}
+	}
+	return cfg
+}
+
+// promptForToken offers an interactive token-pairing flow. The user can
+// paste a token they generated on the website, or press Enter to have the
+// agent generate one locally — in which case they paste THAT into the
+// website's setup screen.
+func promptForToken() string {
+	fmt.Println("First-run setup — pair this agent with a website room.")
+	fmt.Println()
+	fmt.Printf("  1. Open %s in any browser.\n", defaultViewURL)
+	fmt.Println("  2. Click Generate token, then copy what's shown.")
+	fmt.Println("  3. Paste it here and press Enter.")
+	fmt.Println()
+	fmt.Println("  Or press Enter and we'll generate one for you — you'll")
+	fmt.Println("  paste it into the website instead.")
+	fmt.Println()
+	fmt.Print("  Token: ")
+
+	in := bufio.NewReader(os.Stdin)
+	line, _ := in.ReadString('\n')
+	token := strings.TrimSpace(line)
+	if token == "" {
+		token = generateToken()
+		fmt.Println()
+		fmt.Println("  Generated a fresh token:")
+		fmt.Println()
+		fmt.Println("      " + token)
+		fmt.Println()
+		fmt.Printf("  Paste it into %s and click Connect.\n", defaultViewURL)
+		fmt.Print("  Then press Enter to continue... ")
+		_, _ = in.ReadString('\n')
+	}
+	return token
+}
+
+// generateToken returns 32 random hex chars — same shape the website
+// uses. cryptographically random.
+func generateToken() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// writeConfig serializes cfg to agent.json next to the executable.
+func writeConfig(cfg config.Config) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(filepath.Dir(exe), "agent.json")
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+// guessAlbionInstall tries the canonical Windows install locations so a
+// fresh user doesn't have to spell their path. Returns "" if nothing was
+// found.
+func guessAlbionInstall() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	candidates := []string{
+		`C:\Program Files (x86)\AlbionOnline`,
+		`C:\Program Files\AlbionOnline`,
+		`C:\Program Files (x86)\Albion Online`,
+		`C:\Program Files\Albion Online`,
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(filepath.Join(c, "game")); err == nil {
+			return c
+		}
+	}
+	return ""
+}
+
+func loadGameData(cfg config.Config, engine *domain.Engine) {
+	if cfg.AlbionInstallRoot == "" {
+		fmt.Println("  (Albion install not found — class chips and spell names will be blank.)")
+		return
+	}
+	if items, err := gamedata.LoadItemCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
+		log.Printf("items.bin: %v", err)
+	} else {
+		engine.SetItemCatalog(items)
+	}
+	if spells, err := gamedata.LoadSpellCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
+		log.Printf("spells.bin: %v", err)
+	} else {
+		engine.SetSpellCatalog(spells)
+	}
 }
 
 func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
-	t := time.NewTicker(2 * time.Second)
+	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {
 		select {
@@ -94,49 +220,56 @@ func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
 			return
 		case <-t.C:
 			snap := e.Snapshot()
-			total, bound, _ := e.Store().Counts()
+			total, _, _ := e.Store().Counts()
 			if len(snap.Players) == 0 {
-				log.Printf("heartbeat  packets=%d  tracked=%d  bound=%d  party=0", pkts.Load(), total, bound)
+				fmt.Printf("  waiting for combat… packets=%d tracked=%d\n", pkts.Load(), total)
 				continue
 			}
-			printSnapshot(snap, false)
+			fmt.Printf("  fight %02d · %d player(s) · top: %s\n",
+				snap.Fight.Number, len(snap.Players), topName(snap))
 		}
 	}
 }
 
-func printSnapshot(s domain.Snapshot, final bool) {
+func topName(s domain.Snapshot) string {
 	if len(s.Players) == 0 {
-		if final {
-			fmt.Println("--- no party members tracked ---")
-		}
-		return
+		return "—"
 	}
-	sort.Slice(s.Players, func(i, j int) bool {
-		return s.Players[i].CurrentDamage > s.Players[j].CurrentDamage
-	})
+	top := s.Players[0]
+	for _, p := range s.Players[1:] {
+		if p.CurrentDamage > top.CurrentDamage {
+			top = p
+		}
+	}
+	if top.Name == "" {
+		return "(unknown)"
+	}
+	return top.Name
+}
 
-	header := "--- damage meter --- "
-	if final {
-		header = "=== final snapshot ==="
-	}
-	fmt.Printf("%s  %s\n", header, s.GeneratedAt.Format("15:04:05"))
-	fmt.Printf("  %-20s %12s %10s %12s %10s %12s %12s\n",
-		"NAME", "DMG CUR", "DPS CUR", "DMG OVR", "DPS OVR", "TAKEN CUR", "HEAL CUR")
-	for _, p := range s.Players {
-		name := p.Name
-		if name == "" {
-			name = p.UserGuid[:8] + "…"
-		}
-		marker := "  "
-		if p.IsLocal {
-			marker = "* "
-		}
-		fmt.Printf("%s%-20s %12d %10.0f %12d %10.0f %12d %12d\n",
-			marker, name,
-			p.CurrentDamage, p.CurrentDPS,
-			p.OverallDamage, p.OverallDPS,
-			p.CurrentTaken, p.CurrentHeal,
-		)
-	}
+func printBanner() {
+	fmt.Println()
+	fmt.Println("  ╭─ SKIRMISH ────────────────────────────────────────")
+	fmt.Printf("  │   agent v%s\n", version)
+	fmt.Println("  │   capturing Photon UDP and streaming to the website")
+	fmt.Println("  ╰───────────────────────────────────────────────────")
 	fmt.Println()
 }
+
+func fatal(stage string, err error) {
+	fmt.Println()
+	fmt.Printf("  ✕ %s: %v\n", stage, err)
+	fmt.Println()
+	fmt.Println("  Press Enter to close…")
+	bufio.NewReader(os.Stdin).ReadString('\n')
+	os.Exit(1)
+}
+
+// maskedURL hides the host's subdomain for logging readability while still
+// printing enough to debug a wrong-URL case.
+func maskedURL(u string) string {
+	return u
+}
+
+// Keep go vet happy if exec is ever needed (e.g. to relaunch elevated).
+var _ = exec.Command

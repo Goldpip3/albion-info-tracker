@@ -118,9 +118,27 @@ interface SetupScreenProps {
 	setToken: (v: string) => void;
 }
 
+const DEFAULT_VIEW_URL = "wss://albion-meter.goldpipe.workers.dev/view";
+
 function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.ReactElement {
-	const [localUrl, setLocalUrl] = useState(url);
+	const [localUrl, setLocalUrl] = useState(url || DEFAULT_VIEW_URL);
 	const [localToken, setLocalToken] = useState(token);
+	const [copied, setCopied] = useState(false);
+
+	const generate = (): void => {
+		// 16 random bytes → 32 hex chars. Matches the agent's generator.
+		const bytes = new Uint8Array(16);
+		crypto.getRandomValues(bytes);
+		const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+		setLocalToken(hex);
+		try {
+			void navigator.clipboard.writeText(hex);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch {
+			/* clipboard may be unavailable in non-HTTPS contexts */
+		}
+	};
 
 	return (
 		<div className="min-h-dvh flex items-center justify-center p-4 bg-skirmish-bg">
@@ -138,39 +156,56 @@ function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.
 					</div>
 					<h1 className="text-lg font-medium text-skirmish-text">Pair your agent</h1>
 					<p className="text-xs text-skirmish-dim">
-						The local capture agent shares a token with this page. Both end up in
-						the same room on the backend.
+						Generate a token below, paste it into the agent when prompted, and
+						launch the agent. Or generate one in the agent first and paste it
+						here.
 					</p>
 				</div>
 
 				<label className="block text-sm">
-					<span className="text-[10px] uppercase tracking-[0.15em] text-skirmish-muted">Worker URL</span>
+					<div className="flex items-baseline justify-between">
+						<span className="text-[10px] uppercase tracking-[0.15em] text-skirmish-muted">Pairing token</span>
+						<button
+							type="button"
+							onClick={generate}
+							className="text-[10px] uppercase tracking-[0.12em] text-skirmish-amber hover:underline"
+						>
+							{copied ? "✓ Copied" : "Generate"}
+						</button>
+					</div>
+					<input
+						type="text"
+						value={localToken}
+						onChange={(e) => setLocalToken(e.target.value)}
+						placeholder="32 hex chars"
+						className="mt-1 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm tnum focus:outline-none focus:border-skirmish-amber"
+					/>
+				</label>
+
+				<details className="text-xs">
+					<summary className="text-skirmish-muted cursor-pointer select-none">
+						Advanced — custom Worker URL
+					</summary>
 					<input
 						type="text"
 						value={localUrl}
 						onChange={(e) => setLocalUrl(e.target.value)}
-						placeholder="wss://albion-meter.<you>.workers.dev/view"
-						className="mt-1 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm focus:outline-none focus:border-skirmish-amber"
+						className="mt-2 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm focus:outline-none focus:border-skirmish-amber"
 					/>
-				</label>
-
-				<label className="block text-sm">
-					<span className="text-[10px] uppercase tracking-[0.15em] text-skirmish-muted">Pairing token</span>
-					<input
-						type="password"
-						value={localToken}
-						onChange={(e) => setLocalToken(e.target.value)}
-						placeholder="same token as agent.json pushToken"
-						className="mt-1 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm focus:outline-none focus:border-skirmish-amber"
-					/>
-				</label>
+				</details>
 
 				<button
 					type="submit"
-					className="w-full bg-skirmish-amber hover:bg-skirmish-amber-dim text-skirmish-bg font-medium rounded py-1.5 text-sm transition"
+					disabled={!localToken.trim()}
+					className="w-full bg-skirmish-amber hover:bg-skirmish-amber-dim text-skirmish-bg font-medium rounded py-1.5 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
 				>
 					Connect
 				</button>
+
+				<p className="text-[11px] text-skirmish-muted">
+					Anyone with this token sees the same meter room. Keep it private
+					unless you want to share.
+				</p>
 			</form>
 		</div>
 	);

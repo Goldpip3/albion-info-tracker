@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity
+      type="win32"
+      name="gg.skirmish.agent"
+      version="0.5.0.0"
+      processorArchitecture="amd64"/>
+  <description>Skirmish capture agent</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <!-- Raw sockets with SIO_RCVALL on Windows require administrator.
+             Embedding this manifest makes the OS show a UAC consent dialog
+             on launch instead of letting the agent start unelevated and
+             then fail silently. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Declare Windows 10/11 compatibility so OS-level features don't
+           fall back to legacy compatibility shims. -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>
