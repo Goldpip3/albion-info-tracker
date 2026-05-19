@@ -68,7 +68,7 @@ interface TitleBarProps {
 function TitleBar({
 	localName, state, stale, onSettings, onReset, onToggleLog, showLog,
 }: TitleBarProps): React.ReactElement {
-	const title = localName ? `${localName}'s Data Analytics` : "Combat Analytics";
+	const title = localName ? `${localName}'s Data Analytics` : "Goldpipe's Data Analytics";
 	return (
 		<div
 			className="flex items-center justify-between px-4 py-2.5"
@@ -77,16 +77,31 @@ function TitleBar({
 				background: "linear-gradient(180deg, var(--sk-bg-1) 0%, var(--sk-bg-0) 100%)",
 			}}
 		>
-			<div
-				className="truncate"
-				style={{
-					fontSize: 15,
-					fontWeight: 500,
-					letterSpacing: "-0.005em",
-					color: "var(--sk-fg-0)",
-				}}
-			>
-				{title}
+			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
+				<img
+					src="/assets/icon-GDA-64.png"
+					srcSet="/assets/icon-GDA-32.png 1x, /assets/icon-GDA-64.png 2x, /assets/icon-GDA-128.png 4x"
+					alt="GDA"
+					width={26}
+					height={26}
+					style={{
+						display: "block",
+						borderRadius: 6,
+						boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
+						flex: "0 0 auto",
+					}}
+				/>
+				<div
+					className="truncate"
+					style={{
+						fontSize: 15,
+						fontWeight: 500,
+						letterSpacing: "-0.005em",
+						color: "var(--sk-fg-0)",
+					}}
+				>
+					{title}
+				</div>
 			</div>
 			<div className="flex items-center" style={{ gap: 12 }}>
 				<AgentPill state={state} stale={stale} />

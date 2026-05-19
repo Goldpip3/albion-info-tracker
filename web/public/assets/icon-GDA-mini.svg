@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  
+  <defs>
+    
+    <radialGradient id="bgm" cx="50%" cy="50%" r="75%">
+      <stop offset="0%" stop-color="#2a1014"></stop>
+      <stop offset="60%" stop-color="#1a0a0e"></stop>
+      <stop offset="100%" stop-color="#0a0508"></stop>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#bgm)"></rect>
+
+  <text x="128" y="138" font-family="&#39;Pirata One&#39;,&#39;UnifrakturMaguntia&#39;,serif" font-size="200" fill="#ffffff" text-anchor="middle" dominant-baseline="central">A</text>
+
+  
+  <circle cx="128" cy="26" r="7" fill="#c8232c"></circle>
+  <rect x="124" y="32" width="8" height="26" fill="#3a1014"></rect>
+  <polygon points="90,56 166,56 162,66 94,66" fill="#c8232c"></polygon>
+  <polygon points="121,66 135,66 131,220 128,236 125,220" fill="#c8232c"></polygon>
+</svg>
