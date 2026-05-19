@@ -21,13 +21,22 @@ type Handlers struct {
 // events/requests/responses. It is safe to call Receive concurrently from
 // multiple goroutines only if you protect the same instance externally.
 type Parser struct {
-	h Handlers
-	// TODO: fragment reassembly state goes here once SendFragment is handled.
+	h        Handlers
+	segments map[int32]*segmentedPackage
+}
+
+// segmentedPackage accumulates the chunks of a Photon SendFragment payload
+// until all bytes are present, then is dispatched as a SendReliable body.
+type segmentedPackage struct {
+	totalLength int
+	received    int
+	payload     []byte
+	gotByte     []bool
 }
 
 // New returns a parser that dispatches into h.
 func New(h Handlers) *Parser {
-	return &Parser{h: h}
+	return &Parser{h: h, segments: make(map[int32]*segmentedPackage)}
 }
 
 // Receive parses one Photon datagram payload (already stripped of IP/UDP
@@ -106,8 +115,7 @@ func (p *Parser) handleCommand(r *reader) bool {
 	case cmdSendReliable:
 		return p.handleReliable(r, bodyLen)
 	case cmdSendFragment:
-		// TODO: implement fragment reassembly. For now, advance past the body.
-		return r.skip(bodyLen) == nil
+		return p.handleFragment(r, bodyLen)
 	default:
 		// Unknown command: skip its body and keep going.
 		return r.skip(bodyLen) == nil
@@ -160,6 +168,71 @@ func (p *Parser) handleReliable(r *reader, bodyLen int) bool {
 		if p.h.OnEvent != nil {
 			p.h.OnEvent(evt)
 		}
+	}
+	return true
+}
+
+// handleFragment buffers one piece of a multi-datagram SendReliable payload.
+// When all bytes are received the reassembled buffer is fed back through the
+// same reliable-message path. Returns false on framing errors that prevent
+// further parsing of the current outer packet.
+func (p *Parser) handleFragment(r *reader, bodyLen int) bool {
+	if bodyLen < 20 {
+		return false
+	}
+	startSeq, err := r.beInt32()
+	if err != nil {
+		return false
+	}
+	if err := r.skip(8); err != nil { // fragmentCount(4) + fragmentNumber(4)
+		return false
+	}
+	totalLength, err := r.beInt32()
+	if err != nil {
+		return false
+	}
+	fragOffset, err := r.beInt32()
+	if err != nil {
+		return false
+	}
+	fragmentLen := bodyLen - 20
+	if totalLength <= 0 || fragmentLen <= 0 || fragOffset < 0 || int(fragOffset) > int(totalLength) {
+		_ = r.skip(fragmentLen)
+		return true
+	}
+	if fragmentLen > int(totalLength)-int(fragOffset) {
+		_ = r.skip(fragmentLen)
+		return true
+	}
+
+	seg, ok := p.segments[startSeq]
+	if !ok || seg.totalLength != int(totalLength) {
+		seg = &segmentedPackage{
+			totalLength: int(totalLength),
+			payload:     make([]byte, totalLength),
+			gotByte:     make([]bool, totalLength),
+		}
+		p.segments[startSeq] = seg
+	}
+
+	src, err := r.bytes(fragmentLen)
+	if err != nil {
+		return false
+	}
+	copy(seg.payload[fragOffset:int(fragOffset)+fragmentLen], src)
+
+	end := int(fragOffset) + fragmentLen
+	for i := int(fragOffset); i < end; i++ {
+		if !seg.gotByte[i] {
+			seg.gotByte[i] = true
+			seg.received++
+		}
+	}
+
+	if seg.received >= seg.totalLength {
+		delete(p.segments, startSeq)
+		inner := &reader{buf: seg.payload}
+		p.handleReliable(inner, seg.totalLength)
 	}
 	return true
 }

@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 )
 
@@ -29,16 +30,22 @@ func main() {
 	parser := photon.New(photon.Handlers{
 		OnEvent: func(e photon.EventData) {
 			events++
-			fmt.Printf("EVENT  [%3d]  params=%s\n", realCode(e.Parameters, e.Code), formatParams(e.Parameters))
+			code := realCode(e.Parameters, e.Code)
+			fmt.Printf("EVENT  [%3d %-30s]  %s\n",
+				code, gamecodes.EventName(gamecodes.Event(code)), formatParams(e.Parameters))
 		},
 		OnRequest: func(r photon.OperationRequest) {
 			requests++
-			fmt.Printf("REQ    [%3d]  params=%s\n", realCode(r.Parameters, r.OperationCode), formatParams(r.Parameters))
+			code := realCode(r.Parameters, r.OperationCode)
+			fmt.Printf("REQ    [%3d %-30s]  %s\n",
+				code, gamecodes.OpName(gamecodes.Op(code)), formatParams(r.Parameters))
 		},
 		OnResponse: func(r photon.OperationResponse) {
 			responses++
-			fmt.Printf("RESP   [%3d]  rc=%d  msg=%q  params=%s\n",
-				realCode(r.Parameters, r.OperationCode), r.ReturnCode, r.DebugMessage, formatParams(r.Parameters))
+			code := realCode(r.Parameters, r.OperationCode)
+			fmt.Printf("RESP   [%3d %-30s]  rc=%d msg=%q %s\n",
+				code, gamecodes.OpName(gamecodes.Op(code)),
+				r.ReturnCode, r.DebugMessage, formatParams(r.Parameters))
 		},
 	})
 
