@@ -1,12 +1,24 @@
 package domain
 
 import (
+	"log"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 )
+
+// verbose toggles per-event debug logging. Set ALBION_AGENT_VERBOSE=1 to
+// enable; useful for figuring out why party detection isn't kicking in.
+var verbose = os.Getenv("ALBION_AGENT_VERBOSE") != ""
+
+func dbg(format string, args ...any) {
+	if verbose {
+		log.Printf(format, args...)
+	}
+}
 
 // Engine wires Photon events into the entity store and combat tracker.
 // It is the public surface the rest of the agent talks to.
@@ -43,20 +55,28 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventHealthUpdate:
 		e.handleHealthUpdate(ev.Parameters)
 	case gamecodes.EventNewCharacter:
+		dbg("NewCharacter %v", ev.Parameters)
 		e.handleNewCharacter(ev.Parameters)
 	case gamecodes.EventPartyJoined:
+		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
 	case gamecodes.EventPartyPlayerJoined:
+		dbg("PartyPlayerJoined %v", ev.Parameters)
 		e.handlePartyPlayerJoined(ev.Parameters)
 	case gamecodes.EventPartyPlayerLeft:
+		dbg("PartyPlayerLeft %v", ev.Parameters)
 		e.handlePartyPlayerLeft(ev.Parameters)
 	case gamecodes.EventPartyDisbanded:
+		dbg("PartyDisbanded")
 		e.store.ResetParty()
 	case gamecodes.EventMountStart:
+		dbg("MountStart %v", ev.Parameters)
 		e.handleMountStart(ev.Parameters)
 	case gamecodes.EventNewMountObject:
+		dbg("NewMountObject %v", ev.Parameters)
 		e.handleNewMountObject(ev.Parameters)
 	case gamecodes.EventJoinFinished:
+		dbg("JoinFinished %v", ev.Parameters)
 		e.handleJoinFinished(ev.Parameters)
 	}
 }

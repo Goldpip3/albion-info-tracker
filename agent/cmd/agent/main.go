@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"sort"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -34,11 +35,13 @@ func main() {
 	engine := domain.NewEngine()
 	parser := photon.New(engine.Handlers())
 
+	var packetsSeen atomic.Uint64
 	sink := capture.SinkFunc(func(pkt capture.Packet) {
+		packetsSeen.Add(1)
 		parser.Receive(pkt.Payload)
 	})
 
-	go renderLoop(ctx, engine)
+	go renderLoop(ctx, engine, &packetsSeen)
 
 	// Push to remote backend if configured. Runs concurrently with capture.
 	if cfg.PushURL != "" {
@@ -65,7 +68,7 @@ func main() {
 	log.Print("stopped")
 }
 
-func renderLoop(ctx context.Context, e *domain.Engine) {
+func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
@@ -73,7 +76,13 @@ func renderLoop(ctx context.Context, e *domain.Engine) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			printSnapshot(e.Snapshot(), false)
+			snap := e.Snapshot()
+			total, bound, _ := e.Store().Counts()
+			if len(snap.Players) == 0 {
+				log.Printf("heartbeat  packets=%d  tracked=%d  bound=%d  party=0", pkts.Load(), total, bound)
+				continue
+			}
+			printSnapshot(snap, false)
 		}
 	}
 }

@@ -151,6 +151,19 @@ func (s *Store) BindRiderGuid(g Guid) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Always upsert an entity for the rider. Even without a matching
+	// MountStart (e.g. the local player who used a Mount REQUEST, or a
+	// remote player who entered view already mounted), at least we know
+	// their UserGuid. A future MountStart pair, or a NewCharacter event,
+	// will fill in the ObjectId.
+	e, ok := s.byGuid[g]
+	if !ok {
+		e = &Entity{UserGuid: g, LastSeen: time.Now()}
+		s.byGuid[g] = e
+	}
+	e.LastSeen = time.Now()
+
 	pending := s.pendingMountObjectId
 	s.pendingMountObjectId = 0
 	if pending == 0 {
@@ -162,14 +175,42 @@ func (s *Store) BindRiderGuid(g Guid) {
 	if !s.localGuid.IsZero() && g == s.localGuid {
 		return
 	}
-	e, ok := s.byGuid[g]
-	if !ok {
-		e = &Entity{UserGuid: g, LastSeen: time.Now()}
-		s.byGuid[g] = e
-	}
 	if e.ObjectId == 0 {
 		e.ObjectId = pending
 	}
+}
+
+// Counts returns (total tracked entities, entities with both Guid and
+// non-zero ObjectId, entities currently flagged IsInParty). Useful for
+// diagnostic output.
+func (s *Store) Counts() (total, bound, party int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, e := range s.byGuid {
+		total++
+		if e.ObjectId != 0 {
+			bound++
+		}
+		if e.IsInParty {
+			party++
+		}
+	}
+	return
+}
+
+// AllWithActivity returns every entity that has dealt or taken any damage
+// or done any healing. Used by "show all" mode to render a meter even
+// when party membership isn't known yet.
+func (s *Store) AllWithActivity() []*Entity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Entity, 0)
+	for _, e := range s.byGuid {
+		if e.Overall.DamageDealt > 0 || e.Overall.HealDone > 0 || e.Overall.DamageTaken > 0 {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // PartyMembers returns entities currently flagged IsInParty.

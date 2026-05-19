@@ -1,6 +1,13 @@
 package domain
 
-import "time"
+import (
+	"os"
+	"time"
+)
+
+// showAll loosens the meter's party gate. When true, Snapshot returns every
+// entity with combat activity, not just party members.
+var showAll = os.Getenv("ALBION_AGENT_SHOW_ALL") != ""
 
 // PlayerSnapshot is a serializable view of one party member's combat numbers
 // at an instant. Used both for stdout debugging now and for WebSocket push
@@ -32,8 +39,18 @@ type Snapshot struct {
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
 // call concurrently with engine event handlers.
+//
+// When ALBION_AGENT_SHOW_ALL is set, the snapshot includes every tracked
+// entity with any combat activity, not just party members. Useful when
+// party events haven't fired yet (mid-zone-start) and you still want to
+// see your own damage.
 func (e *Engine) Snapshot() Snapshot {
-	members := e.store.PartyMembers()
+	var members []*Entity
+	if showAll {
+		members = e.store.AllWithActivity()
+	} else {
+		members = e.store.PartyMembers()
+	}
 	out := Snapshot{
 		GeneratedAt: e.now(),
 		Players:     make([]PlayerSnapshot, 0, len(members)),
