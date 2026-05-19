@@ -56,7 +56,7 @@ export function DungeonStrip({ dungeon }: DungeonStripProps): React.ReactElement
 			<div className="flex items-center ml-auto" style={{ gap: 18 }}>
 				<RunStat label="Fame"   value={fmt(fame)}   accent="var(--sk-card-fame)" />
 				<RunStat label="Silver" value={fmt(silver)} accent="var(--sk-card-silver)" />
-				<RunStat label="Respec" value={kFmt(respec)} accent="var(--sk-card-respec)" />
+				<RunStat label="Combat Fame" value={kFmt(respec)} accent="var(--sk-card-respec)" />
 				<RunStat label="Might"  value={kFmt(might)}  accent="var(--sk-card-might)" />
 				{dungeon.deathsInRun !== undefined && dungeon.deathsInRun > 0 && (
 					<RunStat label="Deaths" value={dungeon.deathsInRun.toString()} accent="var(--sk-taken)" />

@@ -34,10 +34,10 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 	// Literal hex so the SVG sparkline gradient stop-color resolves
 	// reliably (Chrome/Firefox quirks with var() inside <stop>).
 	const cards: CardSpec[] = [
-		{ key: "fame",   label: "Fame",   value: kFormat(fame),   rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "#c08cff", glyph: "★" },
-		{ key: "silver", label: "Silver", value: kFormat(silver), rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "#d0d4dc", glyph: "◇" },
-		{ key: "respec", label: "Respec", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "#ffd770", glyph: "↻" },
-		{ key: "might",  label: "Might",  value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "#ff6464", glyph: "✦" },
+		{ key: "fame",   label: "Fame",        value: kFormat(fame),   rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "#c08cff", glyph: "★" },
+		{ key: "silver", label: "Silver",      value: kFormat(silver), rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "#d0d4dc", glyph: "◇" },
+		{ key: "respec", label: "Combat Fame", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "#ffd770", glyph: "⚔" },
+		{ key: "might",  label: "Might",       value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "#ff6464", glyph: "✦" },
 	];
 
 	const live = (snapshot?.fight?.inCombat) ?? false;

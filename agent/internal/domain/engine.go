@@ -449,9 +449,6 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventUpdateFame:
 		dbg("UpdateFame %v", ev.Parameters)
 		e.handleUpdateFame(ev.Parameters)
-	case gamecodes.EventUpdateMoney:
-		dbg("UpdateMoney %v", ev.Parameters)
-		e.handleUpdateMoney(ev.Parameters)
 	case gamecodes.EventUpdateReSpecPoints:
 		dbg("UpdateReSpec %v", ev.Parameters)
 		e.handleUpdateReSpec(ev.Parameters)
@@ -460,7 +457,11 @@ func (e *Engine) onEvent(ev photon.EventData) {
 		e.handleMightAndFavor(ev.Parameters)
 	case gamecodes.EventTakeSilver:
 		dbg("TakeSilver %v", ev.Parameters)
-		// covered by UpdateMoney delta; ignore to avoid double counting
+		e.handleTakeSilver(ev.Parameters)
+		// UpdateMoney is intentionally NOT tracked — it fires on every
+		// wallet sync (deposits, purchases, etc.) and would double-count
+		// alongside TakeSilver. SAT also uses TakeSilver as the
+		// canonical "silver gained" source.
 	}
 }
 
@@ -713,28 +714,89 @@ func (e *Engine) handleDied(p map[byte]any) {
 	e.sessionMu.Unlock()
 }
 
-// handleUpdateFame folds a fame-change event into the session total. The
-// event carries the LIFETIME total (param 1) so we track delta-to-previous.
+// handleUpdateFame folds a fame-change event into the session total.
+//
+// SAT's UpdateFameEvent exposes several values:
+//   param 1: TotalPlayerFame — running lifetime cumulative
+//   param 2: FameWithZoneMultiplier — fame for THIS event including zone bonus
+//   param 5: IsPremiumBonus — when true, premium adds +50%
+//   param 10: SatchelFame — bag bonus, separate from the kill
+//   param 17: BonusFactorInPercent — situational % bonus
+//
+// We previously tracked the delta of TotalPlayerFame, which under-counted
+// because TotalPlayerFame lags by ~1 tick relative to in-game popups, and
+// premium / satchel bonuses are sometimes booked separately. Compute the
+// per-event total the way SAT does:
+//   total = (FameWithZoneMultiplier + PremiumFame + SatchelFame) * BonusFactor
+//   PremiumFame = FameWithZoneMultiplier * 0.5 when IsPremiumBonus else 0
+//
+// FixPoint internal units (10_000 = 1 fame). Falls back to the old
+// delta-tracking when param 2 is absent (rare; defensive).
 func (e *Engine) handleUpdateFame(p map[byte]any) {
-	total, ok := paramLong(p, 1)
-	if !ok {
+	fameWithZone, hasZoneFame := paramLong(p, 2)
+	if !hasZoneFame {
+		// Fall back: delta of TotalPlayerFame.
+		total, ok := paramLong(p, 1)
+		if !ok {
+			return
+		}
+		e.sessionMu.Lock()
+		e.session.AccumulateFame(total)
+		e.sessionMu.Unlock()
+		return
+	}
+	premium := int64(0)
+	if isPrem, _ := paramBool(p, 5); isPrem {
+		premium = fameWithZone / 2
+	}
+	satchel, _ := paramLong(p, 10)
+	bonus := int64(0)
+	// param 17 ships as float (% multiplier above 1.0). Apply if present.
+	if raw, ok := p[17]; ok {
+		if f, ok := raw.(float32); ok && f > 0 {
+			bonus = int64(float64(fameWithZone+premium+satchel) * float64(f))
+		} else if f, ok := raw.(float64); ok && f > 0 {
+			bonus = int64(float64(fameWithZone+premium+satchel) * f)
+		}
+	}
+	totalGained := fameWithZone + premium + satchel + bonus
+	if totalGained <= 0 {
 		return
 	}
 	e.sessionMu.Lock()
-	e.session.AccumulateFame(total)
+	// Direct add — this is per-event gained, not a cumulative reading,
+	// so the delta-baseline logic in AccumulateFame would mis-count.
+	e.session.FameTotal += totalGained
 	e.sessionMu.Unlock()
 }
 
-// handleUpdateMoney folds a wallet-change event into session silver gained.
-// Param 1 = CurrentPlayerSilver (lifetime / wallet total in FixPoint
-// internal units; 10_000 = 1 silver). Only positive deltas count.
-func (e *Engine) handleUpdateMoney(p map[byte]any) {
-	total, ok := paramLong(p, 1)
-	if !ok {
+// handleTakeSilver folds a silver-pickup event into the session total.
+// Param 3 = YieldPreTax (FixPoint), param 5 = GuildTax, param 6 = ClusterTax.
+// Net silver banked = YieldPreTax - GuildTax (cluster tax is the cluster's
+// share, taken from the pre-tax yield before guild tax — SAT does
+// YieldAfterTax = YieldPreTax - GuildTax and that's what they bank).
+//
+// Only credits silver when the looter is the local player. ObjectId on
+// param 0 identifies the looter — match against our local entity.
+func (e *Engine) handleTakeSilver(p map[byte]any) {
+	objectId, _ := paramLong(p, 0)
+	yieldPre, ok := paramLong(p, 3)
+	if !ok || yieldPre <= 0 {
+		return
+	}
+	guildTax, _ := paramLong(p, 5)
+	yieldAfter := yieldPre - guildTax
+	if yieldAfter <= 0 {
+		return
+	}
+	// Only count silver into the LOCAL player's session totals. Party
+	// silver shows up in the loot panel via OtherGrabbedLoot.
+	local := e.store.localGuidEntity()
+	if local == nil || objectId == 0 || local.ObjectId != objectId {
 		return
 	}
 	e.sessionMu.Lock()
-	e.session.AccumulateSilver(total)
+	e.session.SilverTotal += yieldAfter
 	e.sessionMu.Unlock()
 }
 

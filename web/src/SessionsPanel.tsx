@@ -133,7 +133,7 @@ function Row({
 			<div className="flex items-baseline" style={{ gap: 14 }}>
 				<EconStat label="Fame"   value={fmt(fame)}   accent="var(--sk-card-fame)" />
 				<EconStat label="Silver" value={fmt(silver)} accent="var(--sk-card-silver)" />
-				<EconStat label="Respec" value={kFmt(respec)} accent="var(--sk-card-respec)" />
+				<EconStat label="Combat Fame" value={kFmt(respec)} accent="var(--sk-card-respec)" />
 				<EconStat label="Might"  value={kFmt(might)}  accent="var(--sk-card-might)" />
 			</div>
 			<span className="sk-mono" style={{ fontSize: 11, color: "var(--sk-fg-2)", textAlign: "right" }}>
