@@ -41,6 +41,9 @@ type Engine struct {
 	// shows the numeric index.
 	spells *gamedata.SpellCatalog
 
+	// events is the activity log ring buffer surfaced in the snapshot.
+	events *eventBuffer
+
 	// Fight lifecycle. CombatStart is when the current fight began;
 	// LastDamageAt is the most-recent damage tick we saw. Out → in
 	// transitions increment FightNumber and reset every entity's
@@ -64,7 +67,15 @@ const (
 
 // NewEngine constructs an Engine backed by a fresh Store.
 func NewEngine() *Engine {
-	return &Engine{store: NewStore(), now: time.Now}
+	return &Engine{store: NewStore(), now: time.Now, events: newEventBuffer()}
+}
+
+// spellName looks up a uniquename for a spell index, or returns "".
+func (e *Engine) spellName(idx int) string {
+	if e.spells == nil {
+		return ""
+	}
+	return e.spells.Name(idx)
 }
 
 // SetItemCatalog wires an items.bin catalog into the engine for weapon-based
@@ -126,6 +137,9 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventJoinFinished:
 		dbg("JoinFinished %v", ev.Parameters)
 		e.handleJoinFinished(ev.Parameters)
+	case gamecodes.EventDied:
+		dbg("Died %v", ev.Parameters)
+		e.handleDied(ev.Parameters)
 	}
 }
 
@@ -177,22 +191,30 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 	// a brand-new fight zeroes the Current bucket first.
 	e.touchCombat(now)
 
+	causerEnt := e.store.ByObjectId(causer)
+	affEnt := e.store.ByObjectId(affected)
+
 	// Damage is delivered as negative HealthChange; heal as positive.
 	if change < 0 {
 		dmg := int64(-change + 0.5)
 		if dmg <= 0 {
 			return
 		}
-		if causerEnt := e.store.ByObjectId(causer); causerEnt != nil {
+		if causerEnt != nil {
 			e.store.mu.Lock()
 			recordDamage(&causerEnt.Current, &causerEnt.Overall, dmg, now)
 			recordSpell(causerEnt, int(spellIdx), dmg)
 			e.store.mu.Unlock()
 		}
-		if affEnt := e.store.ByObjectId(affected); affEnt != nil {
+		if affEnt != nil {
 			e.store.mu.Lock()
 			recordTakenDamage(&affEnt.Current, &affEnt.Overall, dmg, now)
 			e.store.mu.Unlock()
+		}
+		// Log hits where at least the actor is known — drops anonymous
+		// mob-on-mob noise that we can't render anyway.
+		if causerEnt != nil {
+			e.recordHit(causerEnt, affEnt, dmg, int(spellIdx), now)
 		}
 		return
 	}
@@ -201,12 +223,24 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 		if heal <= 0 {
 			return
 		}
-		if causerEnt := e.store.ByObjectId(causer); causerEnt != nil {
+		if causerEnt != nil {
 			e.store.mu.Lock()
 			recordHeal(&causerEnt.Current, &causerEnt.Overall, heal, now)
 			e.store.mu.Unlock()
+			e.recordHealEvent(causerEnt, affEnt, heal, int(spellIdx), now)
 		}
 	}
+}
+
+// handleDied logs the death into the activity log. Mirrors SAT's
+// DiedEvent — param 2 is the victim's name, param 10 is the killer's name.
+func (e *Engine) handleDied(p map[byte]any) {
+	victim, _ := paramString(p, 2)
+	killer, _ := paramString(p, 10)
+	if victim == "" {
+		return
+	}
+	e.recordDeathEvent(victim, killer, e.now())
 }
 
 // recordSpell increments the per-spell totals for an entity. Caller must

@@ -104,6 +104,7 @@ type Snapshot struct {
 	Players     []PlayerSnapshot `json:"players"`
 	Composition Composition      `json:"composition"`
 	Fight       Fight            `json:"fight"`
+	Events      []ActivityEvent  `json:"events,omitempty"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
@@ -130,6 +131,7 @@ func (e *Engine) Snapshot() Snapshot {
 			ElapsedMs: elapsed.Milliseconds(),
 			InCombat:  inCombat,
 		},
+		Events: e.events.SnapshotLatest(48),
 	}
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()

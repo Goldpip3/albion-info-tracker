@@ -5,6 +5,7 @@ import { Header } from "./Header.tsx";
 import { Footer } from "./Footer.tsx";
 import { SettingsPanel } from "./SettingsPanel.tsx";
 import { DrillIn } from "./DrillIn.tsx";
+import { ActivityLog } from "./ActivityLog.tsx";
 import { accentOklch, useSettings } from "./useSettings.ts";
 import type { Mode, PlayerSnapshot } from "./types.ts";
 
@@ -89,6 +90,9 @@ export default function App(): React.ReactElement {
 				{error && (
 					<div className="px-4 py-2 text-xs text-rose-300">connection: {error}</div>
 				)}
+				<div className="px-3 py-3">
+					<ActivityLog snapshot={snapshot} />
+				</div>
 			</main>
 			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
 			{showSettings && (

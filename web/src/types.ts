@@ -48,11 +48,23 @@ export interface Fight {
 	inCombat: boolean;
 }
 
+export interface ActivityEvent {
+	ts: number;
+	kind: "hit" | "heal" | "death";
+	actor?: string;
+	actorIsLocal?: boolean;
+	target?: string;
+	amount?: number;
+	spellName?: string;
+	bigHit?: boolean;
+}
+
 export interface Snapshot {
 	generatedAt: string;
 	players: PlayerSnapshot[];
 	composition?: Composition;
 	fight?: Fight;
+	events?: ActivityEvent[];
 }
 
 export interface SnapshotEnvelope {
