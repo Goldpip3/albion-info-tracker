@@ -7,43 +7,56 @@
    App.tsx's useSettings effect). */
 
 :root {
-	/* Base — cool near-black */
-	--sk-bg-0: #0a0b0d;
-	--sk-bg-1: #0f1114;
-	--sk-bg-2: #14171c;
-	--sk-bg-3: #1a1e25;
-	--sk-line: #1f242c;
-	--sk-line-2: #2a313b;
+	/* Base — cool near-black, slightly cooler than charcoal */
+	--sk-bg-0: #0a0a0c;
+	--sk-bg-1: #101013;
+	--sk-bg-2: #16161b;
+	--sk-bg-3: #1c1c22;
+	--sk-bg-inset: #06060a;
+	--sk-line: #22222a;
+	--sk-line-2: #2d2d36;
+	--sk-line-soft: #16161c;
 
-	/* Text */
-	--sk-fg-0: #e7ebf0;
-	--sk-fg-1: #a4adb8;
-	--sk-fg-2: #6b7480;
-	--sk-fg-3: #444c57;
+	/* Text — pure white primary, bright cool dims */
+	--sk-fg-0: #ffffff;
+	--sk-fg-1: #c0c0cc;
+	--sk-fg-2: #8a8a96;
+	--sk-fg-3: #6a6a76;
 
-	/* Accents — matched chroma 0.15, L 0.72/0.78 */
-	--sk-local:  oklch(0.78 0.13 215); /* cyan — local player */
-	--sk-damage: oklch(0.78 0.13 70);  /* amber — damage */
-	--sk-heal:   oklch(0.74 0.13 150); /* emerald — healing */
-	--sk-taken:  oklch(0.68 0.18 22);  /* crimson — taken */
-	--sk-warn:   oklch(0.78 0.13 90);
-	--sk-ok:     oklch(0.74 0.13 150);
-	--sk-err:    oklch(0.68 0.18 22);
+	/* Accents — brighter hex values (Annihilate.ops match) */
+	--sk-local:       #6fb6ff;
+	--sk-damage:      #ffb43a;
+	--sk-damage-soft: #d4a050;
+	--sk-heal:        #5cf0a4;
+	--sk-heal-dim:    #2a8a5b;
+	--sk-taken:       #ff6464;
+	--sk-taken-dim:   #7a3030;
+	--sk-violet:      #c08cff;
+	--sk-warn:        #ffb43a;
+	--sk-ok:          #5cf0a4;
+	--sk-err:         #ff6464;
 
 	/* Low-alpha tints for outlined bars */
-	--sk-local-tint:  color-mix(in oklab, var(--sk-local)  14%, transparent);
-	--sk-damage-tint: color-mix(in oklab, var(--sk-damage) 14%, transparent);
-	--sk-heal-tint:   color-mix(in oklab, var(--sk-heal)   14%, transparent);
-	--sk-taken-tint:  color-mix(in oklab, var(--sk-taken)  14%, transparent);
+	--sk-local-tint:  color-mix(in oklab, var(--sk-local)  16%, transparent);
+	--sk-damage-tint: color-mix(in oklab, var(--sk-damage) 16%, transparent);
+	--sk-heal-tint:   color-mix(in oklab, var(--sk-heal)   16%, transparent);
+	--sk-taken-tint:  color-mix(in oklab, var(--sk-taken)  16%, transparent);
 
-	/* Role colors — matched chroma 0.13, L 0.72 */
-	--sk-role-tank:    oklch(0.72 0.13 250);
-	--sk-role-healer:  oklch(0.74 0.13 150);
-	--sk-role-mdps:    oklch(0.70 0.16 25);
-	--sk-role-rdps:    oklch(0.75 0.14 60);
-	--sk-role-support: oklch(0.72 0.14 290);
-	--sk-role-control: oklch(0.74 0.12 210);
+	/* Role colors — distinct hue per role */
+	--sk-role-tank:    #8aa3ff;
+	--sk-role-healer:  #6fb6ff;
+	--sk-role-mdps:    #ff6464;
+	--sk-role-rdps:    #ffb43a;
+	--sk-role-support: #c08cff;
+	--sk-role-control: #6fd8ff;
 	--sk-role-unknown: var(--sk-fg-3);
+
+	/* Headline farm-card glyph accents — matched to design */
+	--sk-card-fame:   #c08cff;
+	--sk-card-silver: #d0d4dc;
+	--sk-card-respec: #ffd770;
+	--sk-card-might:  #6fd8ff;
+	--sk-card-deaths: #ff6464;
 
 	/* Type */
 	--sk-font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
@@ -98,10 +111,24 @@ html, body {
 	letter-spacing: -0.01em;
 }
 
+.sk-display {
+	font-family: var(--sk-font-mono);
+	font-variant-numeric: tabular-nums;
+	font-weight: 500;
+	letter-spacing: -0.03em;
+}
+
 .sk-upper {
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
 	font-size: 10.5px;
+}
+
+.sk-index {
+	font-family: var(--sk-font-mono);
+	font-size: 11px;
+	color: var(--sk-damage-soft);
+	letter-spacing: 0.14em;
 }
 
 /* Scrollbars */

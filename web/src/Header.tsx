@@ -68,42 +68,55 @@ interface TitleBarProps {
 function TitleBar({
 	localName, state, stale, onSettings, onReset, onToggleLog, showLog,
 }: TitleBarProps): React.ReactElement {
-	const title = localName ? `${localName}'s Data Analytics` : "Goldpipe's Data Analytics";
+	const breadcrumb = localName ? `meter / ${localName.toLowerCase()}` : "meter / (waiting)";
 	return (
 		<div
-			className="flex items-center justify-between px-4 py-2.5"
+			className="flex items-center justify-between"
 			style={{
+				padding: "0 16px",
+				height: 44,
 				borderBottom: "1px solid var(--sk-line)",
-				background: "linear-gradient(180deg, var(--sk-bg-1) 0%, var(--sk-bg-0) 100%)",
+				background: "var(--sk-bg-inset)",
 			}}
 		>
-			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
-				<img
-					src="/assets/icon-GDA-64.png"
-					srcSet="/assets/icon-GDA-32.png 1x, /assets/icon-GDA-64.png 2x, /assets/icon-GDA-128.png 4x"
-					alt="GDA"
-					width={26}
-					height={26}
-					style={{
-						display: "block",
-						borderRadius: 6,
-						boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
-						flex: "0 0 auto",
-					}}
-				/>
-				<div
-					className="truncate"
-					style={{
-						fontSize: 15,
-						fontWeight: 500,
-						letterSpacing: "-0.005em",
-						color: "var(--sk-fg-0)",
-					}}
-				>
-					{title}
+			<div className="flex items-center min-w-0" style={{ gap: 14 }}>
+				<div className="flex items-center" style={{ gap: 10 }}>
+					<img
+						src="/assets/icon-GDA-64.png"
+						srcSet="/assets/icon-GDA-32.png 1x, /assets/icon-GDA-64.png 2x, /assets/icon-GDA-128.png 4x"
+						alt="GDA"
+						width={22}
+						height={22}
+						style={{
+							display: "block",
+							borderRadius: 5,
+							flex: "0 0 auto",
+						}}
+					/>
+					<span
+						className="sk-mono"
+						style={{
+							fontSize: 14,
+							fontWeight: 600,
+							letterSpacing: "0.04em",
+							color: "var(--sk-fg-0)",
+						}}
+					>
+						gda
+					</span>
 				</div>
+				<span style={{ fontFamily: "var(--sk-font-sans)", fontSize: 12, color: "var(--sk-fg-1)" }}>
+					Combat Meter
+				</span>
+				<span style={{ width: 1, height: 16, background: "var(--sk-line)" }} />
+				<span
+					className="sk-mono truncate"
+					style={{ fontSize: 11, color: "var(--sk-fg-2)", letterSpacing: "0.04em" }}
+				>
+					{breadcrumb}
+				</span>
 			</div>
-			<div className="flex items-center" style={{ gap: 12 }}>
+			<div className="flex items-center" style={{ gap: 14 }}>
 				<AgentPill state={state} stale={stale} />
 				<IconToggle onClick={onToggleLog} active={showLog} title="Activity log">≡</IconToggle>
 				<IconBtn onClick={onSettings} title="Settings">⋯</IconBtn>
@@ -120,28 +133,42 @@ function AgentPill({ state, stale }: { state: ConnectionState; stale: boolean })
 		: state === "connecting"
 		? "var(--sk-warn)"
 		: "var(--sk-err)";
-	const label = isLive
-		? "Agent · live"
+	const liveLabel = isLive
+		? "live"
 		: state === "connecting"
-		? "Dialing…"
+		? "dialing"
 		: stale
-		? "Agent · stale"
-		: "Offline";
+		? "stale"
+		: "offline";
+	const sub = isLive ? "agent · paired" : state === "connecting" ? "agent · pairing" : "agent · disconnected";
 	return (
-		<span
-			className="sk-upper inline-flex items-center"
-			style={{ gap: 6, color: "var(--sk-fg-3)" }}
-		>
+		<span className="inline-flex items-center" style={{ gap: 12 }}>
 			<span
+				className="sk-mono inline-flex items-center"
 				style={{
-					width: 6,
-					height: 6,
-					borderRadius: 99,
-					background: dotColor,
-					animation: isLive ? "sk-pulse 1.6s var(--sk-ease) infinite" : "none",
+					gap: 6,
+					fontSize: 11,
+					color: isLive ? "var(--sk-ok)" : dotColor,
+					letterSpacing: "0.04em",
 				}}
-			/>
-			{label}
+			>
+				<span
+					style={{
+						width: 6,
+						height: 6,
+						borderRadius: 99,
+						background: dotColor,
+						animation: isLive ? "sk-pulse 1.6s var(--sk-ease) infinite" : "none",
+					}}
+				/>
+				{liveLabel}
+			</span>
+			<span
+				className="sk-mono"
+				style={{ fontSize: 11, color: "var(--sk-fg-2)", letterSpacing: "0.04em" }}
+			>
+				{sub}
+			</span>
 		</span>
 	);
 }
@@ -170,6 +197,7 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 	const pastArch = isViewingPast ? recent.find((r) => r.number === viewingFight) : undefined;
 	const inCombat = isViewingPast ? false : liveInCombat;
 	const elapsedSec = isViewingPast ? (pastArch?.durationMs ?? 0) / 1000 : liveElapsedSec;
+	const fightLabel = isViewingPast ? (viewingFight ?? 0) : liveFightN;
 
 	const players = snapshot?.players ?? [];
 	const partyDps = players.reduce((s, p) => s + (p.currentDps ?? 0), 0);
@@ -177,10 +205,16 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 
 	return (
 		<div
-			className="flex items-stretch px-4 pt-3 pb-2.5"
-			style={{ borderBottom: "1px solid var(--sk-line)", gap: 16 }}
+			className="flex items-stretch"
+			style={{
+				padding: "12px 16px 10px",
+				borderBottom: "1px solid var(--sk-line)",
+				gap: 16,
+				justifyContent: "space-between",
+			}}
 		>
-			<div className="flex items-center min-w-0" style={{ gap: 14 }}>
+			<div className="flex items-center min-w-0" style={{ gap: 16 }}>
+				<span className="sk-index">{String(fightLabel).padStart(2, "0")}</span>
 				<div className="flex items-center" style={{ gap: 8 }}>
 					<span
 						style={{
@@ -189,7 +223,7 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 							borderRadius: 99,
 							background: inCombat ? "var(--sk-damage)" : "var(--sk-fg-3)",
 							boxShadow: inCombat
-								? "0 0 0 3px color-mix(in oklab, var(--sk-damage) 18%, transparent)"
+								? "0 0 0 3px color-mix(in oklab, var(--sk-damage) 22%, transparent)"
 								: "none",
 							animation: inCombat ? "sk-pulse 1.4s var(--sk-ease) infinite" : "none",
 						}}
@@ -204,7 +238,7 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 						{isViewingPast ? "Past fight" : inCombat ? "In Combat" : "Out of Combat"}
 					</span>
 				</div>
-				<span className="sk-mono" style={{ color: "var(--sk-fg-0)", fontSize: 18, fontWeight: 500 }}>
+				<span className="sk-display" style={{ color: "var(--sk-fg-0)", fontSize: 22, lineHeight: 1 }}>
 					{fmtDuration(elapsedSec)}
 				</span>
 				<FightPicker

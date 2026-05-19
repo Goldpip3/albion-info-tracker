@@ -11,26 +11,32 @@ export function Footer({ snapshot, lastMessageAt }: FooterProps): React.ReactEle
 	const ago = lastMessageAt
 		? `${((Date.now() - lastMessageAt) / 1000).toFixed(1)}s ago`
 		: "—";
+	const status = lastMessageAt && Date.now() - lastMessageAt < 5000 ? "200 OK" : "stale";
 	return (
 		<div
-			className="flex items-center justify-between px-4 py-2"
+			className="flex items-center justify-between"
 			style={{
+				padding: "8px 16px",
 				borderTop: "1px solid var(--sk-line)",
-				background: "var(--sk-bg-1)",
+				background: "var(--sk-bg-inset)",
+				fontFamily: "var(--sk-font-mono)",
+				fontSize: 10,
+				color: "var(--sk-fg-3)",
+				letterSpacing: "0.06em",
 			}}
 		>
-			<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>
-				Tick · 0.5s &nbsp;·&nbsp; Last update {ago}
+			<span>
+				tick · 0.5s &nbsp;·&nbsp; last update {ago}
 				{snapshot && (
 					<>
-						&nbsp;·&nbsp; <span className="sk-mono" style={{ textTransform: "none", letterSpacing: 0 }}>
+						&nbsp;·&nbsp; <span style={{ letterSpacing: 0 }}>
 							{new Date(snapshot.generatedAt).toLocaleTimeString()}
 						</span>
 					</>
 				)}
 			</span>
-			<span className="sk-upper sk-mono" style={{ color: "var(--sk-fg-3)" }}>
-				{BUILD}
+			<span>
+				{BUILD} · {status}
 			</span>
 		</div>
 	);

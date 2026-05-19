@@ -166,21 +166,28 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 			{/* Rank */}
 			<span
 				className="sk-mono"
-				style={{ fontSize: 10.5, textAlign: "right", paddingRight: 4, color: "var(--sk-fg-3)" }}
+				style={{
+					fontSize: 13,
+					textAlign: "right",
+					paddingRight: 4,
+					color: rank === 1 ? "var(--sk-damage)" : "var(--sk-fg-1)",
+					fontWeight: rank === 1 ? 600 : 500,
+				}}
 			>
 				{String(rank).padStart(2, "0")}
 			</span>
 
 			{/* Class chip + name + role label */}
-			<div className="flex items-center min-w-0" style={{ gap: 8 }}>
-				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={20} />
-				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
+			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
+				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={Math.min(28, Math.max(22, rowH - 14))} />
+				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.15, gap: 2 }}>
 					<span
 						className="truncate"
 						style={{
-							fontSize: 12.5,
-							fontWeight: isLocal ? 600 : 500,
+							fontSize: 14.5,
+							fontWeight: 600,
 							color: isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+							letterSpacing: "-0.005em",
 						}}
 					>
 						{player.name || `${player.userGuid.slice(0, 8)}…`}
@@ -189,9 +196,9 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 						<span
 							className="sk-upper truncate"
 							style={{
-								fontSize: 9.5,
+								fontSize: 10,
 								color: `var(--sk-role-${roleKey})`,
-								opacity: 0.85,
+								fontWeight: 600,
 							}}
 						>
 							{player.roleLabel}
@@ -241,14 +248,19 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				<div className="relative z-10 flex items-baseline" style={{ marginLeft: 8, gap: 8 }}>
 					<span
 						className="sk-mono"
-						style={{ fontSize: 13, fontWeight: 600, color: isLocal ? "var(--sk-local)" : "var(--sk-fg-0)" }}
+						style={{
+							fontSize: 15,
+							fontWeight: 600,
+							color: "var(--sk-fg-0)",
+							letterSpacing: "-0.02em",
+						}}
 					>
 						{fmt(primary.cur)}
 					</span>
-					<span className="sk-mono" style={{ fontSize: 11, color: "var(--sk-fg-2)" }}>
+					<span className="sk-mono" style={{ fontSize: 11.5, color: "var(--sk-fg-2)" }}>
 						({sharePct(primary.cur, partyTotal)}%)
 					</span>
-					<span className="sk-mono" style={{ fontSize: 10.5, color: "var(--sk-fg-1)", opacity: 0.7 }}>
+					<span className="sk-mono" style={{ fontSize: 11.5, color: "var(--sk-fg-1)" }}>
 						↳ {fmt(primary.ovr)} session
 					</span>
 				</div>
@@ -259,14 +271,15 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				<span
 					className="sk-mono"
 					style={{
-						fontSize: 14,
+						fontSize: 16,
 						fontWeight: 600,
 						color: primary.rate != null ? tabColor : "var(--sk-fg-3)",
+						letterSpacing: "-0.02em",
 					}}
 				>
 					{primary.rate != null ? fmtRate(primary.rate) : "—"}
 				</span>
-				<span className="sk-upper" style={{ color: "var(--sk-fg-3)", fontSize: 9 }}>
+				<span className="sk-upper" style={{ color: "var(--sk-fg-2)", fontSize: 10, fontWeight: 600 }}>
 					{mode === "heal" ? "hps" : mode === "damage" ? "dps" : ""}
 				</span>
 			</div>
@@ -284,14 +297,15 @@ function MiniChip({ color, value, glyph }: { color: string; value: string; glyph
 		<span
 			className="sk-mono inline-flex items-center"
 			style={{
-				gap: 3,
-				fontSize: 10.5,
-				color: "var(--sk-fg-1)",
+				gap: 4,
+				fontSize: 12,
+				color: "var(--sk-fg-0)",
+				fontWeight: 500,
 				justifyContent: "flex-end",
 				textAlign: "right",
 			}}
 		>
-			<span style={{ color, opacity: 0.75 }}>{glyph}</span>
+			<span style={{ color, fontWeight: 700 }}>{glyph}</span>
 			{value}
 		</span>
 	);

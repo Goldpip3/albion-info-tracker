@@ -297,23 +297,25 @@ function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.
 					setToken(localToken.trim());
 				}}
 			>
-				<div className="flex items-center mb-2.5" style={{ gap: 7 }}>
-					<svg width="18" height="18" viewBox="0 0 18 18" style={{ display: "block" }}>
-						<rect x="1.5" y="3"  width="11" height="2" fill="var(--sk-damage)" />
-						<rect x="1.5" y="8"  width="15" height="2" fill="var(--sk-fg-0)" />
-						<rect x="1.5" y="13" width="6"  height="2" fill="var(--sk-local)" />
-					</svg>
+				<div className="flex items-center mb-2.5" style={{ gap: 10 }}>
+					<img
+						src="/assets/icon-GDA-64.png"
+						srcSet="/assets/icon-GDA-32.png 1x, /assets/icon-GDA-64.png 2x, /assets/icon-GDA-128.png 4x"
+						alt="GDA"
+						width={22}
+						height={22}
+						style={{ display: "block", borderRadius: 5 }}
+					/>
 					<span
+						className="sk-mono"
 						style={{
-							fontFamily: "var(--sk-font-mono)",
-							fontSize: 12.5,
+							fontSize: 14,
 							fontWeight: 600,
-							letterSpacing: "0.18em",
+							letterSpacing: "0.04em",
 							color: "var(--sk-fg-0)",
-							textTransform: "uppercase",
 						}}
 					>
-						Skirmish
+						gda
 					</span>
 				</div>
 
