@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,12 +13,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"crypto/rand"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
@@ -28,7 +26,7 @@ import (
 )
 
 const (
-	version = "0.5.0"
+	version = "0.6.0"
 
 	// defaultPushURL points new installs at the shared Skirmish backend.
 	// A custom Worker can be substituted by setting pushUrl in agent.json
@@ -90,22 +88,26 @@ func main() {
 	fmt.Println("\nStopped.")
 }
 
-// ensureConfigured fills in any missing critical config via an interactive
-// console prompt and re-writes agent.json next to the exe so future launches
-// skip the prompt.
+// ensureConfigured fills in any missing critical config and re-writes
+// agent.json next to the exe so future launches skip the prompt. First-
+// run pairing is handled by autoPair — the agent generates a token and
+// opens the default browser to the magic-link URL so the user never has
+// to type or copy a token.
 func ensureConfigured(cfg config.Config) config.Config {
 	dirty := false
 	if cfg.PushURL == "" {
 		cfg.PushURL = defaultPushURL
 		dirty = true
 	}
+	freshPair := false
 	if cfg.PushToken == "" {
-		cfg.PushToken = promptForToken()
+		cfg.PushToken = generateToken()
+		freshPair = true
 		dirty = true
 	}
 	if cfg.AlbionInstallRoot == "" {
 		if guess := guessAlbionInstall(); guess != "" {
-			fmt.Printf("Auto-detected Albion at %s\n", guess)
+			fmt.Printf("  Auto-detected Albion at %s\n", guess)
 			cfg.AlbionInstallRoot = guess
 			dirty = true
 		}
@@ -115,40 +117,47 @@ func ensureConfigured(cfg config.Config) config.Config {
 			log.Printf("warn: could not save agent.json: %v", err)
 		}
 	}
+	if freshPair {
+		autoPair(cfg.PushToken)
+	}
 	return cfg
 }
 
-// promptForToken offers an interactive token-pairing flow. The user can
-// paste a token they generated on the website, or press Enter to have the
-// agent generate one locally — in which case they paste THAT into the
-// website's setup screen.
-func promptForToken() string {
-	fmt.Println("First-run setup — pair this agent with a website room.")
+// autoPair prints the magic-link URL and tries to open the user's default
+// browser to it. The web app reads ?pair=<token> from the URL and connects
+// automatically — no copy-pasting required.
+func autoPair(token string) {
+	pairURL := fmt.Sprintf("%s/?pair=%s", defaultViewURL, token)
 	fmt.Println()
-	fmt.Printf("  1. Open %s in any browser.\n", defaultViewURL)
-	fmt.Println("  2. Click Generate token, then copy what's shown.")
-	fmt.Println("  3. Paste it here and press Enter.")
+	fmt.Println("  First-run pairing — opening your browser to:")
 	fmt.Println()
-	fmt.Println("  Or press Enter and we'll generate one for you — you'll")
-	fmt.Println("  paste it into the website instead.")
+	fmt.Println("      " + pairURL)
 	fmt.Println()
-	fmt.Print("  Token: ")
 
-	in := bufio.NewReader(os.Stdin)
-	line, _ := in.ReadString('\n')
-	token := strings.TrimSpace(line)
-	if token == "" {
-		token = generateToken()
-		fmt.Println()
-		fmt.Println("  Generated a fresh token:")
-		fmt.Println()
-		fmt.Println("      " + token)
-		fmt.Println()
-		fmt.Printf("  Paste it into %s and click Connect.\n", defaultViewURL)
-		fmt.Print("  Then press Enter to continue... ")
-		_, _ = in.ReadString('\n')
+	opened := openInBrowser(pairURL)
+	if opened {
+		fmt.Println("  If that didn't open, copy the URL above into any browser.")
+	} else {
+		fmt.Println("  Couldn't launch a browser automatically — copy the URL above.")
 	}
-	return token
+	fmt.Println()
+}
+
+// openInBrowser tries to open url in the user's default browser. Returns
+// true if the launch command was dispatched (which doesn't guarantee a
+// window actually appeared, but the OS got the request).
+func openInBrowser(url string) bool {
+	switch runtime.GOOS {
+	case "windows":
+		// `cmd /c start "" "<url>"` — the empty quoted "" is the
+		// window-title slot, required so cmd doesn't think the url is
+		// the title.
+		return exec.Command("cmd", "/c", "start", "", url).Start() == nil
+	case "darwin":
+		return exec.Command("open", url).Start() == nil
+	default:
+		return exec.Command("xdg-open", url).Start() == nil
+	}
 }
 
 // generateToken returns 32 random hex chars — same shape the website
@@ -270,6 +279,3 @@ func fatal(stage string, err error) {
 func maskedURL(u string) string {
 	return u
 }
-
-// Keep go vet happy if exec is ever needed (e.g. to relaunch elevated).
-var _ = exec.Command
