@@ -28,21 +28,12 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 	// number that drives the bar fill + sort; `ovr` is the secondary
 	// "session" line shown after the bar value; `rate` is the right-
 	// column DPS/HPS (null = no rate column).
-	//
-	// The sub-metric flips what `cur` means within a pane:
-	//   damageCurrent → fight damage   damageDps → DPS    damageTotal → overall
-	//   healCurrent   → fight heal     healHps   → HPS    healTotal   → overall
-	//                                  healOverheal → overheal (no rate)
-	//   takenCurrent  → fight taken                       takenTotal  → overall
 	const primaryFor = (p: PlayerSnapshot): { cur: number; ovr: number; rate: number | null } => {
 		switch (activeSub) {
 			case "damageCurrent": return { cur: p.currentDamage, ovr: p.overallDamage, rate: p.currentDps };
-			case "damageDps":     return { cur: p.currentDps,    ovr: p.overallDps,    rate: p.currentDps };
 			case "damageTotal":   return { cur: p.overallDamage, ovr: p.currentDamage, rate: p.overallDps };
 			case "healCurrent":   return { cur: p.currentHeal,   ovr: p.overallHeal,   rate: p.currentHps };
-			case "healHps":       return { cur: p.currentHps,    ovr: p.overallHps,    rate: p.currentHps };
 			case "healTotal":     return { cur: p.overallHeal,   ovr: p.currentHeal,   rate: p.overallHps };
-			case "healOverheal":  return { cur: p.overheal ?? 0, ovr: p.overheal ?? 0, rate: null };
 			case "takenCurrent":  return { cur: p.currentTaken,  ovr: p.overallTaken,  rate: null };
 			case "takenTotal":    return { cur: p.overallTaken,  ovr: p.currentTaken,  rate: null };
 		}
@@ -63,25 +54,13 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 			if (d !== 0) return d;
 			return a.userGuid < b.userGuid ? -1 : a.userGuid > b.userGuid ? 1 : 0;
 		});
-		if (settings.pinLocal) {
-			const local = arr.find((p) => p.isLocal);
-			if (local) {
-				const rest = arr.filter((p) => p !== local);
-				rest.unshift(local);
-				return {
-					sorted: rest,
-					max: rest[0] ? primaryFor(rest[0]).cur : 0,
-					partyTotal: rest.reduce((s, p) => s + primaryFor(p).cur, 0),
-				};
-			}
-		}
 		return {
 			sorted: arr,
 			max: arr[0] ? primaryFor(arr[0]).cur : 0,
 			partyTotal: arr.reduce((s, p) => s + primaryFor(p).cur, 0),
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [snapshot?.generatedAt, activeSub, settings.pinLocal, players.length]);
+	}, [snapshot?.generatedAt, activeSub, players.length]);
 
 	if (sorted.length === 0) {
 		return (
@@ -91,23 +70,17 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 
 	const headerLabel: Record<SubMetric, string> = {
 		damageCurrent: "Damage · Current / Session",
-		damageDps:     "DPS · Current / Session",
 		damageTotal:   "Damage · Session / Current",
 		healCurrent:   "Healing · Current / Session",
-		healHps:       "HPS · Current / Session",
 		healTotal:     "Healing · Session / Current",
-		healOverheal:  "Overheal",
 		takenCurrent:  "Damage Taken · Current / Session",
 		takenTotal:    "Damage Taken · Session / Current",
 	};
 	const rateHeader: Record<SubMetric, string> = {
 		damageCurrent: "DPS",
-		damageDps:     "DPS",
 		damageTotal:   "DPS",
 		healCurrent:   "HPS",
-		healHps:       "HPS",
 		healTotal:     "HPS",
-		healOverheal:  "",
 		takenCurrent:  "",
 		takenTotal:    "",
 	};

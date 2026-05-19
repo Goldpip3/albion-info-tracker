@@ -6,7 +6,6 @@ export interface Settings {
 	accent: AccentColor;
 	density: Density;
 	barStyle: BarStyle;
-	pinLocal: boolean;
 	groupByRole: boolean;
 	columns: ColumnVisibility;
 	showActivityLog: boolean;
@@ -40,7 +39,6 @@ const DEFAULT: Settings = {
 	accent: "cyan",
 	density: 40,
 	barStyle: "outline",
-	pinLocal: true,
 	groupByRole: false,
 	columns: {
 		dps: true,

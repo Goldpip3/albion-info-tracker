@@ -1,21 +1,17 @@
 import { useEffect, useState } from "react";
 import { useMeterSocket } from "./useMeterSocket.ts";
-import { LootBody } from "./LootBody.tsx";
+import { SessionsBody } from "./SessionsBody.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { tabsFor, type TabId } from "./tabs.ts";
 import { accentOklch, useSettings } from "./useSettings.ts";
 
 const DEFAULT_VIEW_URL = "wss://albion-meter.goldpipe.workers.dev/view";
 
-// LootPage is the fullscreen /loot route. Same body as the modal, but
-// without backdrop / Close — designed to live on a second monitor while
-// the main meter runs in another tab.
-//
-// Pairing: prefer ?token=<token> in the URL (the modal's "Open as page"
-// button passes it), fall back to localStorage so a refresh keeps
-// working. When the URL supplied the token we mirror it into
-// localStorage and strip the query param so bookmarks stay clean.
-export function LootPage(): React.ReactElement {
+// SessionsPage is the dedicated /sessions route. Same pairing flow as
+// the other pages plus the delete command channel — the SessionsBody
+// shells out to sendCommand("deleteSession", id) so the agent can
+// remove the on-disk archive atomically.
+export function SessionsPage(): React.ReactElement {
 	const { settings } = useSettings();
 	const [token, setToken] = useState<string>("");
 	const [url, setUrl] = useState<string>("");
@@ -50,10 +46,10 @@ export function LootPage(): React.ReactElement {
 	}, [settings.accent]);
 
 	const configured = !!url && !!token;
-	const { snapshot } = useMeterSocket({ url, token, enabled: configured });
+	const { snapshot, sendCommand } = useMeterSocket({ url, token, enabled: configured });
 
 	const tabs = tabsFor(snapshot, token);
-	const active: TabId = "loot";
+	const active: TabId = "sessions";
 
 	if (!configured) {
 		return (
@@ -64,7 +60,7 @@ export function LootPage(): React.ReactElement {
 						<div className="sk-upper" style={{ marginBottom: 8, color: "var(--sk-fg-3)" }}>Not paired</div>
 						<p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--sk-fg-2)" }}>
 							Open <span className="sk-mono">/?pair=&lt;token&gt;</span> first to pair this browser
-							with the agent, then come back to <span className="sk-mono">/loot</span>.
+							with the agent, then come back to <span className="sk-mono">/sessions</span>.
 						</p>
 					</div>
 				</div>
@@ -76,12 +72,9 @@ export function LootPage(): React.ReactElement {
 		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
 			<TabBar tabs={tabs} active={active} />
 			<div className="flex-1 flex flex-col" style={{ minHeight: 0 }}>
-				<LootBody
-					loot={snapshot?.loot ?? []}
-					looterTotals={snapshot?.looterTotals ?? []}
-					players={snapshot?.players ?? []}
-					session={snapshot?.session ?? null}
-					generatedAt={snapshot?.generatedAt}
+				<SessionsBody
+					sessions={snapshot?.sessions ?? []}
+					onDelete={(id) => sendCommand("deleteSession", id)}
 				/>
 			</div>
 		</div>

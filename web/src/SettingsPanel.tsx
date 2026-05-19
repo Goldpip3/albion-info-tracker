@@ -160,9 +160,6 @@ export function SettingsPanel({ settings, update, reset, onClose }: SettingsPane
 						<Setting label="Group by role" sub="Cluster Tanks, Healers, DPS visually">
 							<Toggle on={settings.groupByRole} onClick={() => update("groupByRole", !settings.groupByRole)} />
 						</Setting>
-						<Setting label="Pin local user" sub="Always show your row, even if outside top N">
-							<Toggle on={settings.pinLocal} onClick={() => update("pinLocal", !settings.pinLocal)} />
-						</Setting>
 					</Group>
 				</div>
 
