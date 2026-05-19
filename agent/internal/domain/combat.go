@@ -49,6 +49,24 @@ func (c CombatStats) DPS() float64 { return float64(c.DamageDealt) / c.ElapsedSe
 // HPS returns healing-per-second for this window.
 func (c CombatStats) HPS() float64 { return float64(c.HealDone) / c.ElapsedSeconds() }
 
+// HasActivity reports whether this stats block carries any combat
+// data. Used by Or() to decide if the current window should display
+// or hand off to a fallback (typically LastFight).
+func (c CombatStats) HasActivity() bool {
+	return c.DamageDealt > 0 || c.HealDone > 0 || c.DamageTaken > 0
+}
+
+// Or returns this stats block when it has any combat activity, else
+// fallback. Powers the "show the last fight's numbers until the new
+// fight has produced something" behaviour requested for the meter so
+// rows don't visibly snap to zero between fights.
+func (c CombatStats) Or(fallback CombatStats) CombatStats {
+	if c.HasActivity() {
+		return c
+	}
+	return fallback
+}
+
 // recordHit folds a single hit into both stats windows.
 func recordDamage(cur, overall *CombatStats, amount int64, now time.Time) {
 	if cur.CombatStart.IsZero() {

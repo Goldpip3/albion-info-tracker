@@ -108,6 +108,14 @@ type Engine struct {
 	// estimation, items still record with Quantity but SilverValue=0.
 	prices *aodp.Client
 
+	// alwaysInclude is the case-sensitive name allowlist that forces
+	// players into the meter even when they're outside the local
+	// player's guild. Sourced from agent.json::alwaysIncludeNames so
+	// users can keep non-guild friends visible without flipping the
+	// global show-all escape hatch.
+	alwaysIncludeMu sync.RWMutex
+	alwaysInclude   map[string]struct{}
+
 	// assistMu guards the debuff-window tracker + recent-casts buffer.
 	assistMu       sync.Mutex
 	activeWindows  map[int64]map[int]*debuffWindow // target → spell → window
@@ -178,6 +186,38 @@ const (
 	fightAutoEnd = 6 * time.Second
 )
 
+// SetAlwaysIncludeNames replaces the meter's non-guild allowlist.
+// Empty / nil clears it. Case-sensitive — names must match exactly the
+// Name Albion ships in NewCharacter (no whitespace, no rendering quirks).
+func (e *Engine) SetAlwaysIncludeNames(names []string) {
+	e.alwaysIncludeMu.Lock()
+	defer e.alwaysIncludeMu.Unlock()
+	if len(names) == 0 {
+		e.alwaysInclude = nil
+		return
+	}
+	m := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		if n != "" {
+			m[n] = struct{}{}
+		}
+	}
+	e.alwaysInclude = m
+}
+
+// AlwaysIncludes reports whether name is on the agent.json allowlist.
+// Safe to call concurrently. Used by the snapshot's membership filter
+// so non-guild friends survive the guild-only fallback.
+func (e *Engine) AlwaysIncludes(name string) bool {
+	if name == "" {
+		return false
+	}
+	e.alwaysIncludeMu.RLock()
+	defer e.alwaysIncludeMu.RUnlock()
+	_, ok := e.alwaysInclude[name]
+	return ok
+}
+
 // NewEngine constructs an Engine backed by a fresh Store.
 func NewEngine() *Engine {
 	now := time.Now()
@@ -211,6 +251,7 @@ func (e *Engine) ResetSession() {
 	for _, ent := range e.store.byGuid {
 		ent.Current.Reset()
 		ent.Overall.Reset()
+		ent.LastFight.Reset()
 		ent.BySpell = nil
 		ent.BySpellSession = nil
 		ent.ByTarget = nil
@@ -652,12 +693,19 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 
 	now := e.now()
 
-	// Combat / fight bookkeeping. Has to happen before stats accumulate so
-	// a brand-new fight zeroes the Current bucket first.
-	e.touchCombat(now)
-
 	causerEnt := e.store.ByObjectId(causer)
 	affEnt := e.store.ByObjectId(affected)
+
+	// Combat / fight bookkeeping. Scope it to the LOCAL player —
+	// fights only start / continue when the local player is doing or
+	// taking damage. Without this guard, every nearby mob hitting
+	// every other thing in render range advances the fight counter,
+	// which is why the meter would tick fights up while the user
+	// stood idle. Has to happen before stats accumulate so a brand-
+	// new fight zeroes the Current bucket first.
+	if e.localInvolved(causerEnt, affEnt) {
+		e.touchCombat(now)
+	}
 
 	// Damage is delivered as negative HealthChange; heal as positive.
 	if change < 0 {
@@ -1008,6 +1056,21 @@ func recordSpell(ent *Entity, spellIdx int, dmg int64) {
 	}
 }
 
+// localInvolved reports whether the local player participated in this
+// damage / heal event as either the causer or the affected entity.
+// Used to gate touchCombat so the fight counter only ticks when the
+// user is actually in combat, not when distant mobs fight each other
+// in render range.
+func (e *Engine) localInvolved(causer, affected *Entity) bool {
+	if causer != nil && causer.IsLocal {
+		return true
+	}
+	if affected != nil && affected.IsLocal {
+		return true
+	}
+	return false
+}
+
 // touchCombat updates lastDamageAt and, if we were idle long enough, ends
 // the prior fight and starts a new one — archiving the prior fight,
 // bumping FightNumber, and zeroing every entity's Current bucket. Called
@@ -1079,13 +1142,20 @@ func (e *Engine) topSpellsLocked(ent *Entity, n int) []SpellBreakdown {
 }
 
 // resetAllCurrent zeroes the per-fight stats for every tracked entity.
-// Overall persists for the session. Per-spell + per-target breakdowns
-// are also reset here so the drill-in screen shows abilities and
+// Current snapshots into LastFight first so the meter can fall back
+// to the previous fight's values until the new fight produces damage,
+// avoiding the jarring "everyone drops to zero" frame on each fight
+// boundary. Overall persists for the session. Per-spell + per-target
+// breakdowns are also reset here so the drill-in screen shows
+// abilities and
 // targets used in *this* fight.
 func (e *Engine) resetAllCurrent() {
 	e.store.mu.Lock()
 	defer e.store.mu.Unlock()
 	for _, ent := range e.store.byGuid {
+		if ent.Current.HasActivity() {
+			ent.LastFight = ent.Current
+		}
 		ent.Current.Reset()
 		ent.BySpell = nil
 		ent.ByTarget = nil
@@ -1363,7 +1433,7 @@ func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
 	entry := LootEntry{
 		At:         e.now(),
 		Looter:     looter,
-		LootedFrom: lootedFrom,
+		LootedFrom: prettifyLootSource(lootedFrom),
 		IsSilver:   isSilver,
 		Quantity:   int(qty),
 		Zone:       e.Zone(),
@@ -1386,6 +1456,17 @@ func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
 	// Mark as local if this matches the local player's name.
 	if local := e.store.localGuidEntity(); local != nil && local.Name == looter {
 		entry.LooterIsLocal = true
+	}
+	// Credit silver-pile pickups by the local player into the session
+	// silver tracker. TakeSilver is the canonical source for chest /
+	// dungeon yields, but mob-loot silver piles on the open world ship
+	// only OtherGrabbedLoot — without this credit the header reads 0
+	// across long farming runs. Same FixPoint scale as TakeSilver, so
+	// the UI's existing divide-by-10_000 keeps the number honest.
+	if entry.IsSilver && entry.LooterIsLocal {
+		e.sessionMu.Lock()
+		e.session.SilverTotal += int64(qty)
+		e.sessionMu.Unlock()
 	}
 	e.noteLoot(entry)
 }

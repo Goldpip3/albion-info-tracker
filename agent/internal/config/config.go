@@ -24,6 +24,13 @@ type Config struct {
 	// AlbionInstallRoot is the folder containing game/Albion-Online_Data/.
 	// Used by the optional spell-name catalog loader.
 	AlbionInstallRoot string `json:"albionInstallRoot,omitempty"`
+
+	// AlwaysIncludeNames forces matching player names into the meter even
+	// when they're not in the local player's guild and PartyJoined never
+	// fired. Use for non-guild friends you party with regularly so they
+	// survive the mid-zone party-detection fallback. Case-sensitive,
+	// exact-match against the player Name as Albion ships it.
+	AlwaysIncludeNames []string `json:"alwaysIncludeNames,omitempty"`
 }
 
 // Load reads agent.json from the executable's directory, then applies env

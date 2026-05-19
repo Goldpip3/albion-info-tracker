@@ -61,6 +61,7 @@ func main() {
 	defer cancel()
 
 	engine := domain.NewEngine()
+	engine.SetAlwaysIncludeNames(cfg.AlwaysIncludeNames)
 	loadGameData(cfg, engine)
 	if store, err := domain.NewSessionsStore(); err != nil {
 		log.Printf("  sessions store: %v", err)

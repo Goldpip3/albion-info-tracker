@@ -62,6 +62,13 @@ type Entity struct {
 	Current CombatStats
 	Overall CombatStats
 
+	// LastFight is a frozen snapshot of Current at the moment the
+	// previous fight ended. The meter falls back to these values when
+	// Current is empty (a fresh fight has been started but no damage
+	// has landed yet) so the rows don't visibly snap to zero on every
+	// fight boundary. Reset only on session reset.
+	LastFight CombatStats
+
 	// BySpell aggregates damage per spell index for the current fight.
 	// Resets between fights so the drill-in shows "what's being used right
 	// now". Key is CausingSpellIndex from HealthUpdate (param 7).

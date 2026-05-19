@@ -201,6 +201,11 @@ var spellSlotLabels = map[int]string{
 
 // activeSpellSlots resolves each player ability into its slot key + the
 // localized English name. Empty / unrecognised entries are skipped.
+// Passive-style spell names (sub-effects, armor procs, food buffs) are
+// also skipped — those leaked into Q/W/E rendering on at least one
+// observed party loadout where the equipment array shifted; filtering
+// here keeps the bound-ability row honest until we have a confirmed
+// fresh index→slot map from a verbose-log capture.
 func (e *Engine) activeSpellSlots(ent *Entity) []SpellSlotInfo {
 	if e.spells == nil {
 		return nil
@@ -216,6 +221,9 @@ func (e *Engine) activeSpellSlots(ent *Entity) []SpellSlotInfo {
 		}
 		name := e.localizedSpellName(idx)
 		if name == "" {
+			continue
+		}
+		if isPassiveSpell(name) {
 			continue
 		}
 		out = append(out, SpellSlotInfo{Slot: slot, Name: name})
@@ -420,16 +428,59 @@ type Snapshot struct {
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
 // call concurrently with engine event handlers.
 //
-// When ALBION_AGENT_SHOW_ALL is set, the snapshot includes every tracked
-// entity with any combat activity, not just party members. Useful when
-// party events haven't fired yet (mid-zone-start) and you still want to
-// see your own damage.
+// Membership rules, in order:
+//
+//  1. ALBION_AGENT_SHOW_ALL set → render every entity with combat
+//     activity, no filtering. Power-user escape hatch.
+//  2. Party detection reports more than just the local player → trust it.
+//     Random players in the zone are filtered out as desired.
+//  3. Party detection only knows about the local player → fall back to
+//     activity, but only include entities whose Guild matches the local
+//     player's. This catches the well-known mid-zone case (user joined
+//     the party before the agent started, so PartyJoined never fired)
+//     without dragging in unrelated players who happened to be hitting
+//     things nearby. Re-zoning doesn't reliably re-broadcast
+//     PartyJoined, so we fix it here instead of leaning on a manual
+//     env-var workaround.
+//
+// When the local player is guildless the guild filter has nothing to
+// pivot on, so we hold the line at strict party-only — better than
+// flooding the meter with strangers.
 func (e *Engine) Snapshot() Snapshot {
 	var members []*Entity
 	if showAll {
 		members = e.store.AllWithActivity()
 	} else {
 		members = e.store.PartyMembers()
+		if len(members) <= 1 {
+			local := e.store.localGuidEntity()
+			if local != nil && local.Guild != "" {
+				all := e.store.AllWithActivity()
+				filtered := make([]*Entity, 0, len(all))
+				for _, ent := range all {
+					if ent.IsLocal || ent.Guild == local.Guild || e.AlwaysIncludes(ent.Name) {
+						filtered = append(filtered, ent)
+					}
+				}
+				if len(filtered) > len(members) {
+					members = filtered
+				}
+			} else {
+				// Local has no guild to pivot on. Still honour the
+				// explicit name allowlist so non-guild friends show up
+				// when partying as a guildless local.
+				all := e.store.AllWithActivity()
+				filtered := make([]*Entity, 0, len(all))
+				for _, ent := range all {
+					if ent.IsLocal || e.AlwaysIncludes(ent.Name) {
+						filtered = append(filtered, ent)
+					}
+				}
+				if len(filtered) > len(members) {
+					members = filtered
+				}
+			}
+		}
 	}
 	now := e.now()
 	fightN, elapsed, inCombat := e.FightStatus(now)
@@ -486,15 +537,19 @@ func (e *Engine) Snapshot() Snapshot {
 			RoleLabel: m.RoleLabel,
 			ItemPower: m.ItemPower,
 
-			CurrentDamage: m.Current.DamageDealt,
-			CurrentDPS:    m.Current.DPS(),
+			// Current values fall back to LastFight when this fight
+			// hasn't produced damage yet so the row doesn't snap to
+			// zero on each fight boundary. Overall always reflects the
+			// session-running total.
+			CurrentDamage: m.Current.Or(m.LastFight).DamageDealt,
+			CurrentDPS:    m.Current.Or(m.LastFight).DPS(),
 			OverallDamage: m.Overall.DamageDealt,
 			OverallDPS:    m.Overall.DPS(),
-			CurrentHeal:   m.Current.HealDone,
-			CurrentHPS:    m.Current.HPS(),
+			CurrentHeal:   m.Current.Or(m.LastFight).HealDone,
+			CurrentHPS:    m.Current.Or(m.LastFight).HPS(),
 			OverallHeal:   m.Overall.HealDone,
 			OverallHPS:    m.Overall.HPS(),
-			CurrentTaken:  m.Current.DamageTaken,
+			CurrentTaken:  m.Current.Or(m.LastFight).DamageTaken,
 			OverallTaken:  m.Overall.DamageTaken,
 
 			Spells:           e.topSpells(m, 10),

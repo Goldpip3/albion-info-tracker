@@ -83,9 +83,53 @@ func PrettifySpell(uniqueName string) string {
 		if p == "" {
 			continue
 		}
+		// Compound-word substitutes — Albion concatenates pieces that
+		// the prettifier can't split heuristically. Look the token up
+		// in the compound map; if it's there, emit the pre-formatted
+		// multi-word replacement instead of title-casing the slug.
+		if replacement, ok := compoundWords[p]; ok {
+			out = append(out, replacement)
+			continue
+		}
 		out = append(out, titleCase(p))
 	}
 	return strings.Join(out, " ")
+}
+
+// compoundWords maps concatenated tokens Albion ships in uniquenames
+// to their pre-formatted display form. Keep keys uppercase to match
+// the prettifier's working casing. Values are the strings the user
+// should actually see — already title-cased and space-separated.
+//
+// Bias toward the most common offenders from in-the-wild loadouts;
+// extend as more passives surface that fall through to the prettifier.
+//
+// TODO: extend as more passives show up in the wild.
+var compoundWords = map[string]string{
+	// Armor & equipment compounds.
+	"PLATEARMOR":   "Plate Armor",
+	"LEATHERARMOR": "Leather Armor",
+	"CLOTHARMOR":   "Cloth Armor",
+	"HEALTHCHANCE": "Health Chance",
+	"ARMORCHANCE":  "Armor Chance",
+	"SPELLPOWER":   "Spell Power",
+	"ATTACKPOWER":  "Attack Power",
+	"ATTACKBUFF":   "Attack Buff",
+	"ATTACKSPEED":  "Attack Speed",
+	"HEALTHREDUCTION": "Health Reduction",
+	"MOVESPEED":    "Move Speed",
+	"CASTSPEED":    "Cast Speed",
+	"CRITCHANCE":   "Crit Chance",
+	"MAGICRESIST":  "Magic Resist",
+	"PHYSICALRESIST": "Physical Resist",
+	// Albion city / capital names — usually appear as cape passives.
+	"BRIDGEWATCH":  "Bridgewatch",
+	"MARTLOCK":     "Martlock",
+	"THETFORD":     "Thetford",
+	"FORTSTERLING": "Fort Sterling",
+	"LYMHURST":     "Lymhurst",
+	"CAERLEON":     "Caerleon",
+	"BRECILIEN":    "Brecilien",
 }
 
 // weaponPrefixes is the sorted-by-length list of family tokens we

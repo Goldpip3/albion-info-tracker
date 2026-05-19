@@ -399,16 +399,22 @@ function FightPicker({
 		if (!open || !btnRef.current) return;
 		const r = btnRef.current.getBoundingClientRect();
 		setAnchor({ left: r.left, top: r.bottom + 4 });
+		// Close on click, not mousedown — a mousedown listener tears
+		// down the portal'd menu before the click event reaches the
+		// menu item React handler, so picking a past fight silently
+		// did nothing. Listening on the bubble phase of click means
+		// the menu item's onClick has already fired by the time we
+		// get here.
 		const close = (e: MouseEvent): void => {
 			if (btnRef.current?.contains(e.target as Node)) return;
 			setOpen(false);
 		};
 		const onScroll = (): void => setOpen(false);
-		window.addEventListener("mousedown", close);
+		window.addEventListener("click", close);
 		window.addEventListener("scroll", onScroll, true);
 		window.addEventListener("resize", onScroll);
 		return () => {
-			window.removeEventListener("mousedown", close);
+			window.removeEventListener("click", close);
 			window.removeEventListener("scroll", onScroll, true);
 			window.removeEventListener("resize", onScroll);
 		};
