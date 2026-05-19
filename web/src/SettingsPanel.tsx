@@ -6,13 +6,17 @@ interface SettingsPanelProps {
 	update: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 	reset: () => void;
 	onClose: () => void;
+	// sendCommand routes user-facing settings that need agent-side
+	// state (e.g. loot filter scope) through the same channel the
+	// New Session button uses. Optional — DemoApp passes a no-op.
+	sendCommand?: (action: string, arg?: string) => boolean;
 }
 
 const ACCENT_OPTIONS: AccentColor[] = ["cyan", "violet", "amber", "lime", "rose"];
 const DENSITY_OPTIONS: Array<[Density, string]> = [[28, "Compact"], [34, "Regular"], [40, "Comfy"]];
 const BAR_STYLE_OPTIONS: Array<[BarStyle, string]> = [["outline", "Outline"], ["tint", "Tint"], ["solid", "Solid"]];
 
-export function SettingsPanel({ settings, update, reset, onClose }: SettingsPanelProps): React.ReactElement {
+export function SettingsPanel({ settings, update, reset, onClose, sendCommand }: SettingsPanelProps): React.ReactElement {
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -159,6 +163,24 @@ export function SettingsPanel({ settings, update, reset, onClose }: SettingsPane
 					<Group title="Sort & grouping">
 						<Setting label="Group by role" sub="Cluster Tanks, Healers, DPS visually">
 							<Toggle on={settings.groupByRole} onClick={() => update("groupByRole", !settings.groupByRole)} />
+						</Setting>
+					</Group>
+
+					<Group title="Visibility">
+						<Setting
+							label="Include guildies"
+							sub="Show same-guild players in the meter + loot view, not just your active party. Friends from agent.json's alwaysIncludeNames always show regardless."
+						>
+							<Toggle
+								on={settings.includeGuildies}
+								onClick={() => {
+									const next = !settings.includeGuildies;
+									update("includeGuildies", next);
+									if (sendCommand) {
+										sendCommand("setLootFilter", next ? "partyGuild" : "party");
+									}
+								}}
+							/>
 						</Setting>
 					</Group>
 				</div>

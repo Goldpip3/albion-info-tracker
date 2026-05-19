@@ -131,6 +131,16 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 		document.documentElement.style.setProperty("--sk-local-tint", tint);
 	}, [settings.accent]);
 
+	// Sync the agent's loot filter scope whenever the connection
+	// opens or the user flips the "Include guildies" toggle. Without
+	// this, a returning user with the toggle off would still see
+	// guild members in the meter / loot view until they toggled
+	// again, because the agent boots into the partyGuild default.
+	useEffect(() => {
+		if (state !== "connected") return;
+		sendCommand("setLootFilter", settings.includeGuildies ? "partyGuild" : "party");
+	}, [state, settings.includeGuildies, sendCommand]);
+
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
 		return Date.now() - lastMessageAt > 5000;
@@ -276,6 +286,7 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					update={update}
 					reset={reset}
 					onClose={() => setShowSettings(false)}
+					sendCommand={sendCommand}
 				/>
 			)}
 			{drillGuid && meterSnapshot && (() => {

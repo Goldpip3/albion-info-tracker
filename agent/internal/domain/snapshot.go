@@ -454,7 +454,8 @@ func (e *Engine) Snapshot() Snapshot {
 		members = e.store.PartyMembers()
 		if len(members) <= 1 {
 			local := e.store.localGuidEntity()
-			if local != nil && local.Guild != "" {
+			includeGuild := e.LootFilterMode() != "party"
+			if local != nil && local.Guild != "" && includeGuild {
 				all := e.store.AllWithActivity()
 				filtered := make([]*Entity, 0, len(all))
 				for _, ent := range all {
@@ -466,9 +467,10 @@ func (e *Engine) Snapshot() Snapshot {
 					members = filtered
 				}
 			} else {
-				// Local has no guild to pivot on. Still honour the
-				// explicit name allowlist so non-guild friends show up
-				// when partying as a guildless local.
+				// Either local has no guild to pivot on, or the user
+				// asked to drop the guild branch via the "Include
+				// guildies" toggle. Still honour the explicit name
+				// allowlist so non-guild friends always show.
 				all := e.store.AllWithActivity()
 				filtered := make([]*Entity, 0, len(all))
 				for _, ent := range all {

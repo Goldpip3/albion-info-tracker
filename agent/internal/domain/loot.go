@@ -131,7 +131,9 @@ func (e *Engine) LootLog() []LootEntry {
 // surface. Mirrors the meter's filter so the two stay consistent:
 //   - the local player
 //   - everyone Albion told us is in the party (PartyJoined succeeded)
-//   - same-guild players seen in this zone
+//   - same-guild players seen in this zone (skipped when the user has
+//     toggled "Include guildies" off in Settings — LootFilterMode
+//     reads "party" in that mode)
 //   - explicit allowlist from agent.json::alwaysIncludeNames
 //
 // Returns nil when the local entity isn't known yet — caller treats
@@ -143,6 +145,8 @@ func (e *Engine) allowedLooters() map[string]struct{} {
 		out[n] = struct{}{}
 	}
 	e.alwaysIncludeMu.RUnlock()
+
+	includeGuild := e.LootFilterMode() != "party"
 
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
@@ -163,7 +167,7 @@ func (e *Engine) allowedLooters() map[string]struct{} {
 			out[ent.Name] = struct{}{}
 			continue
 		}
-		if localGuild != "" && ent.Guild == localGuild {
+		if includeGuild && localGuild != "" && ent.Guild == localGuild {
 			out[ent.Name] = struct{}{}
 		}
 	}
@@ -251,6 +255,8 @@ func (e *Engine) looterSources() map[string]string {
 	}
 	e.alwaysIncludeMu.RUnlock()
 
+	includeGuild := e.LootFilterMode() != "party"
+
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
 	var localGuild string
@@ -273,7 +279,7 @@ func (e *Engine) looterSources() map[string]string {
 			out[ent.Name] = "party"
 			continue
 		}
-		if localGuild != "" && ent.Guild == localGuild {
+		if includeGuild && localGuild != "" && ent.Guild == localGuild {
 			if _, taken := out[ent.Name]; !taken {
 				out[ent.Name] = "guild"
 			}

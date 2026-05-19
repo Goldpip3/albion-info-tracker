@@ -116,6 +116,15 @@ type Engine struct {
 	alwaysIncludeMu sync.RWMutex
 	alwaysInclude   map[string]struct{}
 
+	// lootFilterMode controls the loot view's membership scope. Two
+	// values are valid: "partyGuild" (default) includes confirmed
+	// party members, same-guild players, and the alwaysInclude
+	// allowlist; "party" strips the guild branch so only confirmed
+	// party + allowlist + local are visible. Toggled by the
+	// "setLootFilter" command from the web Settings panel.
+	filterModeMu sync.RWMutex
+	lootFilter   string
+
 	// assistMu guards the debuff-window tracker + recent-casts buffer.
 	assistMu       sync.Mutex
 	activeWindows  map[int64]map[int]*debuffWindow // target → spell → window
@@ -294,7 +303,31 @@ func (e *Engine) HandleCommand(action, arg string) {
 			_ = e.sessions.Delete(arg)
 			e.markDirty()
 		}
+	case "setLootFilter":
+		// arg is "partyGuild" (default, broadest visibility) or "party"
+		// (drop guild branch). Anything else falls back to the default
+		// so a buggy client doesn't strand the agent in a bad state.
+		mode := "partyGuild"
+		if arg == "party" {
+			mode = "party"
+		}
+		e.filterModeMu.Lock()
+		e.lootFilter = mode
+		e.filterModeMu.Unlock()
+		e.markDirty()
 	}
+}
+
+// LootFilterMode returns "partyGuild" (default) or "party" depending on
+// whether the user has asked for guild members to be filtered out of
+// the loot view. Safe for concurrent reads from snapshot / loot code.
+func (e *Engine) LootFilterMode() string {
+	e.filterModeMu.RLock()
+	defer e.filterModeMu.RUnlock()
+	if e.lootFilter == "" {
+		return "partyGuild"
+	}
+	return e.lootFilter
 }
 
 // archiveCurrentSession captures the current session's metadata into
