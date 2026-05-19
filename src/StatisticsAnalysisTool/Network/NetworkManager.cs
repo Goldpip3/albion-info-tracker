@@ -66,6 +66,8 @@ public class NetworkManager
         builder.AddEventHandler(new PartyPlayerLeftEventHandler(trackingController));
         //builder.AddEventHandler(new PartyChangedOrderEventHandler(trackingController));
         builder.AddEventHandler(new NewCharacterEventHandler(trackingController));
+        builder.AddEventHandler(new MountStartEventHandler(trackingController));
+        builder.AddEventHandler(new NewMountObjectEventHandler(trackingController));
         builder.AddEventHandler(new TreasureChestUsingStartEventHandler(trackingController));
         builder.AddEventHandler(new CharacterEquipmentChangedEventHandler(trackingController));
         builder.AddEventHandler(new NewMobEventHandler(trackingController));

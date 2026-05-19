@@ -28,6 +28,10 @@ public class EntityController
     private double _lastLocalEntityClusterTaxInPercent;
     private readonly TrackingController _trackingController;
 
+    private long? _pendingMountStartObjectId;
+    private DateTime _pendingMountStartAt;
+    private static readonly TimeSpan MountStartBindingWindow = TimeSpan.FromSeconds(2);
+
     public LocalUserData LocalUserData { get; init; } = new();
 
     public EntityController(TrackingController trackingController, MainWindowViewModel mainWindowViewModel)
@@ -54,7 +58,7 @@ public class EntityController
 
             gameObject = new PlayerGameObject(newUserObjectId)
             {
-                Name = entity.Name,
+                Name = string.IsNullOrEmpty(entity.Name) ? oldEntity.Name : entity.Name,
                 ObjectType = entity.ObjectType,
                 UserGuid = entity.UserGuid,
                 Guild = string.Empty == entity.Guild ? oldEntity.Guild : entity.Guild,
@@ -153,6 +157,52 @@ public class EntityController
     public bool ExistEntity(Guid guid)
     {
         return _knownEntities?.Any(x => x.Key == guid) ?? false;
+    }
+
+    public void StashMountStartObjectId(long objectId)
+    {
+        _pendingMountStartObjectId = objectId;
+        _pendingMountStartAt = DateTime.UtcNow;
+    }
+
+    public void BindGuidToRecentMountStart(Guid userGuid)
+    {
+        if (userGuid == Guid.Empty)
+        {
+            return;
+        }
+
+        var pending = _pendingMountStartObjectId;
+        _pendingMountStartObjectId = null;
+
+        if (pending is not { } objectId)
+        {
+            return;
+        }
+
+        if (DateTime.UtcNow - _pendingMountStartAt > MountStartBindingWindow)
+        {
+            return;
+        }
+
+        if (GetLocalEntity()?.Key == userGuid)
+        {
+            return;
+        }
+
+        if (_knownEntities.TryGetValue(userGuid, out var existing))
+        {
+            existing.ObjectId = objectId;
+            return;
+        }
+
+        AddEntity(new Entity
+        {
+            UserGuid = userGuid,
+            ObjectId = objectId,
+            ObjectType = GameObjectType.Player,
+            ObjectSubType = GameObjectSubType.Player
+        });
     }
 
     public void SetItemPower(Guid guid, double itemPower)
