@@ -25,17 +25,15 @@ export function SessionStrip({ snapshot, onReset }: SessionStripProps): React.Re
 	const silver = (s?.silverTotal ?? 0) / 10_000;
 	const respec = (s?.respecTotal ?? 0) / 10_000;
 	const might  = (s?.mightTotal  ?? 0) / 10_000;
-	const deaths = s?.deathsTotal  ?? 0;
 
-	const liveValues = { fame, silver, respec, might, deaths };
+	const liveValues = { fame, silver, respec, might };
 	const sparks = useSparkBuffers(liveValues, startedAt);
 
 	const cards: CardSpec[] = [
-		{ key: "fame",   label: "Fame",   value: fmt(fame),                rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "var(--sk-card-fame)",   glyph: "★" },
-		{ key: "silver", label: "Silver", value: fmt(silver),              rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "var(--sk-card-silver)", glyph: "◇" },
-		{ key: "respec", label: "Respec", value: kFormat(respec),          rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "var(--sk-card-respec)", glyph: "↻" },
-		{ key: "might",  label: "Might",  value: kFormat(might),           rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "var(--sk-card-might)",  glyph: "✦" },
-		{ key: "deaths", label: "Deaths", value: deaths.toString(),        rate: ratePerHour(deaths / hours), spark: sparks.deaths, accent: "var(--sk-card-deaths)", glyph: "✕" },
+		{ key: "fame",   label: "Fame",   value: fmt(fame),       rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "var(--sk-card-fame)",   glyph: "★" },
+		{ key: "silver", label: "Silver", value: fmt(silver),     rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "var(--sk-card-silver)", glyph: "◇" },
+		{ key: "respec", label: "Respec", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "var(--sk-card-respec)", glyph: "↻" },
+		{ key: "might",  label: "Might",  value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "var(--sk-card-might)",  glyph: "✦" },
 	];
 
 	const live = (snapshot?.fight?.inCombat) ?? false;
@@ -45,7 +43,7 @@ export function SessionStrip({ snapshot, onReset }: SessionStripProps): React.Re
 			<div
 				style={{
 					display: "grid",
-					gridTemplateColumns: "repeat(5, 1fr)",
+					gridTemplateColumns: "repeat(4, 1fr)",
 					gap: 1,
 					background: "var(--sk-line)",
 					borderBottom: "1px solid var(--sk-line)",
@@ -186,7 +184,6 @@ interface SparkSet {
 	silver: number[];
 	respec: number[];
 	might: number[];
-	deaths: number[];
 }
 
 const SPARK_LENGTH = 22;
@@ -214,7 +211,7 @@ function useSparkBuffers(values: Record<keyof SparkSet, number>, startedAt: stri
 }
 
 function emptySparks(): SparkSet {
-	return { fame: [], silver: [], respec: [], might: [], deaths: [] };
+	return { fame: [], silver: [], respec: [], might: [] };
 }
 
 function pushSample(prev: SparkSet, v: Record<keyof SparkSet, number>): SparkSet {
@@ -228,7 +225,6 @@ function pushSample(prev: SparkSet, v: Record<keyof SparkSet, number>): SparkSet
 		silver: push(prev.silver, v.silver),
 		respec: push(prev.respec, v.respec),
 		might:  push(prev.might,  v.might),
-		deaths: push(prev.deaths, v.deaths),
 	};
 }
 

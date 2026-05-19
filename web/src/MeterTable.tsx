@@ -129,20 +129,23 @@ interface PlayerRowProps {
 function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
 	const isLocal = player.isLocal ?? false;
 	const roleKey: RoleKey = roleKeyOf(player.role);
+	// Bar color follows the PLAYER'S class accent (daggers red, frost
+	// staff cyan, holy/nature green, etc.) so a glance tells you who is
+	// who without reading the role label. This matches the design.
+	const barColor = `var(--sk-role-${roleKey})`;
+	const barTint = `color-mix(in oklab, ${barColor} 16%, transparent)`;
+	// DPS / HPS rate column still uses the active pane tone so the rate
+	// reads as "the metric you're looking at" rather than per-player.
 	const tabColor =
 		mode === "damage" ? "var(--sk-damage)" :
 		mode === "heal"   ? "var(--sk-heal)"   :
 		mode === "taken"  ? "var(--sk-taken)"  : "var(--sk-fg-1)";
-	const tabTint =
-		mode === "damage" ? "var(--sk-damage-tint)" :
-		mode === "heal"   ? "var(--sk-heal-tint)"   :
-		mode === "taken"  ? "var(--sk-taken-tint)"  : "transparent";
 
 	const pct = max > 0 ? Math.min(100, (primary.cur / max) * 100) : 0;
 	const rowH = settings.density;
 
-	const barFill = settings.barStyle === "solid" ? tabColor : tabTint;
-	const barBorder = settings.barStyle === "outline" ? `1px solid ${tabColor}` : "1px solid transparent";
+	const barFill = settings.barStyle === "solid" ? barColor : barTint;
+	const barBorder = settings.barStyle === "outline" ? `1px solid ${barColor}` : "1px solid transparent";
 
 	return (
 		<div

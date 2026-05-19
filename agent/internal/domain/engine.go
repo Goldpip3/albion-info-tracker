@@ -194,14 +194,19 @@ func (e *Engine) onEvent(ev photon.EventData) {
 		dbg("Died %v", ev.Parameters)
 		e.handleDied(ev.Parameters)
 	case gamecodes.EventUpdateFame:
+		dbg("UpdateFame %v", ev.Parameters)
 		e.handleUpdateFame(ev.Parameters)
 	case gamecodes.EventUpdateMoney:
+		dbg("UpdateMoney %v", ev.Parameters)
 		e.handleUpdateMoney(ev.Parameters)
 	case gamecodes.EventUpdateReSpecPoints:
+		dbg("UpdateReSpec %v", ev.Parameters)
 		e.handleUpdateReSpec(ev.Parameters)
 	case gamecodes.EventMightAndFavorReceivedEvent:
+		dbg("MightAndFavor %v", ev.Parameters)
 		e.handleMightAndFavor(ev.Parameters)
 	case gamecodes.EventTakeSilver:
+		dbg("TakeSilver %v", ev.Parameters)
 		// covered by UpdateMoney delta; ignore to avoid double counting
 	}
 }
