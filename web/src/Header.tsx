@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import type { ConnectionState, Snapshot } from "./types.ts";
 import type { PaneSet } from "./useSettings.ts";
 import { fmtDuration, fmtRate } from "./format.ts";
@@ -263,6 +264,11 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 				<span className="sk-display" style={{ color: "var(--sk-fg-0)", fontSize: 22, lineHeight: 1 }}>
 					{fmtDuration(elapsedSec)}
 				</span>
+				{snapshot?.fight?.zone && (
+					<span className="sk-upper" style={{ color: "var(--sk-fg-3)", fontWeight: 600 }}>
+						{snapshot.fight.zone}
+					</span>
+				)}
 				<FightPicker
 					currentFightN={liveFightN}
 					recent={recent}
@@ -380,15 +386,38 @@ function FightPicker({
 	setViewingFight: (n: number | null) => void;
 }): React.ReactElement {
 	const [open, setOpen] = React.useState(false);
+	const btnRef = React.useRef<HTMLButtonElement>(null);
+	const [anchor, setAnchor] = React.useState<{ left: number; top: number } | null>(null);
 	const label = viewingFight !== null
 		? `Fight ${viewingFight.toString().padStart(2, "0")}`
 		: currentFightN > 0
 		? `Fight ${currentFightN.toString().padStart(2, "0")}`
 		: "Awaiting first fight";
 	const past = (recent ?? []).slice().reverse();
+
+	React.useEffect(() => {
+		if (!open || !btnRef.current) return;
+		const r = btnRef.current.getBoundingClientRect();
+		setAnchor({ left: r.left, top: r.bottom + 4 });
+		const close = (e: MouseEvent): void => {
+			if (btnRef.current?.contains(e.target as Node)) return;
+			setOpen(false);
+		};
+		const onScroll = (): void => setOpen(false);
+		window.addEventListener("mousedown", close);
+		window.addEventListener("scroll", onScroll, true);
+		window.addEventListener("resize", onScroll);
+		return () => {
+			window.removeEventListener("mousedown", close);
+			window.removeEventListener("scroll", onScroll, true);
+			window.removeEventListener("resize", onScroll);
+		};
+	}, [open]);
+
 	return (
 		<div style={{ position: "relative" }}>
 			<button
+				ref={btnRef}
 				onClick={() => setOpen((o) => !o)}
 				className="sk-upper inline-flex items-center"
 				style={{
@@ -408,18 +437,20 @@ function FightPicker({
 				{label}
 				{past.length > 0 && <span style={{ color: "var(--sk-fg-3)" }}>▼</span>}
 			</button>
-			{open && past.length > 0 && (
+			{open && past.length > 0 && anchor && createPortal(
 				<div
 					style={{
-						position: "absolute",
-						top: "calc(100% + 4px)",
-						left: 0,
+						position: "fixed",
+						left: anchor.left,
+						top: anchor.top,
 						minWidth: 200,
+						maxHeight: "60vh",
+						overflowY: "auto",
 						background: "var(--sk-bg-2)",
 						border: "1px solid var(--sk-line-2)",
 						borderRadius: 6,
 						boxShadow: "0 12px 32px -8px rgba(0,0,0,0.6)",
-						zIndex: 10,
+						zIndex: 1000,
 						padding: 4,
 					}}
 				>
@@ -447,7 +478,8 @@ function FightPicker({
 							</MenuItem>
 						);
 					})}
-				</div>
+				</div>,
+				document.body,
 			)}
 		</div>
 	);

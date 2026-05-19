@@ -29,16 +29,16 @@ interface DemoPlayer {
 }
 
 const ROSTER: DemoPlayer[] = [
-	{ guid: "01", name: "Nyla",        classCode: "DGR", role: "M", roleLabel: "MELEE DPS · DAGGERS",     dps: 6600, taken: 115000, heal: 0 },
-	{ guid: "02", name: "Lirien",      classCode: "DGR", role: "M", roleLabel: "MELEE DPS · DAGGERS",     dps: 6900, taken: 115000, heal: 0 },
-	{ guid: "03", name: "Hesper",      classCode: "DGR", role: "M", roleLabel: "MELEE DPS · DAGGERS",     dps: 6400, taken: 113000, heal: 0, isLocal: true },
-	{ guid: "04", name: "Aldric",      classCode: "FIR", role: "R", roleLabel: "RANGED DPS · FIRE STAFF", dps: 4800, taken:  51000, heal: 0 },
-	{ guid: "05", name: "Kestrel",     classCode: "FRO", role: "C", roleLabel: "CONTROL · FROST STAFF",   dps: 3200, taken:  45000, heal: 0 },
-	{ guid: "06", name: "Mervyn",      classCode: "FRO", role: "C", roleLabel: "CONTROL · FROST STAFF",   dps: 4000, taken:  45000, heal: 0 },
-	{ guid: "07", name: "Fenwick",     classCode: "HAM", role: "T", roleLabel: "TANK · HAMMER",            dps: 2100, taken: 270000, heal: 0 },
-	{ guid: "08", name: "Edda",        classCode: "ARC", role: "S", roleLabel: "SUPPORT · ARCANE",         dps: 2100, taken:  65000, heal: 1130000 },
-	{ guid: "09", name: "Jorah",       classCode: "NTR", role: "H", roleLabel: "HEALER · NATURE STAFF",    dps:  789, taken:  90000, heal: 4570000 },
-	{ guid: "10", name: "Orson",       classCode: "HLY", role: "H", roleLabel: "HEALER · HOLY STAFF",      dps:  900, taken:  88000, heal: 3920000 },
+	{ guid: "01", name: "Nyla",        classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6600, taken: 115000, heal: 0 },
+	{ guid: "02", name: "Lirien",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6900, taken: 115000, heal: 0 },
+	{ guid: "03", name: "Hesper",      classCode: "DGR", role: "M", roleLabel: "DAGGERS",     dps: 6400, taken: 113000, heal: 0, isLocal: true },
+	{ guid: "04", name: "Aldric",      classCode: "FIR", role: "R", roleLabel: "FIRE STAFF",  dps: 4800, taken:  51000, heal: 0 },
+	{ guid: "05", name: "Kestrel",     classCode: "FRO", role: "C", roleLabel: "FROST STAFF", dps: 3200, taken:  45000, heal: 0 },
+	{ guid: "06", name: "Mervyn",      classCode: "FRO", role: "C", roleLabel: "FROST STAFF", dps: 4000, taken:  45000, heal: 0 },
+	{ guid: "07", name: "Fenwick",     classCode: "HAM", role: "T", roleLabel: "HAMMER",      dps: 2100, taken: 270000, heal: 0 },
+	{ guid: "08", name: "Edda",        classCode: "ARC", role: "S", roleLabel: "ARCANE STAFF",dps: 2100, taken:  65000, heal: 1130000 },
+	{ guid: "09", name: "Jorah",       classCode: "NTR", role: "H", roleLabel: "NATURE STAFF",dps:  789, taken:  90000, heal: 4570000 },
+	{ guid: "10", name: "Orson",       classCode: "HLY", role: "H", roleLabel: "HOLY STAFF",  dps:  900, taken:  88000, heal: 3920000 },
 ];
 
 export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number } {
@@ -100,7 +100,7 @@ export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number }
 		generatedAt: new Date().toISOString(),
 		players,
 		composition,
-		fight: { number: 4, elapsedMs: t * 1000, inCombat: true },
+		fight: { number: 4, elapsedMs: t * 1000, inCombat: true, zone: "Keepers Hide Farm 2" },
 		session: {
 			startedAt,
 			elapsedMs: sessionElapsedMs,

@@ -75,7 +75,7 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 			<div
 				className="grid items-center"
 				style={{
-					gridTemplateColumns: "28px 200px 1fr 90px 80px 70px",
+					gridTemplateColumns: "28px 200px 1fr 90px 70px 70px 70px",
 					gap: 12,
 					padding: "10px 14px",
 					borderBottom: "1px solid var(--sk-line)",
@@ -91,8 +91,9 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 				<span>Player</span>
 				<span>{headerLabel[mode]}</span>
 				<span style={{ textAlign: "right" }}>{rateHeader[mode]}</span>
-				<span style={{ textAlign: "right" }}>↓ Taken</span>
-				<span style={{ textAlign: "right" }}>+ Heal</span>
+				<span style={{ textAlign: "right" }} title="Damage taken">↓ Taken</span>
+				<span style={{ textAlign: "right" }} title="Healing done">+ Heal</span>
+				<span style={{ textAlign: "right" }} title="Overheal — heal that hit max-HP targets">~ Over</span>
 			</div>
 
 			{/* Rows */}
@@ -152,7 +153,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				position: "relative",
 				height: rowH,
 				display: "grid",
-				gridTemplateColumns: "28px 200px 1fr 90px 80px 70px",
+				gridTemplateColumns: "28px 200px 1fr 90px 70px 70px 70px",
 				alignItems: "center",
 				gap: 12,
 				padding: `0 14px 0 12px`,
@@ -290,6 +291,8 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 			<MiniChip color="var(--sk-taken)" value={fmt(player.currentTaken)} glyph="↓" />
 			{/* Healing chip */}
 			<MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
+			{/* Overheal chip — dim grey since it's a "waste" stat */}
+			<MiniChip color="var(--sk-fg-3)" value={fmt(player.overheal ?? 0)} glyph="~" />
 		</div>
 	);
 }

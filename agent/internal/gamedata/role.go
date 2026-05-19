@@ -35,71 +35,71 @@ func ClassifyWeapon(uniqueName string) WeaponClassification {
 	switch {
 	// Healers
 	case contains(u, "HOLYSTAFF"):
-		return cls("HLY", RoleHealer, "HEALER · HOLY STAFF")
+		return cls("HLY", RoleHealer, "HOLY STAFF")
 	case contains(u, "NATURESTAFF"):
-		return cls("NTR", RoleHealer, "HEALER · NATURE STAFF")
+		return cls("NTR", RoleHealer, "NATURE STAFF")
 	case contains(u, "DIVINESTAFF"):
-		return cls("DVN", RoleHealer, "HEALER · DIVINE STAFF")
+		return cls("DVN", RoleHealer, "DIVINE STAFF")
 	case contains(u, "WILDSTAFF"):
-		return cls("WLD", RoleHealer, "HEALER · WILD STAFF")
+		return cls("WLD", RoleHealer, "WILD STAFF")
 	case contains(u, "GREATHOLYSTAFF"):
-		return cls("HLY", RoleHealer, "HEALER · GREAT HOLY")
+		return cls("HLY", RoleHealer, "GREAT HOLY")
 	case contains(u, "GREATNATURESTAFF"):
-		return cls("NTR", RoleHealer, "HEALER · GREAT NATURE")
+		return cls("NTR", RoleHealer, "GREAT NATURE")
 	case contains(u, "FALLENSTAFF"):
-		return cls("FAL", RoleHealer, "HEALER · FALLEN STAFF")
+		return cls("FAL", RoleHealer, "FALLEN STAFF")
 	case contains(u, "REDEMPTIONSTAFF"):
-		return cls("RED", RoleHealer, "HEALER · REDEMPTION")
+		return cls("RED", RoleHealer, "REDEMPTION")
 
 	// Tanks
 	case contains(u, "HAMMER"):
-		return cls("HAM", RoleTank, "TANK · HAMMER")
+		return cls("HAM", RoleTank, "HAMMER")
 	case contains(u, "MACE"):
-		return cls("MAC", RoleTank, "TANK · MACE")
+		return cls("MAC", RoleTank, "MACE")
 	case contains(u, "QUARTERSTAFF"):
-		return cls("QRT", RoleTank, "TANK · QUARTERSTAFF")
+		return cls("QRT", RoleTank, "QUARTERSTAFF")
 	case contains(u, "KNUCKLES"):
-		return cls("KNK", RoleTank, "TANK · KNUCKLES")
+		return cls("KNK", RoleTank, "KNUCKLES")
 
 	// Ranged DPS (bows, crossbows, magic staves)
 	case contains(u, "LONGBOW"):
-		return cls("LBW", RoleRangedDPS, "RANGED DPS · LONGBOW")
+		return cls("LBW", RoleRangedDPS, "LONGBOW")
 	case contains(u, "WARBOW"):
-		return cls("WBW", RoleRangedDPS, "RANGED DPS · WARBOW")
+		return cls("WBW", RoleRangedDPS, "WARBOW")
 	case contains(u, "BOW"):
-		return cls("BOW", RoleRangedDPS, "RANGED DPS · BOW")
+		return cls("BOW", RoleRangedDPS, "BOW")
 	case contains(u, "CROSSBOW"):
-		return cls("XBW", RoleRangedDPS, "RANGED DPS · CROSSBOW")
+		return cls("XBW", RoleRangedDPS, "CROSSBOW")
 	case contains(u, "FIRESTAFF"):
-		return cls("FIR", RoleRangedDPS, "RANGED DPS · FIRE STAFF")
+		return cls("FIR", RoleRangedDPS, "FIRE STAFF")
 	case contains(u, "FROSTSTAFF"):
-		return cls("FRO", RoleControl, "CONTROL · FROST STAFF")
+		return cls("FRO", RoleControl, "FROST STAFF")
 	case contains(u, "CURSEDSTAFF"):
-		return cls("CRS", RoleRangedDPS, "RANGED DPS · CURSED STAFF")
+		return cls("CRS", RoleRangedDPS, "CURSED STAFF")
 	case contains(u, "GREATFIRE"):
-		return cls("FIR", RoleRangedDPS, "RANGED DPS · GREAT FIRE")
+		return cls("FIR", RoleRangedDPS, "GREAT FIRE")
 	case contains(u, "GREATFROST"):
-		return cls("FRO", RoleControl, "CONTROL · GREAT FROST")
+		return cls("FRO", RoleControl, "GREAT FROST")
 	case contains(u, "GREATCURSED"):
-		return cls("CRS", RoleRangedDPS, "RANGED DPS · GREAT CURSED")
+		return cls("CRS", RoleRangedDPS, "GREAT CURSED")
 
 	// Support / utility magic
 	case contains(u, "ARCANESTAFF"):
-		return cls("ARC", RoleSupport, "SUPPORT · ARCANE")
+		return cls("ARC", RoleSupport, "ARCANE STAFF")
 	case contains(u, "GREATARCANE"):
-		return cls("ARC", RoleSupport, "SUPPORT · GREAT ARCANE")
+		return cls("ARC", RoleSupport, "GREAT ARCANE")
 
 	// Melee DPS
 	case contains(u, "DAGGERPAIR"), contains(u, "CLAWPAIR"), contains(u, "DAGGER"):
-		return cls("DGR", RoleMeleeDPS, "MELEE DPS · DAGGERS")
+		return cls("DGR", RoleMeleeDPS, "DAGGERS")
 	case contains(u, "GREATSWORD"):
-		return cls("GRT", RoleMeleeDPS, "MELEE DPS · GREATSWORD")
+		return cls("GRT", RoleMeleeDPS, "GREATSWORD")
 	case contains(u, "BROADSWORD"), contains(u, "CLAYMORE"), contains(u, "SWORD"):
-		return cls("SWD", RoleMeleeDPS, "MELEE DPS · SWORD")
+		return cls("SWD", RoleMeleeDPS, "SWORD")
 	case contains(u, "AXE"), contains(u, "HALBERD"):
-		return cls("AXE", RoleMeleeDPS, "MELEE DPS · AXE")
+		return cls("AXE", RoleMeleeDPS, "AXE")
 	case contains(u, "SPEAR"), contains(u, "PIKE"), contains(u, "GLAIVE"), contains(u, "TRINITYSPEAR"):
-		return cls("SPR", RoleMeleeDPS, "MELEE DPS · SPEAR")
+		return cls("SPR", RoleMeleeDPS, "SPEAR")
 	}
 	return cls("—", RoleUnknown, "")
 }

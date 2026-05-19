@@ -25,6 +25,8 @@ export interface PlayerSnapshot {
 	overheal?: number;
 
 	spells?: SpellBreakdown[];
+	targets?: TargetBreakdown[];
+	activeEffects?: number[];
 }
 
 export interface SpellBreakdown {
@@ -33,6 +35,13 @@ export interface SpellBreakdown {
 	totalDamage: number;
 	maxHit: number;
 	hits: number;
+	casts?: number;
+}
+
+export interface TargetBreakdown {
+	objectId: number;
+	name?: string;
+	damage: number;
 }
 
 export interface Composition {
@@ -50,6 +59,7 @@ export interface Fight {
 	number: number;
 	elapsedMs: number;
 	inCombat: boolean;
+	zone?: string;
 }
 
 export interface Session {

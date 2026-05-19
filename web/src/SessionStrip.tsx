@@ -173,21 +173,43 @@ interface SparkSet {
 
 const SPARK_LENGTH = 22;
 
-// useSparkBuffers keeps a rolling window of the last SPARK_LENGTH values
-// for each metric, sampled once per second. Resets when startedAt
-// changes (i.e. the agent fired ResetSession).
+// useSparkBuffers samples each metric once per second and stores the
+// PER-SECOND GAIN (current - previous), not the cumulative total. That
+// way the sparkline pulses with activity instead of climbing monotonic-
+// ally — out-of-combat samples sit near zero, kills spike, and you can
+// read the line as "how hard am I farming right now."
+//
+// Resets when startedAt changes (the agent fired ResetSession).
 function useSparkBuffers(values: Record<keyof SparkSet, number>, startedAt: string): SparkSet {
 	const [state, setState] = useState<SparkSet>(() => emptySparks());
 	const valuesRef = useRef(values);
 	valuesRef.current = values;
+	const prevRef = useRef<Record<keyof SparkSet, number>>({ fame: 0, silver: 0, respec: 0, might: 0 });
+	const baselineRef = useRef<boolean>(false);
 
 	useEffect(() => {
 		setState(emptySparks());
+		prevRef.current = { fame: 0, silver: 0, respec: 0, might: 0 };
+		baselineRef.current = false;
 	}, [startedAt]);
 
 	useEffect(() => {
 		const t = setInterval(() => {
-			setState((prev) => pushSample(prev, valuesRef.current));
+			const cur = valuesRef.current;
+			const prev = prevRef.current;
+			// First tick after a reset just seeds the baseline; emit 0
+			// so we don't spike from "0 → 95K fame" in one frame.
+			const delta: Record<keyof SparkSet, number> = baselineRef.current
+				? {
+					fame:   Math.max(0, cur.fame   - prev.fame),
+					silver: Math.max(0, cur.silver - prev.silver),
+					respec: Math.max(0, cur.respec - prev.respec),
+					might:  Math.max(0, cur.might  - prev.might),
+				}
+				: { fame: 0, silver: 0, respec: 0, might: 0 };
+			prevRef.current = cur;
+			baselineRef.current = true;
+			setState((s) => pushSample(s, delta));
 		}, 1000);
 		return () => clearInterval(t);
 	}, []);

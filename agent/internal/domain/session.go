@@ -15,8 +15,10 @@ type SessionStats struct {
 	DeathsTotal   int   // total deaths recorded across all entities
 	prevFame      int64 // running TotalPlayerFame for delta calc
 	prevSilver    int64 // running CurrentPlayerSilver for delta calc
+	prevRespec    int64 // running CurrentTotalReSpecPoints for delta calc
 	prevFameKnown bool  // wait for second event before counting; first sets baseline
 	prevSilverKnown bool
+	prevRespecKnown bool
 }
 
 // Reset zeroes the session. Called by the engine when the operator clicks

@@ -40,16 +40,29 @@ type Entity struct {
 	// Key is the CausingSpellIndex from HealthUpdate (param 7).
 	BySpell map[int]*SpellTotals
 
+	// ByTarget aggregates damage dealt to each affected entity. Key is the
+	// target's ObjectId. Used in the drill-in to show "who did this player
+	// focus" — tanks should show the boss, cleavers should show many adds.
+	ByTarget map[int64]int64
+
+	// ActiveEffects lists spell indices currently buffing/debuffing this
+	// entity. Refreshed on ActiveSpellEffectsUpdate. May be nil.
+	ActiveEffects []int
+
 	LastSeen time.Time
 }
 
 // SpellTotals is the per-(player, spell) breakdown shown on the drill-in
-// screen. Hits is the HealthUpdate count — not the true cast count, which
-// would require correlating CastStart events.
+// screen.
+//
+// Hits is the HealthUpdate count (number of times this spell landed).
+// Casts is the CastFinished count (number of times this spell was cast).
+// In single-target spells Hits ≈ Casts; in AoE spells Hits ≫ Casts.
 type SpellTotals struct {
 	TotalDamage int64
 	MaxHit      int64
 	Hits        int
+	Casts       int
 }
 
 // Store is the in-memory entity registry. All mutating methods take the write
@@ -113,6 +126,20 @@ func (s *Store) UpsertByGuid(g Guid, objectId int64, name, guild string) *Entity
 	}
 	e.LastSeen = time.Now()
 	return e
+}
+
+// byObjectIdLocked returns the entity with the given ObjectId. Caller
+// must already hold store.mu (read or write).
+func (s *Store) byObjectIdLocked(id int64) *Entity {
+	if id == 0 {
+		return nil
+	}
+	for _, e := range s.byGuid {
+		if e.ObjectId == id {
+			return e
+		}
+	}
+	return nil
 }
 
 // ByObjectId returns the entity with the given ObjectId, or nil if none.

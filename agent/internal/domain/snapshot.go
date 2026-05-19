@@ -29,9 +29,32 @@ func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
 			TotalDamage: s.TotalDamage,
 			MaxHit:      s.MaxHit,
 			Hits:        s.Hits,
+			Casts:       s.Casts,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TotalDamage > out[j].TotalDamage })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// topTargets returns the top n damage recipients for an entity,
+// resolving names against tracked entities. Unresolved targets render
+// as "#<objectId>". Caller must hold store.mu.
+func (e *Engine) topTargets(ent *Entity, n int) []TargetBreakdown {
+	if len(ent.ByTarget) == 0 {
+		return nil
+	}
+	out := make([]TargetBreakdown, 0, len(ent.ByTarget))
+	for id, dmg := range ent.ByTarget {
+		var name string
+		if t := e.store.byObjectIdLocked(id); t != nil {
+			name = t.Name
+		}
+		out = append(out, TargetBreakdown{ObjectId: id, Name: name, Damage: dmg})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Damage > out[j].Damage })
 	if len(out) > n {
 		out = out[:n]
 	}
@@ -71,6 +94,15 @@ type PlayerSnapshot struct {
 	// Top spells used during the current fight, sorted by total damage
 	// descending. Only included when there's something to show.
 	Spells []SpellBreakdown `json:"spells,omitempty"`
+
+	// Targets — top recipients of damage from this player. Top 5,
+	// descending. Tanks focus the boss; cleavers spread across mobs.
+	Targets []TargetBreakdown `json:"targets,omitempty"`
+
+	// ActiveEffects is the list of spell indices currently active on
+	// this entity (buffs + debuffs). Latest snapshot from the most
+	// recent ActiveSpellEffectsUpdate.
+	ActiveEffects []int `json:"activeEffects,omitempty"`
 }
 
 // SpellBreakdown is one row of the drill-in screen's ability table.
@@ -80,6 +112,16 @@ type SpellBreakdown struct {
 	TotalDamage int64  `json:"totalDamage"`
 	MaxHit      int64  `json:"maxHit"`
 	Hits        int    `json:"hits"`
+	Casts       int    `json:"casts,omitempty"`
+}
+
+// TargetBreakdown is one row of the per-target table — how much damage
+// the player dealt to a specific target. Name is best-effort; tracked
+// entities resolve, raw mob ObjectIds fall through as #<id>.
+type TargetBreakdown struct {
+	ObjectId int64  `json:"objectId"`
+	Name     string `json:"name,omitempty"`
+	Damage   int64  `json:"damage"`
 }
 
 // Composition counts each role across the snapshot's players.
@@ -99,6 +141,7 @@ type Fight struct {
 	Number    int    `json:"number"`     // 1-indexed; 0 means no fight yet
 	ElapsedMs int64  `json:"elapsedMs"`  // milliseconds since the fight started
 	InCombat  bool   `json:"inCombat"`
+	Zone      string `json:"zone,omitempty"`
 }
 
 // Session is the running session-economy block shown above the meter.
@@ -165,6 +208,7 @@ func (e *Engine) Snapshot() Snapshot {
 			Number:    fightN,
 			ElapsedMs: elapsed.Milliseconds(),
 			InCombat:  inCombat,
+			Zone:      e.Zone(),
 		},
 		Recent: recent,
 		Session: sess,
@@ -196,7 +240,9 @@ func (e *Engine) Snapshot() Snapshot {
 			CurrentTaken:  m.Current.DamageTaken,
 			OverallTaken:  m.Overall.DamageTaken,
 
-			Spells: e.topSpells(m, 10),
+			Spells:        e.topSpells(m, 10),
+			Targets:       e.topTargets(m, 5),
+			ActiveEffects: append([]int(nil), m.ActiveEffects...),
 		})
 		switch m.Role {
 		case "T":

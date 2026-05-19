@@ -60,6 +60,17 @@ type Engine struct {
 	// Session economy + lifecycle, protected by sessionMu.
 	sessionMu sync.Mutex
 	session   SessionStats
+
+	// zoneName tracks the current Albion zone for the FightHeader subtitle.
+	zoneMu   sync.Mutex
+	zoneName string
+}
+
+// Zone returns the current zone label.
+func (e *Engine) Zone() string {
+	e.zoneMu.Lock()
+	defer e.zoneMu.Unlock()
+	return e.zoneName
 }
 
 const (
@@ -94,6 +105,8 @@ func (e *Engine) ResetSession() {
 		ent.Current.Reset()
 		ent.Overall.Reset()
 		ent.BySpell = nil
+		ent.ByTarget = nil
+		ent.ActiveEffects = nil
 		ent.Deaths = 0
 	}
 	e.store.mu.Unlock()
@@ -175,6 +188,10 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventChangeEquipment:
 		dbg("ChangeEquipment %v", ev.Parameters)
 		e.handleEquipmentChanged(ev.Parameters)
+	case gamecodes.EventCastFinished:
+		e.handleCastFinished(ev.Parameters)
+	case gamecodes.EventActiveSpellEffectsUpdate:
+		e.handleActiveSpellEffects(ev.Parameters)
 	case gamecodes.EventPartyJoined:
 		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
@@ -234,7 +251,8 @@ func (e *Engine) onResponse(resp photon.OperationResponse) {
 // via NewCharacter, so this is how we learn our own ObjectId + Guid.
 //
 // Mirrors SAT's JoinResponseHandler. Params used:
-//   0 → UserObjectId, 1 → UserGuid, 2 → Username, 58 → GuildName.
+//   0 → UserObjectId, 1 → UserGuid, 2 → Username,
+//   8 → MapIndex (zone token), 58 → GuildName.
 func (e *Engine) handleJoinResponse(p map[byte]any) {
 	objectId, _ := paramLong(p, 0)
 	guid, _ := paramGuid(p, 1)
@@ -248,6 +266,93 @@ func (e *Engine) handleJoinResponse(p map[byte]any) {
 	// Local player is always in their own party for damage-meter purposes,
 	// even when actually solo — that matches SAT's behaviour.
 	e.store.MarkInParty(guid, true)
+	// Zone label — JoinResponse param 8 is the MapIndex (e.g.
+	// "KEEPERS_HIDE_FARM_2" or "BLACK_03"). Surface as the FightHeader
+	// subtitle so the user knows where the data is coming from.
+	if mi, ok := paramString(p, 8); ok && mi != "" {
+		e.setZone(mi)
+	}
+}
+
+// setZone caches the current zone label for inclusion in snapshots.
+func (e *Engine) setZone(name string) {
+	e.zoneMu.Lock()
+	e.zoneName = prettyZone(name)
+	e.zoneMu.Unlock()
+}
+
+// prettyZone turns Albion's internal map tokens into something readable.
+// "KEEPERS_HIDE_FARM_2" → "Keepers Hide Farm 2". "MISTS_06" → "Mists 06".
+func prettyZone(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parts := splitToken(raw)
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		// Keep all-numeric tokens as-is.
+		allDigits := true
+		for _, r := range p {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			continue
+		}
+		parts[i] = upperFirst(p)
+	}
+	return joinSpaces(parts)
+}
+
+func splitToken(s string) []string {
+	out := make([]string, 0, 4)
+	cur := make([]byte, 0, 16)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '_' || c == '-' {
+			if len(cur) > 0 {
+				out = append(out, string(cur))
+				cur = cur[:0]
+			}
+			continue
+		}
+		cur = append(cur, c)
+	}
+	if len(cur) > 0 {
+		out = append(out, string(cur))
+	}
+	return out
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	b := []byte(s)
+	if b[0] >= 'a' && b[0] <= 'z' {
+		b[0] -= 32
+	}
+	for i := 1; i < len(b); i++ {
+		if b[i] >= 'A' && b[i] <= 'Z' {
+			b[i] += 32
+		}
+	}
+	return string(b)
+}
+
+func joinSpaces(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " "
+		}
+		out += p
+	}
+	return out
 }
 
 func (e *Engine) handleHealthUpdate(p map[byte]any) {
@@ -278,6 +383,7 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 			e.store.mu.Lock()
 			recordDamage(&causerEnt.Current, &causerEnt.Overall, dmg, now)
 			recordSpell(causerEnt, int(spellIdx), dmg)
+			recordTarget(causerEnt, affected, dmg)
 			e.store.mu.Unlock()
 		}
 		if affEnt != nil {
@@ -377,16 +483,84 @@ func (e *Engine) handleUpdateMoney(p map[byte]any) {
 	e.sessionMu.Unlock()
 }
 
-// handleUpdateReSpec adds the gained respec credits delta (param 2) to the
-// session total. Param 2 is FixPoint internal units (10_000 = 1 credit).
+// handleUpdateReSpec adds the gained respec credits delta to the session
+// total. Param 2 is documented (per SAT) as GainedReSpecPoints in FixPoint
+// internal units (10_000 = 1 credit). Recent observations suggest param 2
+// may actually be the LIFETIME total on some patches — values can balloon
+// into 50K+ over a normal session, which is impossible. To be safe, also
+// read param 0 (the [_, lifetimeTotal] array form) when present, and
+// derive a delta against the prior lifetime reading. Whichever value is
+// smaller (and positive) wins per event.
 func (e *Engine) handleUpdateReSpec(p map[byte]any) {
-	gained, ok := paramLong(p, 2)
-	if !ok || gained <= 0 {
+	gained, _ := paramLong(p, 2)
+	// param 0 carries the lifetime total in an array — element [1].
+	lifetime, _ := paramLongAt(p, 0, 1)
+	gain := chooseRespecGain(gained, lifetime, &e.session)
+	if gain <= 0 {
 		return
 	}
 	e.sessionMu.Lock()
-	e.session.AccumulateRespec(gained)
+	e.session.AccumulateRespec(gain)
 	e.sessionMu.Unlock()
+}
+
+// chooseRespecGain reconciles the two possible respec param semantics.
+// If we have a lifetime baseline, we trust the delta against the prior
+// lifetime reading. Otherwise we trust the per-event gained value.
+func chooseRespecGain(gainedParam, lifetimeParam int64, s *SessionStats) int64 {
+	if lifetimeParam > 0 {
+		// First read seeds the baseline silently.
+		if !s.prevRespecKnown {
+			s.prevRespec = lifetimeParam
+			s.prevRespecKnown = true
+			return 0
+		}
+		delta := lifetimeParam - s.prevRespec
+		s.prevRespec = lifetimeParam
+		if delta > 0 {
+			return delta
+		}
+		return 0
+	}
+	if gainedParam > 0 {
+		return gainedParam
+	}
+	return 0
+}
+
+// paramLongAt reads a numeric element from an array-shaped param. Used
+// by handleUpdateReSpec where param 0 is [_, lifetimeTotal] long[].
+func paramLongAt(p map[byte]any, key byte, idx int) (int64, bool) {
+	v, ok := p[key]
+	if !ok {
+		return 0, false
+	}
+	switch a := v.(type) {
+	case []int32:
+		if idx < len(a) {
+			return int64(a[idx]), true
+		}
+	case []int64:
+		if idx < len(a) {
+			return a[idx], true
+		}
+	case []uint32:
+		if idx < len(a) {
+			return int64(a[idx]), true
+		}
+	case []any:
+		if idx < len(a) {
+			switch x := a[idx].(type) {
+			case int32:
+				return int64(x), true
+			case int64:
+				return x, true
+			case uint32:
+				return int64(x), true
+			}
+		}
+	}
+	return 0, false
 }
 
 // handleMightAndFavor folds a MightAndFavorReceivedEvent into the session.
@@ -401,6 +575,34 @@ func (e *Engine) handleMightAndFavor(p map[byte]any) {
 	e.sessionMu.Lock()
 	e.session.AccumulateMight(gained)
 	e.sessionMu.Unlock()
+}
+
+// recordTarget increments the per-target damage bucket. Caller must
+// hold store.mu. targetId of 0 means we couldn't resolve the affected
+// entity — skip rather than create a bogus bucket.
+func recordTarget(ent *Entity, targetId int64, dmg int64) {
+	if targetId == 0 {
+		return
+	}
+	if ent.ByTarget == nil {
+		ent.ByTarget = make(map[int64]int64, 8)
+	}
+	ent.ByTarget[targetId] += dmg
+}
+
+// recordCast increments the cast count for a spell on an entity. Caller
+// must hold store.mu. The CastFinished event is the most reliable trigger
+// since it implies the cast actually completed (not interrupted).
+func recordCast(ent *Entity, spellIdx int) {
+	if ent.BySpell == nil {
+		ent.BySpell = make(map[int]*SpellTotals, 8)
+	}
+	s, ok := ent.BySpell[spellIdx]
+	if !ok {
+		s = &SpellTotals{}
+		ent.BySpell[spellIdx] = s
+	}
+	s.Casts++
 }
 
 // recordSpell increments the per-spell totals for an entity. Caller must
@@ -491,14 +693,16 @@ func (e *Engine) topSpellsLocked(ent *Entity, n int) []SpellBreakdown {
 }
 
 // resetAllCurrent zeroes the per-fight stats for every tracked entity.
-// Overall persists for the session. Per-spell breakdown is also reset
-// here so the drill-in screen shows abilities used in *this* fight.
+// Overall persists for the session. Per-spell + per-target breakdowns
+// are also reset here so the drill-in screen shows abilities and
+// targets used in *this* fight.
 func (e *Engine) resetAllCurrent() {
 	e.store.mu.Lock()
 	defer e.store.mu.Unlock()
 	for _, ent := range e.store.byGuid {
 		ent.Current.Reset()
 		ent.BySpell = nil
+		ent.ByTarget = nil
 	}
 }
 
@@ -517,6 +721,84 @@ func (e *Engine) FightStatus(now time.Time) (number int, elapsed time.Duration, 
 		return e.fightNumber, 0, stillIn
 	}
 	return e.fightNumber, now.Sub(e.fightStart), stillIn
+}
+
+// handleCastFinished bumps the cast counter for a spell on the caster's
+// entity. CastFinished fires once per completed cast (interrupts don't
+// fire). Param 0 = caster ObjectId, param 2 = spell index (per SAT).
+func (e *Engine) handleCastFinished(p map[byte]any) {
+	caster, _ := paramLong(p, 0)
+	idx, _ := paramLong(p, 2)
+	if caster == 0 {
+		return
+	}
+	ent := e.store.ByObjectId(caster)
+	if ent == nil {
+		return
+	}
+	e.store.mu.Lock()
+	recordCast(ent, int(idx))
+	e.store.mu.Unlock()
+}
+
+// handleActiveSpellEffects records the set of active buff/debuff spell
+// indices on a target. Param 0 = ObjectId, param 1 = short[] of spell
+// indices currently active. Replaces the prior list — this is the full
+// active set at the time of the event.
+func (e *Engine) handleActiveSpellEffects(p map[byte]any) {
+	id, _ := paramLong(p, 0)
+	if id == 0 {
+		return
+	}
+	ent := e.store.ByObjectId(id)
+	if ent == nil {
+		return
+	}
+	raw, ok := p[1]
+	if !ok {
+		return
+	}
+	effects := readIntArray(raw)
+	e.store.mu.Lock()
+	ent.ActiveEffects = effects
+	e.store.mu.Unlock()
+}
+
+// readIntArray flattens a Protocol18 numeric array into []int.
+func readIntArray(v any) []int {
+	switch a := v.(type) {
+	case []int16:
+		out := make([]int, len(a))
+		for i, x := range a {
+			out[i] = int(x)
+		}
+		return out
+	case []int32:
+		out := make([]int, len(a))
+		for i, x := range a {
+			out[i] = int(x)
+		}
+		return out
+	case []int64:
+		out := make([]int, len(a))
+		for i, x := range a {
+			out[i] = int(x)
+		}
+		return out
+	case []byte:
+		out := make([]int, len(a))
+		for i, x := range a {
+			out[i] = int(x)
+		}
+		return out
+	case []uint16:
+		out := make([]int, len(a))
+		for i, x := range a {
+			out[i] = int(x)
+		}
+		return out
+	}
+	return nil
 }
 
 // handleEquipmentChanged updates a tracked entity's class chip + role when
