@@ -69,12 +69,10 @@ export function SettingsPanel({ settings, update, reset, onClose }: SettingsPane
 							sub="Choose which secondary metrics show on each row"
 						>
 							<div className="flex flex-wrap" style={{ gap: 6 }}>
-								<ColChip on={settings.columns.itemPower} onClick={() => update("columns", { ...settings.columns, itemPower: !settings.columns.itemPower })}>Item Power</ColChip>
 								<ColChip on={settings.columns.dps}       onClick={() => update("columns", { ...settings.columns, dps: !settings.columns.dps })}>DPS</ColChip>
 								<ColChip on={settings.columns.hps}       onClick={() => update("columns", { ...settings.columns, hps: !settings.columns.hps })}>HPS</ColChip>
 								<ColChip on={settings.columns.damageTaken} onClick={() => update("columns", { ...settings.columns, damageTaken: !settings.columns.damageTaken })}>Damage Taken</ColChip>
 								<ColChip on={settings.columns.healing}   onClick={() => update("columns", { ...settings.columns, healing: !settings.columns.healing })}>Healing</ColChip>
-								<ColChip on={settings.columns.critPct}   onClick={() => update("columns", { ...settings.columns, critPct: !settings.columns.critPct })}>Crit %</ColChip>
 							</div>
 						</Setting>
 						<Setting label="Theme accent" sub="Color used for your local-player row">

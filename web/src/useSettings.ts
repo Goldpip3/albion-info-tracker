@@ -30,12 +30,10 @@ export type Density = 28 | 34 | 40;
 export type BarStyle = "outline" | "tint" | "solid";
 
 export interface ColumnVisibility {
-	itemPower: boolean;
 	dps: boolean;
 	hps: boolean;
 	damageTaken: boolean;
 	healing: boolean;
-	critPct: boolean;
 }
 
 const DEFAULT: Settings = {
@@ -45,12 +43,10 @@ const DEFAULT: Settings = {
 	pinLocal: true,
 	groupByRole: false,
 	columns: {
-		itemPower: false,
 		dps: true,
 		hps: false,
 		damageTaken: true,
 		healing: true,
-		critPct: false,
 	},
 	showActivityLog: false,
 	panes: { damage: true, heal: false, taken: false },

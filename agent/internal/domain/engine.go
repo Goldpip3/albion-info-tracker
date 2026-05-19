@@ -374,6 +374,13 @@ func (e *Engine) SetLocalization(l *gamedata.Localization) {
 // Returns "" only when there's no spell at that index. Callers can fall
 // back to a numeric label ("#1234") in that case.
 func (e *Engine) localizedSpellName(idx int) string {
+	// Auto-attacks arrive in HealthUpdate with CausingSpellIndex = -1
+	// (no CastFinished, no uniquename in spells.bin). Treat any non-positive
+	// index as the player's basic attack so the drill-in shows "Auto Attack"
+	// instead of "#-1".
+	if idx <= 0 {
+		return "Auto Attack"
+	}
 	if e.spells == nil {
 		return ""
 	}

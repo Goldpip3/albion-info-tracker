@@ -19,7 +19,7 @@ export function Footer({ snapshot, lastMessageAt, onOpenSessions, onOpenParty, o
 	const ago = lastMessageAt
 		? `${((Date.now() - lastMessageAt) / 1000).toFixed(1)}s ago`
 		: "—";
-	const status = lastMessageAt && Date.now() - lastMessageAt < 5000 ? "200 OK" : "stale";
+	const status = lastMessageAt && Date.now() - lastMessageAt < 5000 ? "live" : "stale";
 	return (
 		<div
 			className="flex items-center justify-between"
