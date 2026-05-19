@@ -53,6 +53,9 @@ type Engine struct {
 	fightStart    time.Time
 	lastDamageAt  time.Time
 	inCombat      bool
+	// fightHistory is a ring of the last maxFightHistory completed fights.
+	// Protected by fightMu since archive happens on the fight-end transition.
+	fightHistory []FightArchive
 
 	// Session economy + lifecycle, protected by sessionMu.
 	sessionMu sync.Mutex
@@ -81,9 +84,9 @@ func NewEngine() *Engine {
 }
 
 // ResetSession clears every running counter — combat stats, per-spell
-// breakdowns, deaths, session economy, fight counter, activity log — and
-// stamps a fresh session start time. Called when the user clicks
-// "New session" in the UI, dispatched as a command over the WS.
+// breakdowns, deaths, session economy, fight counter, fight history,
+// activity log — and stamps a fresh session start time. Called when the
+// user clicks "New session" in the UI.
 func (e *Engine) ResetSession() {
 	now := e.now()
 	e.store.mu.Lock()
@@ -100,6 +103,7 @@ func (e *Engine) ResetSession() {
 	e.fightStart = time.Time{}
 	e.lastDamageAt = time.Time{}
 	e.inCombat = false
+	e.fightHistory = nil
 	e.fightMu.Unlock()
 
 	e.sessionMu.Lock()
@@ -391,20 +395,72 @@ func recordSpell(ent *Entity, spellIdx int, dmg int64) {
 }
 
 // touchCombat updates lastDamageAt and, if we were idle long enough, ends
-// the prior fight and starts a new one — bumping FightNumber and zeroing
-// every entity's Current bucket. Called from handleHealthUpdate before any
-// stat accumulation.
+// the prior fight and starts a new one — archiving the prior fight,
+// bumping FightNumber, and zeroing every entity's Current bucket. Called
+// from handleHealthUpdate before any stat accumulation.
 func (e *Engine) touchCombat(now time.Time) {
 	e.fightMu.Lock()
 	defer e.fightMu.Unlock()
 	if !e.inCombat || now.Sub(e.lastDamageAt) > fightAutoEnd {
-		// Start a new fight.
+		// If a previous fight existed, archive it before zeroing Current.
+		if e.fightNumber > 0 && !e.fightStart.IsZero() {
+			e.archiveCurrentFight(e.lastDamageAt)
+		}
 		e.fightNumber++
 		e.fightStart = now
 		e.inCombat = true
 		e.resetAllCurrent()
 	}
 	e.lastDamageAt = now
+}
+
+// archiveCurrentFight snapshots every entity's Current stats into a
+// FightArchive and appends it to fightHistory. Caller must hold fightMu.
+// Skips entities with zero activity to keep archives lean.
+func (e *Engine) archiveCurrentFight(endedAt time.Time) {
+	arch := FightArchive{
+		Number:     e.fightNumber,
+		StartedAt:  e.fightStart,
+		EndedAt:    endedAt,
+		DurationMs: endedAt.Sub(e.fightStart).Milliseconds(),
+	}
+	e.store.mu.RLock()
+	for _, ent := range e.store.byGuid {
+		if ent.Current.DamageDealt == 0 && ent.Current.HealDone == 0 && ent.Current.DamageTaken == 0 {
+			continue
+		}
+		arch.Players = append(arch.Players, FightPlayerArchive{
+			UserGuid:  ent.UserGuid.String(),
+			Name:      ent.Name,
+			ClassCode: ent.ClassCode,
+			Role:      ent.Role,
+			RoleLabel: ent.RoleLabel,
+			IsLocal:   ent.IsLocal,
+			Damage:    ent.Current.DamageDealt,
+			DPS:       ent.Current.DPS(),
+			Heal:      ent.Current.HealDone,
+			HPS:       ent.Current.HPS(),
+			Overheal:  ent.Current.Overhealing,
+			Taken:     ent.Current.DamageTaken,
+			Deaths:    ent.Deaths,
+			Spells:    e.topSpellsLocked(ent, 10),
+		})
+	}
+	e.store.mu.RUnlock()
+
+	if len(arch.Players) == 0 {
+		return
+	}
+	e.fightHistory = append(e.fightHistory, arch)
+	if len(e.fightHistory) > maxFightHistory {
+		e.fightHistory = e.fightHistory[len(e.fightHistory)-maxFightHistory:]
+	}
+}
+
+// topSpellsLocked is topSpells without locking — for callers that already
+// hold (or have a read-locked) store.mu.
+func (e *Engine) topSpellsLocked(ent *Entity, n int) []SpellBreakdown {
+	return e.topSpells(ent, n) // topSpells doesn't lock either; safe.
 }
 
 // resetAllCurrent zeroes the per-fight stats for every tracked entity.

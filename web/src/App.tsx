@@ -8,7 +8,7 @@ import { DrillIn } from "./DrillIn.tsx";
 import { ActivityLog } from "./ActivityLog.tsx";
 import { SessionStrip } from "./SessionStrip.tsx";
 import { accentOklch, useSettings } from "./useSettings.ts";
-import type { Mode, PlayerSnapshot } from "./types.ts";
+import type { FightArchive, Mode, PlayerSnapshot, Snapshot } from "./types.ts";
 
 function useStored(key: string, initial: string): [string, (v: string) => void] {
 	const [v, setV] = useState<string>(() => {
@@ -68,6 +68,7 @@ export default function App(): React.ReactElement {
 	const { settings, update, reset } = useSettings();
 	const [showSettings, setShowSettings] = useState(false);
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
+	const [viewingFight, setViewingFight] = useState<number | null>(null);
 
 	const configured = url.trim() !== "" && token.trim() !== "";
 	const { state, snapshot, lastMessageAt, error, sendCommand } = useMeterSocket({
@@ -114,6 +115,16 @@ export default function App(): React.ReactElement {
 	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
 	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]); // defensive
 
+	// When the user picks a past fight from the history dropdown, swap the
+	// snapshot the meter renders. The session strip + agent pill always
+	// reflect the live state; only the table + drill-in are frozen.
+	const archived = viewingFight !== null
+		? snapshot?.recent?.find((r) => r.number === viewingFight)
+		: undefined;
+	const meterSnapshot: Snapshot | null = archived
+		? archiveToSnapshot(archived, snapshot)
+		: snapshot;
+
 	return (
 		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
 			<Header
@@ -126,6 +137,8 @@ export default function App(): React.ReactElement {
 					const stillOn = Object.values(next).some(Boolean);
 					if (stillOn) update("panes", next);
 				}}
+				viewingFight={viewingFight}
+				setViewingFight={setViewingFight}
 				onSettings={() => setShowSettings(true)}
 				onReset={() => {
 					if (confirm("Disconnect and clear settings?")) {
@@ -142,7 +155,7 @@ export default function App(): React.ReactElement {
 					{activePanes.length === 1 ? (
 						<div className="h-full overflow-auto">
 							<MeterTable
-								snapshot={snapshot}
+								snapshot={meterSnapshot}
 								mode={activePanes[0].mode}
 								settings={settings}
 								onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
@@ -177,7 +190,7 @@ export default function App(): React.ReactElement {
 									</div>
 									<div className="flex-1 overflow-auto">
 										<MeterTable
-											snapshot={snapshot}
+											snapshot={meterSnapshot}
 											mode={p.mode}
 											settings={settings}
 											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
@@ -207,12 +220,54 @@ export default function App(): React.ReactElement {
 					onClose={() => setShowSettings(false)}
 				/>
 			)}
-			{drillGuid && snapshot && (() => {
-				const p = snapshot.players.find((p) => p.userGuid === drillGuid);
+			{drillGuid && meterSnapshot && (() => {
+				const p = meterSnapshot.players.find((p) => p.userGuid === drillGuid);
 				return p ? <DrillIn player={p} onClose={() => setDrillGuid(null)} /> : null;
 			})()}
 		</div>
 	);
+}
+
+// archiveToSnapshot wraps a FightArchive in a Snapshot-shaped object so
+// MeterTable / DrillIn render past fights without their own code path.
+// The wrapper carries over the live session block + composition for
+// chrome that should always reflect "now"; only players + fight are
+// derived from the archive.
+function archiveToSnapshot(arch: FightArchive, live: Snapshot | null): Snapshot {
+	const players: PlayerSnapshot[] = arch.players.map((p) => ({
+		userGuid: p.userGuid,
+		name: p.name,
+		classCode: p.classCode,
+		role: p.role,
+		roleLabel: p.roleLabel,
+		isLocal: p.isLocal,
+		deaths: p.deaths,
+		overheal: p.overheal,
+		currentDamage: p.damage,
+		currentDps: p.dps,
+		overallDamage: p.damage,
+		overallDps: p.dps,
+		currentHeal: p.heal,
+		currentHps: p.hps,
+		overallHeal: p.heal,
+		overallHps: p.hps,
+		currentTaken: p.taken,
+		overallTaken: p.taken,
+		spells: p.spells,
+	}));
+	return {
+		generatedAt: arch.endedAt,
+		players,
+		composition: live?.composition,
+		fight: {
+			number: arch.number,
+			elapsedMs: arch.durationMs,
+			inCombat: false,
+		},
+		session: live?.session,
+		recent: live?.recent,
+		events: live?.events,
+	};
 }
 
 interface SetupScreenProps {

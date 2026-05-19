@@ -119,6 +119,7 @@ type Snapshot struct {
 	Composition Composition      `json:"composition"`
 	Fight       Fight            `json:"fight"`
 	Session     Session          `json:"session"`
+	Recent      []FightArchive   `json:"recent,omitempty"`
 	Events      []ActivityEvent  `json:"events,omitempty"`
 }
 
@@ -149,6 +150,11 @@ func (e *Engine) Snapshot() Snapshot {
 	}
 	e.sessionMu.Unlock()
 
+	e.fightMu.Lock()
+	recent := make([]FightArchive, len(e.fightHistory))
+	copy(recent, e.fightHistory)
+	e.fightMu.Unlock()
+
 	out := Snapshot{
 		GeneratedAt: now,
 		Players:     make([]PlayerSnapshot, 0, len(members)),
@@ -157,6 +163,7 @@ func (e *Engine) Snapshot() Snapshot {
 			ElapsedMs: elapsed.Milliseconds(),
 			InCombat:  inCombat,
 		},
+		Recent: recent,
 		Session: sess,
 		Events:  e.events.SnapshotLatest(48),
 	}

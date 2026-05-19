@@ -36,6 +36,8 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 	}
 
 	const max = sorted[0] ? primaryFor(sorted[0]).cur : 0;
+	// Party total for the active metric — drives the per-row share (%).
+	const partyTotal = sorted.reduce((s, p) => s + primaryFor(p).cur, 0);
 
 	if (sorted.length === 0) {
 		return (
@@ -88,6 +90,7 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 						rank={i + 1}
 						mode={mode}
 						max={max}
+						partyTotal={partyTotal}
 						primary={primaryFor(p)}
 						settings={settings}
 						onHover={setHovered}
@@ -106,13 +109,14 @@ interface PlayerRowProps {
 	rank: number;
 	mode: Mode;
 	max: number;
+	partyTotal: number;
 	primary: { cur: number; ovr: number; rate: number | null };
 	settings: Settings;
 	onHover: (p: PlayerSnapshot | null) => void;
 	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-function PlayerRow({ player, rank, mode, max, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
+function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
 	const isLocal = player.isLocal ?? false;
 	const roleKey: RoleKey = roleKeyOf(player.role);
 	const tabColor =
@@ -231,6 +235,9 @@ function PlayerRow({ player, rank, mode, max, primary, settings, onHover, onDril
 					>
 						{fmt(primary.cur)}
 					</span>
+					<span className="sk-mono" style={{ fontSize: 11, color: "var(--sk-fg-2)" }}>
+						({sharePct(primary.cur, partyTotal)}%)
+					</span>
 					<span className="sk-mono" style={{ fontSize: 10.5, color: "var(--sk-fg-1)", opacity: 0.7 }}>
 						↳ {fmt(primary.ovr)} session
 					</span>
@@ -343,6 +350,14 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 			</div>
 		</div>
 	);
+}
+
+function sharePct(value: number, total: number): string {
+	if (total <= 0 || value <= 0) return "0";
+	const p = (value / total) * 100;
+	if (p >= 99.5) return "100";
+	if (p >= 10) return p.toFixed(0);
+	return p.toFixed(1);
 }
 
 function EmptyState(): React.ReactElement {

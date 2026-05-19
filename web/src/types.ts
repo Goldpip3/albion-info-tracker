@@ -78,6 +78,32 @@ export interface Snapshot {
 	fight?: Fight;
 	session?: Session;
 	events?: ActivityEvent[];
+	recent?: FightArchive[];
+}
+
+export interface FightArchive {
+	number: number;
+	startedAt: string;
+	endedAt: string;
+	durationMs: number;
+	players: FightPlayerArchive[];
+}
+
+export interface FightPlayerArchive {
+	userGuid: string;
+	name: string;
+	classCode?: string;
+	role?: string;
+	roleLabel?: string;
+	isLocal?: boolean;
+	damage: number;
+	dps: number;
+	heal: number;
+	hps: number;
+	overheal?: number;
+	taken: number;
+	deaths?: number;
+	spells?: SpellBreakdown[];
 }
 
 export interface SnapshotEnvelope {

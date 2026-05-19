@@ -1,3 +1,4 @@
+import React from "react";
 import type { ConnectionState, Snapshot } from "./types.ts";
 import type { PaneSet } from "./useSettings.ts";
 import { fmtDuration, fmtRate } from "./format.ts";
@@ -8,6 +9,8 @@ interface HeaderProps {
 	snapshot: Snapshot | null;
 	panes: PaneSet;
 	togglePane: (m: keyof PaneSet) => void;
+	viewingFight: number | null;
+	setViewingFight: (n: number | null) => void;
 	onSettings: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
@@ -19,6 +22,7 @@ interface HeaderProps {
 // tab-style pane toggles + party DPS + top + composition).
 export function Header({
 	state, stale, snapshot, panes, togglePane,
+	viewingFight, setViewingFight,
 	onSettings, onReset, onToggleLog, showLog,
 }: HeaderProps): React.ReactElement {
 	const localPlayer = snapshot?.players.find((p) => p.isLocal);
@@ -40,7 +44,13 @@ export function Header({
 				onToggleLog={onToggleLog}
 				showLog={showLog}
 			/>
-			<FightHeader snapshot={snapshot} panes={panes} togglePane={togglePane} />
+			<FightHeader
+				snapshot={snapshot}
+				panes={panes}
+				togglePane={togglePane}
+				viewingFight={viewingFight}
+				setViewingFight={setViewingFight}
+			/>
 		</div>
 	);
 }
@@ -125,6 +135,8 @@ interface FightHeaderProps {
 	snapshot: Snapshot | null;
 	panes: PaneSet;
 	togglePane: (m: keyof PaneSet) => void;
+	viewingFight: number | null;
+	setViewingFight: (n: number | null) => void;
 }
 
 const TABS: Array<{ id: keyof PaneSet; label: string }> = [
@@ -133,10 +145,17 @@ const TABS: Array<{ id: keyof PaneSet; label: string }> = [
 	{ id: "taken",  label: "Taken" },
 ];
 
-function FightHeader({ snapshot, panes, togglePane }: FightHeaderProps): React.ReactElement {
-	const inCombat = snapshot?.fight?.inCombat ?? false;
-	const elapsedSec = (snapshot?.fight?.elapsedMs ?? 0) / 1000;
-	const fightN = snapshot?.fight?.number ?? 0;
+function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFight }: FightHeaderProps): React.ReactElement {
+	const liveInCombat = snapshot?.fight?.inCombat ?? false;
+	const liveElapsedSec = (snapshot?.fight?.elapsedMs ?? 0) / 1000;
+	const liveFightN = snapshot?.fight?.number ?? 0;
+	const recent = snapshot?.recent ?? [];
+
+	const isViewingPast = viewingFight !== null;
+	const pastArch = isViewingPast ? recent.find((r) => r.number === viewingFight) : undefined;
+	const inCombat = isViewingPast ? false : liveInCombat;
+	const elapsedSec = isViewingPast ? (pastArch?.durationMs ?? 0) / 1000 : liveElapsedSec;
+
 	const players = snapshot?.players ?? [];
 	const partyDps = players.reduce((s, p) => s + (p.currentDps ?? 0), 0);
 	const top = [...players].sort((a, b) => (b.currentDamage ?? 0) - (a.currentDamage ?? 0))[0];
@@ -164,18 +183,41 @@ function FightHeader({ snapshot, panes, togglePane }: FightHeaderProps): React.R
 						className="sk-upper"
 						style={{
 							fontWeight: 600,
-							color: inCombat ? "var(--sk-damage)" : "var(--sk-fg-2)",
+							color: inCombat ? "var(--sk-damage)" : isViewingPast ? "var(--sk-warn)" : "var(--sk-fg-2)",
 						}}
 					>
-						{inCombat ? "In Combat" : "Out of Combat"}
+						{isViewingPast ? "Past fight" : inCombat ? "In Combat" : "Out of Combat"}
 					</span>
 				</div>
 				<span className="sk-mono" style={{ color: "var(--sk-fg-0)", fontSize: 18, fontWeight: 500 }}>
 					{fmtDuration(elapsedSec)}
 				</span>
-				<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>
-					{fightN > 0 ? `Fight ${fightN.toString().padStart(2, "0")}` : "Awaiting first fight"}
-				</span>
+				<FightPicker
+					currentFightN={liveFightN}
+					recent={recent}
+					viewingFight={viewingFight}
+					setViewingFight={setViewingFight}
+				/>
+				{isViewingPast && (
+					<button
+						onClick={() => setViewingFight(null)}
+						className="sk-upper"
+						style={{
+							appearance: "none",
+							border: "1px solid var(--sk-warn)",
+							background: "color-mix(in oklab, var(--sk-warn) 18%, transparent)",
+							color: "var(--sk-warn)",
+							padding: "3px 8px",
+							borderRadius: 4,
+							cursor: "pointer",
+							fontSize: 10.5,
+							fontWeight: 600,
+							letterSpacing: "0.08em",
+						}}
+					>
+						Return to live
+					</button>
+				)}
 			</div>
 
 			<div
@@ -232,6 +274,116 @@ function FightHeader({ snapshot, panes, togglePane }: FightHeaderProps): React.R
 				</div>
 			</div>
 		</div>
+	);
+}
+
+function FightPicker({
+	currentFightN,
+	recent,
+	viewingFight,
+	setViewingFight,
+}: {
+	currentFightN: number;
+	recent: Snapshot["recent"];
+	viewingFight: number | null;
+	setViewingFight: (n: number | null) => void;
+}): React.ReactElement {
+	const [open, setOpen] = React.useState(false);
+	const label = viewingFight !== null
+		? `Fight ${viewingFight.toString().padStart(2, "0")}`
+		: currentFightN > 0
+		? `Fight ${currentFightN.toString().padStart(2, "0")}`
+		: "Awaiting first fight";
+	const past = (recent ?? []).slice().reverse();
+	return (
+		<div style={{ position: "relative" }}>
+			<button
+				onClick={() => setOpen((o) => !o)}
+				className="sk-upper inline-flex items-center"
+				style={{
+					appearance: "none",
+					border: "1px solid var(--sk-line)",
+					background: "var(--sk-bg-2)",
+					color: "var(--sk-fg-2)",
+					padding: "3px 8px",
+					borderRadius: 4,
+					cursor: past.length > 0 ? "pointer" : "default",
+					fontSize: 10.5,
+					gap: 6,
+				}}
+				disabled={past.length === 0 && viewingFight === null}
+				title={past.length === 0 ? "No completed fights yet" : "Pick a past fight to view"}
+			>
+				{label}
+				{past.length > 0 && <span style={{ color: "var(--sk-fg-3)" }}>▼</span>}
+			</button>
+			{open && past.length > 0 && (
+				<div
+					style={{
+						position: "absolute",
+						top: "calc(100% + 4px)",
+						left: 0,
+						minWidth: 200,
+						background: "var(--sk-bg-2)",
+						border: "1px solid var(--sk-line-2)",
+						borderRadius: 6,
+						boxShadow: "0 12px 32px -8px rgba(0,0,0,0.6)",
+						zIndex: 10,
+						padding: 4,
+					}}
+				>
+					<MenuItem
+						active={viewingFight === null}
+						onClick={() => { setViewingFight(null); setOpen(false); }}
+					>
+						<span style={{ color: "var(--sk-damage)" }}>●</span> Current (live)
+					</MenuItem>
+					<div style={{ height: 1, background: "var(--sk-line)", margin: "4px 0" }} />
+					{past.map((a) => {
+						const secs = Math.floor(a.durationMs / 1000);
+						const m = Math.floor(secs / 60);
+						const s = secs % 60;
+						return (
+							<MenuItem
+								key={a.number}
+								active={viewingFight === a.number}
+								onClick={() => { setViewingFight(a.number); setOpen(false); }}
+							>
+								<span>Fight {a.number.toString().padStart(2, "0")}</span>
+								<span className="sk-mono" style={{ marginLeft: "auto", color: "var(--sk-fg-3)", fontSize: 10 }}>
+									{m}:{s.toString().padStart(2, "0")}
+								</span>
+							</MenuItem>
+						);
+					})}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function MenuItem({
+	active, onClick, children,
+}: { active: boolean; onClick: () => void; children: React.ReactNode }): React.ReactElement {
+	return (
+		<button
+			onClick={onClick}
+			className="flex items-center w-full"
+			style={{
+				appearance: "none",
+				border: 0,
+				background: active ? "var(--sk-bg-3)" : "transparent",
+				color: active ? "var(--sk-fg-0)" : "var(--sk-fg-1)",
+				padding: "5px 10px",
+				borderRadius: 3,
+				cursor: "pointer",
+				fontSize: 11.5,
+				gap: 6,
+				textAlign: "left",
+			}}
+		>
+			{children}
+		</button>
 	);
 }
 
