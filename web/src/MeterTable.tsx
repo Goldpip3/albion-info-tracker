@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import type { Mode, PlayerSnapshot, Snapshot } from "./types.ts";
+import type { Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
+import { DEFAULT_SUB_METRIC, SUB_METRICS_BY_MODE } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
 import { ClassChip } from "./ClassChip.tsx";
 import { classAccent, fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
@@ -9,23 +10,41 @@ interface MeterTableProps {
 	snapshot: Snapshot | null;
 	mode: Mode;
 	settings: Settings;
+	// sub picks which field drives sort + bar value within the mode.
+	// e.g. mode="damage" + sub="damageDps" sorts by DPS; "damageTotal"
+	// sorts by overall (session) damage. Defaults via DEFAULT_SUB_METRIC.
+	sub?: SubMetric;
 	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTableProps): React.ReactElement {
+export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTableProps): React.ReactElement {
 	const players = snapshot?.players ?? [];
 	const [hovered, setHovered] = useState<PlayerSnapshot | null>(null);
+	const defaultSub = mode === "mechanics" ? "damageCurrent" : DEFAULT_SUB_METRIC[mode as Exclude<Mode, "mechanics">];
+	const [internalSub, setInternalSub] = useState<SubMetric>(defaultSub);
+	const activeSub: SubMetric = sub ?? internalSub;
 
+	// primaryFor returns { cur, ovr, rate } for a player. `cur` is the
+	// number that drives the bar fill + sort; `ovr` is the secondary
+	// "session" line shown after the bar value; `rate` is the right-
+	// column DPS/HPS (null = no rate column).
+	//
+	// The sub-metric flips what `cur` means within a pane:
+	//   damageCurrent → fight damage   damageDps → DPS    damageTotal → overall
+	//   healCurrent   → fight heal     healHps   → HPS    healTotal   → overall
+	//                                  healOverheal → overheal (no rate)
+	//   takenCurrent  → fight taken                       takenTotal  → overall
 	const primaryFor = (p: PlayerSnapshot): { cur: number; ovr: number; rate: number | null } => {
-		switch (mode) {
-			case "damage":
-				return { cur: p.currentDamage, ovr: p.overallDamage, rate: p.currentDps };
-			case "heal":
-				return { cur: p.currentHeal, ovr: p.overallHeal, rate: p.currentHps };
-			case "taken":
-				return { cur: p.currentTaken, ovr: p.overallTaken, rate: null };
-			case "mechanics":
-				return { cur: p.currentDamage, ovr: p.overallDamage, rate: null };
+		switch (activeSub) {
+			case "damageCurrent": return { cur: p.currentDamage, ovr: p.overallDamage, rate: p.currentDps };
+			case "damageDps":     return { cur: p.currentDps,    ovr: p.overallDps,    rate: p.currentDps };
+			case "damageTotal":   return { cur: p.overallDamage, ovr: p.currentDamage, rate: p.overallDps };
+			case "healCurrent":   return { cur: p.currentHeal,   ovr: p.overallHeal,   rate: p.currentHps };
+			case "healHps":       return { cur: p.currentHps,    ovr: p.overallHps,    rate: p.currentHps };
+			case "healTotal":     return { cur: p.overallHeal,   ovr: p.currentHeal,   rate: p.overallHps };
+			case "healOverheal":  return { cur: p.overheal ?? 0, ovr: p.overheal ?? 0, rate: null };
+			case "takenCurrent":  return { cur: p.currentTaken,  ovr: p.overallTaken,  rate: null };
+			case "takenTotal":    return { cur: p.overallTaken,  ovr: p.currentTaken,  rate: null };
 		}
 	};
 
@@ -56,21 +75,71 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 		);
 	}
 
-	const headerLabel: Record<Mode, string> = {
-		damage: "Damage · Current / Session",
-		heal: "Healing · Current / Session",
-		taken: "Damage Taken · Current / Session",
-		mechanics: "Mechanics",
+	const headerLabel: Record<SubMetric, string> = {
+		damageCurrent: "Damage · Current / Session",
+		damageDps:     "DPS · Current / Session",
+		damageTotal:   "Damage · Session / Current",
+		healCurrent:   "Healing · Current / Session",
+		healHps:       "HPS · Current / Session",
+		healTotal:     "Healing · Session / Current",
+		healOverheal:  "Overheal",
+		takenCurrent:  "Damage Taken · Current / Session",
+		takenTotal:    "Damage Taken · Session / Current",
 	};
-	const rateHeader: Record<Mode, string> = {
-		damage: "DPS",
-		heal: "HPS",
-		taken: "",
-		mechanics: "",
+	const rateHeader: Record<SubMetric, string> = {
+		damageCurrent: "DPS",
+		damageDps:     "DPS",
+		damageTotal:   "DPS",
+		healCurrent:   "HPS",
+		healHps:       "HPS",
+		healTotal:     "HPS",
+		healOverheal:  "",
+		takenCurrent:  "",
+		takenTotal:    "",
 	};
+
+	const subOptions = mode === "mechanics" ? [] : SUB_METRICS_BY_MODE[mode];
 
 	return (
 		<div className="relative h-full flex flex-col">
+			{/* Sub-metric selector row — WoW Details style. */}
+			{subOptions.length > 0 && (
+				<div
+					className="flex items-center"
+					style={{
+						gap: 4,
+						padding: "8px 14px",
+						background: "var(--sk-bg-inset)",
+						borderBottom: "1px solid var(--sk-line-soft)",
+					}}
+				>
+					{subOptions.map((opt) => {
+						const active = activeSub === opt.id;
+						return (
+							<button
+								key={opt.id}
+								onClick={() => setInternalSub(opt.id)}
+								className="sk-upper"
+								style={{
+									appearance: "none",
+									border: active ? "1px solid var(--sk-line-2)" : "1px solid transparent",
+									background: active ? "var(--sk-bg-3)" : "transparent",
+									color: active ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
+									padding: "3px 9px",
+									borderRadius: 4,
+									cursor: "pointer",
+									fontSize: 10,
+									fontWeight: 600,
+									letterSpacing: "0.08em",
+									transition: "all 160ms var(--sk-ease)",
+								}}
+							>
+								{opt.label}
+							</button>
+						);
+					})}
+				</div>
+			)}
 			{/* Column header */}
 			<div
 				className="grid items-center"
@@ -89,8 +158,8 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 			>
 				<span style={{ textAlign: "right", paddingRight: 4 }}>#</span>
 				<span>Player</span>
-				<span>{headerLabel[mode]}</span>
-				<span style={{ textAlign: "right" }}>{rateHeader[mode]}</span>
+				<span>{headerLabel[activeSub]}</span>
+				<span style={{ textAlign: "right" }}>{rateHeader[activeSub]}</span>
 			</div>
 
 			{/* Rows */}

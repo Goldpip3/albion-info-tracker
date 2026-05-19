@@ -25,9 +25,8 @@ type Client struct {
 	AgentVersion string
 
 	// SendInterval is how often Snapshot() is read and pushed. Defaults to
-	// 250ms — fast enough that DPS jitter, bar widths and the fight-elapsed
-	// timer feel live; slow enough to stay well below the Worker's per-room
-	// CPU budget.
+	// 200ms (5 Hz) — fast enough that DPS jitter and bar widths feel live;
+	// slow enough to stay well below the Worker's per-room CPU budget.
 	SendInterval time.Duration
 
 	// Snapshot is called from the push goroutine to fetch the current state.
@@ -51,7 +50,7 @@ type Client struct {
 // if it never connected once.
 func (c *Client) Run(ctx context.Context) error {
 	if c.SendInterval == 0 {
-		c.SendInterval = 250 * time.Millisecond
+		c.SendInterval = 200 * time.Millisecond
 	}
 
 	backoff := newBackoff(time.Second, 30*time.Second)

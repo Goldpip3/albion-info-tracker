@@ -140,3 +140,38 @@ export type ConnectionState = "disconnected" | "connecting" | "connected";
 
 // Display modes correspond to columns in the design.
 export type Mode = "damage" | "heal" | "taken" | "mechanics";
+
+// SubMetric narrows what value drives the sort + bar within a Mode.
+// WoW Details has the same idea: in the Damage pane, you can flip
+// between Damage Done / DPS / Total to re-rank by that field.
+export type SubMetric =
+	| "damageCurrent" | "damageDps"   | "damageTotal"
+	| "healCurrent"   | "healHps"     | "healTotal" | "healOverheal"
+	| "takenCurrent"  | "takenTotal";
+
+// SubMetricsByMode tells the UI which sub-metric chips to show per mode,
+// and which one is the default. Keep in sync with `primaryForSub` in
+// MeterTable.tsx.
+export const SUB_METRICS_BY_MODE: Record<Exclude<Mode, "mechanics">, Array<{ id: SubMetric; label: string }>> = {
+	damage: [
+		{ id: "damageCurrent", label: "Damage" },
+		{ id: "damageDps",     label: "DPS" },
+		{ id: "damageTotal",   label: "Total" },
+	],
+	heal: [
+		{ id: "healCurrent",  label: "Healing" },
+		{ id: "healHps",      label: "HPS" },
+		{ id: "healTotal",    label: "Total" },
+		{ id: "healOverheal", label: "Overheal" },
+	],
+	taken: [
+		{ id: "takenCurrent", label: "Taken" },
+		{ id: "takenTotal",   label: "Total" },
+	],
+};
+
+export const DEFAULT_SUB_METRIC: Record<Exclude<Mode, "mechanics">, SubMetric> = {
+	damage: "damageCurrent",
+	heal: "healCurrent",
+	taken: "takenCurrent",
+};

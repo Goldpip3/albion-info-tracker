@@ -26,7 +26,7 @@ export function Footer({ snapshot, lastMessageAt }: FooterProps): React.ReactEle
 			}}
 		>
 			<span>
-				tick · 0.25s &nbsp;·&nbsp; last update {ago}
+				push 0.2s &nbsp;·&nbsp; spark 2s &nbsp;·&nbsp; last update {ago}
 				{snapshot && (
 					<>
 						&nbsp;·&nbsp; <span style={{ letterSpacing: 0 }}>

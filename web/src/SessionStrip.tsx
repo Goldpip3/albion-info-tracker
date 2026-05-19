@@ -210,7 +210,7 @@ function useSparkBuffers(values: Record<keyof SparkSet, number>, startedAt: stri
 			prevRef.current = cur;
 			baselineRef.current = true;
 			setState((s) => pushSample(s, delta));
-		}, 1000);
+		}, 2000); // 2s sample — matches the footer's "spark 2s" label.
 		return () => clearInterval(t);
 	}, []);
 
