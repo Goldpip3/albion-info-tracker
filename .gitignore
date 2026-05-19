@@ -337,3 +337,6 @@ ASALocalRun/
 .dotnet/
 
 .build-verify/
+
+# Local-only scratch extracts (design handoffs, etc.)
+/.tmp-design/
