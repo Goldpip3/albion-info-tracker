@@ -8,13 +8,14 @@ import (
 	"os/signal"
 	"sort"
 	"syscall"
+	"time"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
-	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/domain"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 )
 
-const version = "0.0.2"
+const version = "0.0.3"
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -23,129 +24,68 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	var (
-		events, requests, responses uint64
-	)
-
-	parser := photon.New(photon.Handlers{
-		OnEvent: func(e photon.EventData) {
-			events++
-			code := realCode(e.Parameters, e.Code)
-			fmt.Printf("EVENT  [%3d %-30s]  %s\n",
-				code, gamecodes.EventName(gamecodes.Event(code)), formatParams(e.Parameters))
-		},
-		OnRequest: func(r photon.OperationRequest) {
-			requests++
-			code := realCode(r.Parameters, r.OperationCode)
-			fmt.Printf("REQ    [%3d %-30s]  %s\n",
-				code, gamecodes.OpName(gamecodes.Op(code)), formatParams(r.Parameters))
-		},
-		OnResponse: func(r photon.OperationResponse) {
-			responses++
-			code := realCode(r.Parameters, r.OperationCode)
-			fmt.Printf("RESP   [%3d %-30s]  rc=%d msg=%q %s\n",
-				code, gamecodes.OpName(gamecodes.Op(code)),
-				r.ReturnCode, r.DebugMessage, formatParams(r.Parameters))
-		},
-	})
+	engine := domain.NewEngine()
+	parser := photon.New(engine.Handlers())
 
 	sink := capture.SinkFunc(func(pkt capture.Packet) {
 		parser.Receive(pkt.Payload)
 	})
 
+	go renderLoop(ctx, engine)
+
 	if err := capture.Run(ctx, sink); err != nil && err != context.Canceled {
 		log.Fatalf("capture: %v", err)
 	}
-	log.Printf("stopped: %d events, %d requests, %d responses", events, requests, responses)
+	printSnapshot(engine.Snapshot(), true)
+	log.Print("stopped")
 }
 
-// realCode returns the authoritative Photon code. For events, the
-// application-level code lives at parameter 252 when it can't fit in a single
-// byte; for operations it's at 253. Falls back to the byte after messageType.
-func realCode(p map[byte]any, fallback byte) int {
-	for _, k := range []byte{252, 253} {
-		if v, ok := p[k]; ok {
-			if n, ok := toInt(v); ok {
-				return n
-			}
+func renderLoop(ctx context.Context, e *domain.Engine) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			printSnapshot(e.Snapshot(), false)
 		}
-	}
-	return int(fallback)
-}
-
-func toInt(v any) (int, bool) {
-	switch x := v.(type) {
-	case byte:
-		return int(x), true
-	case int16:
-		return int(x), true
-	case int32:
-		return int(x), true
-	case int64:
-		return int(x), true
-	case uint16:
-		return int(x), true
-	case uint32:
-		return int(x), true
-	case uint64:
-		return int(x), true
-	default:
-		return 0, false
 	}
 }
 
-// formatParams renders a parameter table in deterministic key order, with a
-// short preview of each value. Long byte arrays are abbreviated.
-func formatParams(p map[byte]any) string {
-	if len(p) == 0 {
-		return "{}"
+func printSnapshot(s domain.Snapshot, final bool) {
+	if len(s.Players) == 0 {
+		if final {
+			fmt.Println("--- no party members tracked ---")
+		}
+		return
 	}
-	keys := make([]int, 0, len(p))
-	for k := range p {
-		keys = append(keys, int(k))
-	}
-	sort.Ints(keys)
+	sort.Slice(s.Players, func(i, j int) bool {
+		return s.Players[i].CurrentDamage > s.Players[j].CurrentDamage
+	})
 
-	out := "{"
-	for i, k := range keys {
-		if i > 0 {
-			out += " "
-		}
-		out += fmt.Sprintf("%d:%s", k, formatValue(p[byte(k)]))
+	header := "--- damage meter --- "
+	if final {
+		header = "=== final snapshot ==="
 	}
-	out += "}"
-	return out
-}
-
-func formatValue(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "null"
-	case bool:
-		return fmt.Sprintf("%v", x)
-	case byte:
-		return fmt.Sprintf("%d", x)
-	case int16, int32, int64, uint16, uint32, uint64:
-		return fmt.Sprintf("%d", x)
-	case float32, float64:
-		return fmt.Sprintf("%g", x)
-	case string:
-		if len(x) > 32 {
-			return fmt.Sprintf("%q…", x[:32])
+	fmt.Printf("%s  %s\n", header, s.GeneratedAt.Format("15:04:05"))
+	fmt.Printf("  %-20s %12s %10s %12s %10s %12s %12s\n",
+		"NAME", "DMG CUR", "DPS CUR", "DMG OVR", "DPS OVR", "TAKEN CUR", "HEAL CUR")
+	for _, p := range s.Players {
+		name := p.Name
+		if name == "" {
+			name = p.UserGuid[:8] + "…"
 		}
-		return fmt.Sprintf("%q", x)
-	case []byte:
-		if len(x) > 16 {
-			return fmt.Sprintf("[%d bytes]", len(x))
+		marker := "  "
+		if p.IsLocal {
+			marker = "* "
 		}
-		return fmt.Sprintf("%v", x)
-	case photon.CustomType:
-		return fmt.Sprintf("custom(%d, %d bytes)", x.TypeCode, len(x.Data))
-	case []any:
-		return fmt.Sprintf("array[%d]", len(x))
-	case map[any]any:
-		return fmt.Sprintf("dict[%d]", len(x))
-	default:
-		return fmt.Sprintf("%v", v)
+		fmt.Printf("%s%-20s %12d %10.0f %12d %10.0f %12d %12d\n",
+			marker, name,
+			p.CurrentDamage, p.CurrentDPS,
+			p.OverallDamage, p.OverallDPS,
+			p.CurrentTaken, p.CurrentHeal,
+		)
 	}
+	fmt.Println()
 }
