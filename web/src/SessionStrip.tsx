@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { Snapshot } from "./types.ts";
-import { fmt } from "./format.ts";
 
 interface SessionStripProps {
 	snapshot: Snapshot | null;
@@ -20,7 +19,11 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 	const elapsedSec = (s?.elapsedMs ?? 0) / 1000;
 	const hours = Math.max(elapsedSec / 3600, 1 / 3600);
 
-	const fame   = s?.fameTotal ?? 0;
+	// All four currency fields are FixPoint internal units in the snapshot
+	// (10_000 internal = 1 real). Confirmed against SAT's UpdateFameEvent /
+	// UpdateMoneyEvent / UpdateReSpecPointsEvent / MightAndFavorReceivedEvent
+	// sources. Divide before formatting.
+	const fame   = (s?.fameTotal   ?? 0) / 10_000;
 	const silver = (s?.silverTotal ?? 0) / 10_000;
 	const respec = (s?.respecTotal ?? 0) / 10_000;
 	const might  = (s?.mightTotal  ?? 0) / 10_000;
@@ -29,8 +32,8 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 	const sparks = useSparkBuffers(liveValues, startedAt);
 
 	const cards: CardSpec[] = [
-		{ key: "fame",   label: "Fame",   value: fmt(fame),       rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "var(--sk-card-fame)",   glyph: "★" },
-		{ key: "silver", label: "Silver", value: fmt(silver),     rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "var(--sk-card-silver)", glyph: "◇" },
+		{ key: "fame",   label: "Fame",   value: kFormat(fame),   rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "var(--sk-card-fame)",   glyph: "★" },
+		{ key: "silver", label: "Silver", value: kFormat(silver), rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "var(--sk-card-silver)", glyph: "◇" },
 		{ key: "respec", label: "Respec", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "var(--sk-card-respec)", glyph: "↻" },
 		{ key: "might",  label: "Might",  value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "var(--sk-card-might)",  glyph: "✦" },
 	];
