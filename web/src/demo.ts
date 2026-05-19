@@ -115,6 +115,51 @@ export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number }
 		},
 		events: [],
 		recent: [],
+		sessions: [
+			{
+				id: "demo-1", startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+				endedAt: new Date(Date.now() - 86_400_000 + 3_600_000).toISOString(),
+				durationMs: 3_600_000, zone: "Mists",
+				localName: "Hesper", fightCount: 14,
+				fameTotal: 612_000 * 10_000, silverTotal: 84_000 * 10_000,
+				respecTotal: 4 * 10_000, mightTotal: 1200 * 10_000, deathsTotal: 1,
+			},
+			{
+				id: "demo-2", startedAt: new Date(Date.now() - 172_800_000).toISOString(),
+				endedAt: new Date(Date.now() - 172_800_000 + 5_400_000).toISOString(),
+				durationMs: 5_400_000, zone: "Keepers Hide Farm 2",
+				localName: "Hesper", fightCount: 22,
+				fameTotal: 1_400_000 * 10_000, silverTotal: 320_000 * 10_000,
+				respecTotal: 8 * 10_000, mightTotal: 850 * 10_000, deathsTotal: 0,
+			},
+		],
+		zones: [
+			{ name: "Caerleon", enteredAt: new Date(Date.now() - 1_800_000).toISOString(), leftAt: new Date(Date.now() - 1_200_000).toISOString(), durationMs: 600_000 },
+			{ name: "Mists Hub", enteredAt: new Date(Date.now() - 1_200_000).toISOString(), leftAt: new Date(Date.now() - 600_000).toISOString(), durationMs: 600_000 },
+			{ name: "Keepers Hide Farm 2", enteredAt: new Date(Date.now() - 600_000).toISOString(), durationMs: 600_000 },
+		],
+		dungeon: {
+			id: "demo-run", zone: "Keepers Hide Farm 2", type: "group",
+			enteredAt: new Date(Date.now() - 540_000).toISOString(),
+			durationMs: 540_000,
+			fameGained: 78_000 * 10_000,
+			silverGained: 12_500 * 10_000,
+			respecGained: 0,
+			mightGained: 32 * 10_000,
+			deathsInRun: 0,
+		},
+		loot: [
+			{ at: new Date(Date.now() - 30_000).toISOString(), looter: "Hesper", looterIsLocal: true, lootedFrom: "Keeper Boss",     uniqueName: "T6_2H_DUALCROSSBOW_CRYSTAL@2", displayName: "Adept's Arclight Blasters", quantity: 1, silverValue: 412000, zone: "Keepers Hide Farm 2" },
+			{ at: new Date(Date.now() - 110_000).toISOString(), looter: "Jorah",   lootedFrom: "Keeper Acolyte", uniqueName: "T6_BAG", displayName: "Adept's Bag", quantity: 1, silverValue: 18500, zone: "Keepers Hide Farm 2" },
+			{ at: new Date(Date.now() - 170_000).toISOString(), looter: "Orson",   lootedFrom: "Mob",         uniqueName: "T6_ARMOR_PLATE_SET1@1", displayName: "Adept's Plate Armor", quantity: 1, silverValue: 24300, zone: "Keepers Hide Farm 2" },
+			{ at: new Date(Date.now() - 230_000).toISOString(), looter: "Hesper", looterIsLocal: true, lootedFrom: "Mob",         isSilver: true, quantity: 3120 },
+			{ at: new Date(Date.now() - 290_000).toISOString(), looter: "Jorah",   lootedFrom: "Mob",         uniqueName: "T5_HEAD_LEATHER_SET1", displayName: "Expert's Mercenary Hood", quantity: 1, silverValue: 6200, zone: "Keepers Hide Farm 2" },
+		],
+		looterTotals: [
+			{ name: "Hesper", isLocal: true, itemCount: 1, silverTotal: 3120, valueTotal: 415120 },
+			{ name: "Jorah", itemCount: 2, silverTotal: 0, valueTotal: 24700 },
+			{ name: "Orson", itemCount: 1, silverTotal: 0, valueTotal: 24300 },
+		],
 	};
 
 	return { snapshot: snap, lastMessageAt: Date.now() };

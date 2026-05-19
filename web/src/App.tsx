@@ -7,6 +7,10 @@ import { SettingsPanel } from "./SettingsPanel.tsx";
 import { DrillIn } from "./DrillIn.tsx";
 import { ActivityLog } from "./ActivityLog.tsx";
 import { SessionStrip } from "./SessionStrip.tsx";
+import { SessionsPanel } from "./SessionsPanel.tsx";
+import { PartyPanel } from "./PartyPanel.tsx";
+import { DungeonStrip } from "./DungeonStrip.tsx";
+import { LootPanel } from "./LootPanel.tsx";
 import { isDemoMode, useDemoSnapshot } from "./demo.ts";
 import { accentOklch, useSettings } from "./useSettings.ts";
 import type { FightArchive, Mode, PlayerSnapshot, Snapshot } from "./types.ts";
@@ -74,6 +78,9 @@ function LiveApp(): React.ReactElement {
 
 	const { settings, update, reset } = useSettings();
 	const [showSettings, setShowSettings] = useState(false);
+	const [showSessions, setShowSessions] = useState(false);
+	const [showParty, setShowParty] = useState(false);
+	const [showLoot, setShowLoot] = useState(false);
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 	const [viewingFight, setViewingFight] = useState<number | null>(null);
 
@@ -158,6 +165,7 @@ function LiveApp(): React.ReactElement {
 				showLog={settings.showActivityLog}
 			/>
 			<SessionStrip snapshot={snapshot} />
+			<DungeonStrip dungeon={snapshot?.dungeon} />
 			<main className="flex-1 overflow-hidden flex flex-col">
 				<div className="flex-1 overflow-hidden">
 					{activePanes.length === 1 ? (
@@ -219,13 +227,41 @@ function LiveApp(): React.ReactElement {
 				)}
 				{settings.showActivityLog && <ActivityLog snapshot={snapshot} />}
 			</main>
-			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
+			<Footer
+				snapshot={snapshot}
+				lastMessageAt={lastMessageAt}
+				onOpenSessions={() => setShowSessions(true)}
+				onOpenParty={() => setShowParty(true)}
+				onOpenLoot={() => setShowLoot(true)}
+				sessionsCount={snapshot?.sessions?.length ?? 0}
+				lootCount={snapshot?.loot?.length ?? 0}
+			/>
 			{showSettings && (
 				<SettingsPanel
 					settings={settings}
 					update={update}
 					reset={reset}
 					onClose={() => setShowSettings(false)}
+				/>
+			)}
+			{showSessions && (
+				<SessionsPanel
+					sessions={snapshot?.sessions ?? []}
+					onDelete={(id) => sendCommand("deleteSession", id)}
+					onClose={() => setShowSessions(false)}
+				/>
+			)}
+			{showParty && (
+				<PartyPanel
+					players={snapshot?.players ?? []}
+					onClose={() => setShowParty(false)}
+				/>
+			)}
+			{showLoot && (
+				<LootPanel
+					loot={snapshot?.loot ?? []}
+					looterTotals={snapshot?.looterTotals ?? []}
+					onClose={() => setShowLoot(false)}
 				/>
 			)}
 			{drillGuid && meterSnapshot && (() => {
@@ -243,6 +279,9 @@ function LiveApp(): React.ReactElement {
 function DemoApp(): React.ReactElement {
 	const { settings, update, reset } = useSettings();
 	const [showSettings, setShowSettings] = useState(false);
+	const [showSessions, setShowSessions] = useState(false);
+	const [showParty, setShowParty] = useState(false);
+	const [showLoot, setShowLoot] = useState(false);
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 	const [viewingFight, setViewingFight] = useState<number | null>(null);
 	const { snapshot, lastMessageAt } = useDemoSnapshot();
@@ -282,6 +321,7 @@ function DemoApp(): React.ReactElement {
 				showLog={settings.showActivityLog}
 			/>
 			<SessionStrip snapshot={snapshot} />
+			<DungeonStrip dungeon={snapshot?.dungeon} />
 			<main className="flex-1 overflow-hidden flex flex-col">
 				<div className="flex-1 overflow-hidden">
 					{activePanes.length === 1 ? (
@@ -333,13 +373,41 @@ function DemoApp(): React.ReactElement {
 				</div>
 				{settings.showActivityLog && <ActivityLog snapshot={snapshot} />}
 			</main>
-			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
+			<Footer
+				snapshot={snapshot}
+				lastMessageAt={lastMessageAt}
+				onOpenSessions={() => setShowSessions(true)}
+				onOpenParty={() => setShowParty(true)}
+				onOpenLoot={() => setShowLoot(true)}
+				sessionsCount={snapshot?.sessions?.length ?? 0}
+				lootCount={snapshot?.loot?.length ?? 0}
+			/>
 			{showSettings && (
 				<SettingsPanel
 					settings={settings}
 					update={update}
 					reset={reset}
 					onClose={() => setShowSettings(false)}
+				/>
+			)}
+			{showSessions && (
+				<SessionsPanel
+					sessions={snapshot?.sessions ?? []}
+					onDelete={() => {/* demo no-op */}}
+					onClose={() => setShowSessions(false)}
+				/>
+			)}
+			{showParty && (
+				<PartyPanel
+					players={snapshot?.players ?? []}
+					onClose={() => setShowParty(false)}
+				/>
+			)}
+			{showLoot && (
+				<LootPanel
+					loot={snapshot?.loot ?? []}
+					looterTotals={snapshot?.looterTotals ?? []}
+					onClose={() => setShowLoot(false)}
 				/>
 			)}
 			{drillGuid && (() => {

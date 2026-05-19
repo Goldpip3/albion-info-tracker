@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
 )
 
 // showAll loosens the meter's party gate. When true, Snapshot returns every
@@ -144,6 +146,86 @@ func (e *Engine) topAssists(ent *Entity, n int) []AssistBreakdown {
 	return out
 }
 
+// slotNames maps equipment slot indices to the labels we render. Order
+// matches the array Albion ships.
+var slotNames = [10]string{
+	"MainHand", "OffHand", "Head", "Chest", "Shoes",
+	"Bag", "Cape", "Mount", "Potion", "Food",
+}
+
+// equipmentSlots builds the per-slot loadout for a player. Each slot
+// that has an item resolves to its localized English name (when known)
+// + IP contribution. Empty slots are omitted entirely.
+func (e *Engine) equipmentSlots(ent *Entity) []SlotInfo {
+	if e.items == nil {
+		return nil
+	}
+	out := make([]SlotInfo, 0, 10)
+	for i, idx := range ent.Equipment {
+		if idx == 0 {
+			continue
+		}
+		uniqueName := e.items.Name(idx)
+		display := ""
+		if e.loc != nil {
+			display = e.loc.ItemName(uniqueName)
+		}
+		if display == "" {
+			display = uniqueName
+		}
+		q := 1
+		if ent.Qualities[i] >= 1 {
+			q = ent.Qualities[i]
+		}
+		out = append(out, SlotInfo{
+			Slot:      slotNames[i],
+			Name:      display,
+			ItemPower: gamedata.ItemPowerOf(uniqueName, q),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// spellSlotLabels maps ActiveSpells array indices to user-visible slot
+// keys. Only the slots Albion populates with real player abilities are
+// included; the rest collapse to "—". See SAT's
+// CharacterEquipmentChangedEvent for the index→slot mapping.
+var spellSlotLabels = map[int]string{
+	0: "Q", 1: "W", 2: "E",
+	3: "Armor", 4: "Head", 5: "Shoes",
+	12: "Potion", 13: "Food",
+}
+
+// activeSpellSlots resolves each player ability into its slot key + the
+// localized English name. Empty / unrecognised entries are skipped.
+func (e *Engine) activeSpellSlots(ent *Entity) []SpellSlotInfo {
+	if e.spells == nil {
+		return nil
+	}
+	out := make([]SpellSlotInfo, 0, 8)
+	for i, idx := range ent.ActiveSpells {
+		if idx <= 0 {
+			continue
+		}
+		slot, ok := spellSlotLabels[i]
+		if !ok {
+			continue
+		}
+		name := e.localizedSpellName(idx)
+		if name == "" {
+			continue
+		}
+		out = append(out, SpellSlotInfo{Slot: slot, Name: name})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // topTargets returns the top n damage recipients for an entity,
 // resolving names against tracked entities. Unresolved targets render
 // as "#<objectId>". Caller must hold store.mu.
@@ -190,6 +272,16 @@ type PlayerSnapshot struct {
 	// this as the IPChip in place of the 3-letter class code.
 	ItemPower int `json:"itemPower,omitempty"`
 
+	// EquipmentSlots is the resolved per-slot loadout — name + IP for
+	// each of the 10 slots. Powers the IPChip hover tooltip and the
+	// Party panel's gear strip. Empty slots are omitted by JSON.
+	EquipmentSlots []SlotInfo `json:"equipmentSlots,omitempty"`
+
+	// ActiveSpellSlots is the loadout of bound abilities. Each entry has
+	// a slot key ("Q" / "W" / "E" / "Armor" / "Head" / "Shoes" / "Cape"
+	// / "Potion" / "Food") and the resolved English spell name.
+	ActiveSpellSlots []SpellSlotInfo `json:"activeSpellSlots,omitempty"`
+
 	CurrentDamage int64   `json:"currentDamage"`
 	CurrentDPS    float64 `json:"currentDps"`
 	OverallDamage int64   `json:"overallDamage"`
@@ -233,6 +325,21 @@ type AssistBreakdown struct {
 	Name         string `json:"name,omitempty"`
 	UptimeMs     int64  `json:"uptimeMs"`
 	DamageDuring int64  `json:"damageDuring"`
+}
+
+// SlotInfo is one row of a player's equipment loadout — the resolved
+// English item name plus its IP contribution. Empty slots are omitted
+// from the snapshot entirely.
+type SlotInfo struct {
+	Slot      string `json:"slot"`           // "MainHand" / "OffHand" / "Head" / …
+	Name      string `json:"name,omitempty"` // "Adept's Arclight Blasters"
+	ItemPower int    `json:"itemPower,omitempty"`
+}
+
+// SpellSlotInfo is one bound ability the player has on their bar.
+type SpellSlotInfo struct {
+	Slot string `json:"slot"`           // "Q" / "W" / "E" / "Armor" / "Head" / "Shoes" / "Cape" / "Potion" / "Food"
+	Name string `json:"name,omitempty"` // "Flickershot" / "Caltrops" / …
 }
 
 // SpellBreakdown is one row of the drill-in screen's ability table.
@@ -289,13 +396,18 @@ type Session struct {
 
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
-	GeneratedAt time.Time        `json:"generatedAt"`
-	Players     []PlayerSnapshot `json:"players"`
-	Composition Composition      `json:"composition"`
-	Fight       Fight            `json:"fight"`
-	Session     Session          `json:"session"`
-	Recent      []FightArchive   `json:"recent,omitempty"`
-	Events      []ActivityEvent  `json:"events,omitempty"`
+	GeneratedAt time.Time         `json:"generatedAt"`
+	Players     []PlayerSnapshot  `json:"players"`
+	Composition Composition       `json:"composition"`
+	Fight       Fight             `json:"fight"`
+	Session     Session           `json:"session"`
+	Recent      []FightArchive    `json:"recent,omitempty"`
+	Events      []ActivityEvent   `json:"events,omitempty"`
+	Sessions    []ArchivedSession `json:"sessions,omitempty"`
+	Zones       []ZoneVisit       `json:"zones,omitempty"`
+	Dungeon     *DungeonRun       `json:"dungeon,omitempty"`
+	Loot        []LootEntry       `json:"loot,omitempty"`
+	LooterTotals []LooterTotals   `json:"looterTotals,omitempty"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
@@ -340,9 +452,16 @@ func (e *Engine) Snapshot() Snapshot {
 			InCombat:  inCombat,
 			Zone:      e.Zone(),
 		},
-		Recent: recent,
-		Session: sess,
-		Events:  e.events.SnapshotLatest(48),
+		Recent:       recent,
+		Session:      sess,
+		Events:       e.events.SnapshotLatest(48),
+		Zones:        e.ZoneHistory(),
+		Dungeon:      e.CurrentDungeon(),
+		Loot:         e.LootLog(),
+		LooterTotals: e.LooterTotalsList(),
+	}
+	if e.sessions != nil {
+		out.Sessions = e.sessions.List()
 	}
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
@@ -371,11 +490,13 @@ func (e *Engine) Snapshot() Snapshot {
 			CurrentTaken:  m.Current.DamageTaken,
 			OverallTaken:  m.Overall.DamageTaken,
 
-			Spells:        e.topSpells(m, 10),
-			SessionSpells: e.sessionSpells(m, 20),
-			Targets:       e.topTargets(m, 5),
-			ActiveEffects: append([]int(nil), m.ActiveEffects...),
-			Assists:       e.topAssists(m, 10),
+			Spells:           e.topSpells(m, 10),
+			SessionSpells:    e.sessionSpells(m, 20),
+			Targets:          e.topTargets(m, 5),
+			ActiveEffects:    append([]int(nil), m.ActiveEffects...),
+			Assists:          e.topAssists(m, 10),
+			EquipmentSlots:   e.equipmentSlots(m),
+			ActiveSpellSlots: e.activeSpellSlots(m),
 		})
 		switch m.Role {
 		case "T":

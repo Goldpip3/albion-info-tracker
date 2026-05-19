@@ -259,7 +259,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 
 			{/* Class chip + name + role label */}
 			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={Math.min(28, Math.max(22, rowH - 14))} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={Math.min(28, Math.max(22, rowH - 14))} />
 				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.15, gap: 2 }}>
 					<span
 						className="truncate"
@@ -423,7 +423,7 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 				className="flex items-center"
 				style={{ gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--sk-line)" }}
 			>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={22} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={22} />
 				<div className="min-w-0">
 					<div
 						style={{

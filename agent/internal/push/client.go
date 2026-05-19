@@ -48,8 +48,9 @@ type Client struct {
 	LocalGuid func() string
 
 	// OnCommand is invoked when the backend forwards a viewer command
-	// (e.g. {type:"command", action:"resetSession"}). Optional.
-	OnCommand func(action string)
+	// (e.g. {type:"command", action:"resetSession"} or
+	// {type:"command", action:"deleteSession", arg:"<id>"}). Optional.
+	OnCommand func(action, arg string)
 
 	// counters
 	connects  atomic.Uint64
@@ -200,7 +201,7 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) {
 			continue
 		}
 		if env.Type == "command" && env.Command != nil && c.OnCommand != nil {
-			c.OnCommand(env.Command.Action)
+			c.OnCommand(env.Command.Action, env.Command.Arg)
 		}
 	}
 }

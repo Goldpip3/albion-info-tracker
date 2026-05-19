@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/aodp"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/domain"
@@ -61,6 +62,16 @@ func main() {
 
 	engine := domain.NewEngine()
 	loadGameData(cfg, engine)
+	if store, err := domain.NewSessionsStore(); err != nil {
+		log.Printf("  sessions store: %v", err)
+	} else {
+		engine.SetSessionsStore(store)
+		fmt.Printf("  Sessions on disk: %s\n", store.Dir())
+	}
+	priceClient := aodp.New()
+	priceClient.Start(ctx)
+	engine.SetPriceClient(priceClient)
+	fmt.Println("  AODP price client started — loot values estimated when prices are cached.")
 
 	parser := photon.New(engine.Handlers())
 

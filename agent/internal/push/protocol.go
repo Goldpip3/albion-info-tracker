@@ -30,7 +30,10 @@ type HelloMessage struct {
 }
 
 // CommandMessage is what a viewer sends to ask the agent to do something
-// (currently just session reset). Forwarded transparently by the Worker.
+// (session reset, delete archived session, …). Forwarded transparently
+// by the Worker. Arg carries an optional target (e.g. an archived
+// session Id for deleteSession).
 type CommandMessage struct {
 	Action string `json:"action"`
+	Arg    string `json:"arg,omitempty"`
 }

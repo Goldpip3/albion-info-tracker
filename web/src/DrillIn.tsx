@@ -83,7 +83,7 @@ function DrillHeader({
 				>
 					←
 				</button>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} size={28} />
+				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={28} />
 				<div>
 					<div style={{ fontSize: 16, fontWeight: 600, color: "var(--sk-fg-0)" }}>
 						{player.name || "(unknown)"}

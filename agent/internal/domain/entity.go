@@ -31,6 +31,18 @@ type Entity struct {
 	// Zero means "unknown / use Normal default".
 	Qualities [10]int
 
+	// ActiveSpells lists spell indices currently bound to ability slots.
+	// CharacterEquipmentChanged param 7 ships a short[] of 14 entries:
+	//   0..2: MainHand Q/W/E
+	//   3:    Armor (chest active)
+	//   4:    Head
+	//   5:    Shoes / Cape (depending on event variant)
+	//   12:   Potion
+	//   13:   Food
+	// Other indices may carry sub-spells. We store the whole array
+	// unmodified for the Party panel to render.
+	ActiveSpells [14]int
+
 	// ItemPower is the averaged IP across core slots (MainHand, OffHand,
 	// Head, Chest, Shoes, Cape). Computed once on every equipment-event
 	// landing — see gamedata.AverageItemPower for the formula.
@@ -209,6 +221,17 @@ func (s *Store) ByGuid(g Guid) *Entity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.byGuid[g]
+}
+
+// localGuidEntity returns the local-player entity (if known). Convenience
+// for callers that don't want to grab the lock themselves.
+func (s *Store) localGuidEntity() *Entity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.localGuid.IsZero() {
+		return nil
+	}
+	return s.byGuid[s.localGuid]
 }
 
 // MarkInParty sets IsInParty on the entity for guid, creating it if absent.

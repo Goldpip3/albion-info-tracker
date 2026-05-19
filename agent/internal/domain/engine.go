@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/aodp"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamecodes"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
@@ -72,6 +74,28 @@ type Engine struct {
 	zoneMu   sync.Mutex
 	zoneName string
 
+	// sessions is the on-disk archive of completed sessions. Optional —
+	// when nil the agent skips persistence and resets just clear RAM.
+	sessions *SessionsStore
+
+	// zones is the append-only log of zone visits, capped at zoneLogCap.
+	// Updated from handleJoinResponse via noteZoneEntry.
+	zonesMu sync.Mutex
+	zones   []ZoneVisit
+
+	// dungeon is the in-flight DungeonRun (nil = not in a dungeon).
+	// Opens / closes on JoinResponse based on classifyDungeon.
+	dungeonMu sync.Mutex
+	dungeon   *DungeonRun
+
+	// lootLog is the bounded loot history. Updated on OtherGrabbedLoot.
+	lootMu  sync.Mutex
+	lootLog []LootEntry
+
+	// prices is the AODP price client. Optional — nil = no value
+	// estimation, items still record with Quantity but SilverValue=0.
+	prices *aodp.Client
+
 	// assistMu guards the debuff-window tracker + recent-casts buffer.
 	assistMu       sync.Mutex
 	activeWindows  map[int64]map[int]*debuffWindow // target → spell → window
@@ -96,12 +120,13 @@ type Engine struct {
 	pendingEquip   map[int64]pendingEquipEntry
 }
 
-// pendingEquipEntry holds a 10-slot equipment + qualities array for an
-// ObjectId whose entity hasn't been registered yet. Replayed by
-// applyCachedEquipment as soon as the entity appears.
+// pendingEquipEntry holds a 10-slot equipment + qualities + 14-slot
+// spell array for an ObjectId whose entity hasn't been registered yet.
+// Replayed by applyCachedEquipment as soon as the entity appears.
 type pendingEquipEntry struct {
-	Equipment [10]int
-	Qualities [10]int
+	Equipment    [10]int
+	Qualities    [10]int
+	ActiveSpells [14]int
 }
 
 // debuffWindow is one open "this player's debuff is on this target right
@@ -159,8 +184,16 @@ func NewEngine() *Engine {
 // breakdowns, deaths, session economy, fight counter, fight history,
 // activity log — and stamps a fresh session start time. Called when the
 // user clicks "New session" in the UI.
+//
+// Before zeroing, archives the prior session to the local-disk sessions
+// store (when configured). The archive captures metadata + final
+// economy totals; the full fight detail isn't preserved (too big for
+// long-running users), just enough to answer "what was that session."
 func (e *Engine) ResetSession() {
 	now := e.now()
+	if e.sessions != nil {
+		e.archiveCurrentSession(now)
+	}
 	e.store.mu.Lock()
 	for _, ent := range e.store.byGuid {
 		ent.Current.Reset()
@@ -173,6 +206,7 @@ func (e *Engine) ResetSession() {
 		ent.Deaths = 0
 	}
 	e.store.mu.Unlock()
+	e.resetLootOnNewSession()
 
 	e.assistMu.Lock()
 	e.activeWindows = make(map[int64]map[int]*debuffWindow)
@@ -195,12 +229,58 @@ func (e *Engine) ResetSession() {
 }
 
 // HandleCommand dispatches a command from the browser (forwarded by the
-// Worker over the same WebSocket). Currently only "resetSession" is
-// recognised; future actions go here too.
-func (e *Engine) HandleCommand(action string) {
+// Worker over the same WebSocket). The command may have an Arg payload
+// for commands that need a target (e.g. deleteSession <id>).
+func (e *Engine) HandleCommand(action, arg string) {
 	switch action {
 	case "resetSession":
 		e.ResetSession()
+	case "deleteSession":
+		if e.sessions != nil && arg != "" {
+			_ = e.sessions.Delete(arg)
+			e.markDirty()
+		}
+	}
+}
+
+// archiveCurrentSession captures the current session's metadata into
+// the local-disk archive. Called immediately before ResetSession zeroes
+// state. Quietly no-ops when nothing's worth archiving (empty session).
+func (e *Engine) archiveCurrentSession(endedAt time.Time) {
+	if e.sessions == nil {
+		return
+	}
+	e.sessionMu.Lock()
+	startedAt := e.session.Start
+	sess := ArchivedSession{
+		Id:          fmt.Sprintf("%d", startedAt.UnixMilli()),
+		StartedAt:   startedAt,
+		EndedAt:     endedAt,
+		DurationMs:  endedAt.Sub(startedAt).Milliseconds(),
+		FameTotal:   e.session.FameTotal,
+		SilverTotal: e.session.SilverTotal,
+		RespecTotal: e.session.RespecTotal,
+		MightTotal:  e.session.MightTotal,
+		DeathsTotal: e.session.DeathsTotal,
+	}
+	e.sessionMu.Unlock()
+	e.fightMu.Lock()
+	sess.FightCount = e.fightNumber
+	e.fightMu.Unlock()
+	e.zoneMu.Lock()
+	sess.Zone = e.zoneName
+	e.zoneMu.Unlock()
+	// Best-effort local-name lookup.
+	if local := e.store.localGuidEntity(); local != nil {
+		sess.LocalName = local.Name
+	}
+	// Skip empties so we don't pollute the archive when the user clicks
+	// "New session" twice in a row.
+	if sess.DurationMs < 1000 && sess.FameTotal == 0 && sess.SilverTotal == 0 {
+		return
+	}
+	if err := e.sessions.Save(sess); err != nil {
+		log.Printf("session archive: %v", err)
 	}
 }
 
@@ -222,6 +302,25 @@ func (e *Engine) SetItemCatalog(c *gamedata.ItemCatalog) {
 // screen can resolve a CausingSpellIndex to a uniquename.
 func (e *Engine) SetSpellCatalog(c *gamedata.SpellCatalog) {
 	e.spells = c
+}
+
+// SetSessionsStore wires a disk-backed sessions archive. When set,
+// ResetSession will write a snapshot of the current session to the
+// store before zeroing counters. Optional — the agent runs fine without.
+func (e *Engine) SetSessionsStore(s *SessionsStore) {
+	e.sessions = s
+}
+
+// SetPriceClient wires the AODP price client for loot value estimation.
+// Optional — without it loot entries still log but SilverValue stays 0.
+func (e *Engine) SetPriceClient(c *aodp.Client) {
+	e.prices = c
+}
+
+// Sessions returns the configured store (or nil). Used by the snapshot
+// builder to surface the archived-session list to the web.
+func (e *Engine) Sessions() *SessionsStore {
+	return e.sessions
 }
 
 // SetLocalization wires a localization.bin lookup so spells/items resolve
@@ -320,6 +419,9 @@ func (e *Engine) onEvent(ev photon.EventData) {
 		e.handleCastFinished(ev.Parameters)
 	case gamecodes.EventActiveSpellEffectsUpdate:
 		e.handleActiveSpellEffects(ev.Parameters)
+	case gamecodes.EventOtherGrabbedLoot:
+		dbg("OtherGrabbedLoot %v", ev.Parameters)
+		e.handleOtherGrabbedLoot(ev.Parameters)
 	case gamecodes.EventPartyJoined:
 		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
@@ -396,9 +498,22 @@ func (e *Engine) handleJoinResponse(p map[byte]any) {
 	e.store.MarkInParty(guid, true)
 	// Zone label — JoinResponse param 8 is the MapIndex (e.g.
 	// "KEEPERS_HIDE_FARM_2" or "BLACK_03"). Surface as the FightHeader
-	// subtitle so the user knows where the data is coming from.
+	// subtitle so the user knows where the data is coming from. Also
+	// append to the zone history.
 	if mi, ok := paramString(p, 8); ok && mi != "" {
+		pretty := prettyZone(mi)
 		e.setZone(mi)
+		now := e.now()
+		e.noteZoneEntry(pretty, now)
+		// Dungeon edges — opening / closing a run-scoped scope based
+		// on whether the zone we just joined looks like a dungeon
+		// instance. classifyDungeon returns ("", false) for cities,
+		// open world, hideouts.
+		if kind, isDungeon := classifyDungeon(mi); isDungeon {
+			e.openDungeon(pretty, kind, now)
+		} else {
+			e.closeDungeon(now)
+		}
 	}
 	// Apply any equipment event that arrived BEFORE this Join response.
 	// Albion broadcasts the local user's CharacterEquipmentChanged a tick
@@ -1104,6 +1219,74 @@ func readIntArray(v any) []int {
 	return nil
 }
 
+// handleOtherGrabbedLoot fires when a party/visible player grabs an item
+// or silver pile from a corpse / chest. Recorded into the loot log with
+// the looter's name + item index + quantity + zone + dungeon-id tags so
+// the Loot panel can roll it up per-looter.
+//
+// Param 1 = lootedFromName (corpse owner / mob)
+// Param 2 = looterByName (the friend / you)
+// Param 3 = isSilver (bool)
+// Param 4 = itemIndex (items.bin index, 0 when isSilver)
+// Param 5 = quantity (stack size or silver amount in copper)
+func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
+	lootedFrom, _ := paramString(p, 1)
+	looter, _ := paramString(p, 2)
+	isSilver, _ := paramBool(p, 3)
+	itemIdx, _ := paramLong(p, 4)
+	qty, _ := paramLong(p, 5)
+	if looter == "" || qty <= 0 {
+		return
+	}
+	entry := LootEntry{
+		At:         e.now(),
+		Looter:     looter,
+		LootedFrom: lootedFrom,
+		IsSilver:   isSilver,
+		Quantity:   int(qty),
+		Zone:       e.Zone(),
+	}
+	if d := e.CurrentDungeon(); d != nil {
+		entry.DungeonId = d.Id
+	}
+	if !isSilver && itemIdx > 0 && e.items != nil {
+		entry.ItemIndex = int(itemIdx)
+		entry.UniqueName = e.items.Name(int(itemIdx))
+		if e.loc != nil {
+			if name := e.loc.ItemName(entry.UniqueName); name != "" {
+				entry.DisplayName = name
+			}
+		}
+		if entry.DisplayName == "" {
+			entry.DisplayName = entry.UniqueName
+		}
+	}
+	// Mark as local if this matches the local player's name.
+	if local := e.store.localGuidEntity(); local != nil && local.Name == looter {
+		entry.LooterIsLocal = true
+	}
+	e.noteLoot(entry)
+}
+
+// paramBool reads a boolean param. Returns (false, false) on miss.
+func paramBool(p map[byte]any, key byte) (bool, bool) {
+	v, ok := p[key]
+	if !ok {
+		return false, false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x, true
+	case byte:
+		return x != 0, true
+	case int16:
+		return x != 0, true
+	case int32:
+		return x != 0, true
+	}
+	return false, false
+}
+
 // handleEquipmentChanged updates a tracked entity's class chip + role +
 // IP when they swap weapons. Critical for the local player — Albion fires
 // equipment events for the local user BEFORE the Join response, so we
@@ -1117,9 +1300,9 @@ func (e *Engine) handleEquipmentChanged(p map[byte]any) {
 	if !ok || objectId == 0 {
 		return
 	}
-	equip, qualities, found := parseEquipmentParams(p)
+	equip, qualities, spells, found := parseEquipmentParams(p)
 	if found {
-		e.cachePendingEquip(objectId, equip, qualities)
+		e.cachePendingEquip(objectId, equip, qualities, spells)
 	}
 	ent := e.store.ByObjectId(objectId)
 	if ent == nil {
@@ -1128,21 +1311,22 @@ func (e *Engine) handleEquipmentChanged(p map[byte]any) {
 	e.applyEquipment(ent, p)
 }
 
-// parseEquipmentParams reads the equipment + quality arrays from either
-// NewCharacter (param 40 + maybe 41/42 for qualities) or
-// CharacterEquipmentChanged (param 2 + maybe 3 for qualities). Returns
-// (empty, false) when no equipment array is present in the event.
+// parseEquipmentParams reads the equipment + quality + spells arrays
+// from either NewCharacter (param 40 + 41/42 + 43) or
+// CharacterEquipmentChanged (param 2 + 3 + 7). Returns the parsed
+// values plus an `ok` flag (false when no equipment array is present).
 //
 // Quality is the 1..5 byte; if the event doesn't ship a quality array
 // we default to 0 (treated as Normal=1 downstream).
-func parseEquipmentParams(p map[byte]any) ([10]int, [10]int, bool) {
+func parseEquipmentParams(p map[byte]any) ([10]int, [10]int, [14]int, bool) {
 	var equip, qualities [10]int
+	var spells [14]int
 	rawEquip, ok := p[40]
 	if !ok {
 		rawEquip, ok = p[2]
 	}
 	if !ok {
-		return equip, qualities, false
+		return equip, qualities, spells, false
 	}
 	for i, v := range intsOfArray(rawEquip, 10) {
 		equip[i] = v
@@ -1159,14 +1343,22 @@ func parseEquipmentParams(p map[byte]any) ([10]int, [10]int, bool) {
 			qualities[i] = v
 		}
 	}
-	return equip, qualities, true
+	// Active spells lives at param 7 in CharacterEquipmentChanged. SAT
+	// reads index 0/1/2 as MainHand slots, 3 Armor, 4 Head, 5 Shoes,
+	// 12 Potion, 13 Food. Empty entries are -1 — we store them as-is.
+	if rawS, ok := p[7]; ok {
+		for i, v := range intsOfArray(rawS, 14) {
+			spells[i] = v
+		}
+	}
+	return equip, qualities, spells, true
 }
 
-// cachePendingEquip stashes the full equipment+qualities for an ObjectId
-// so a later UpsertByGuid can pick it up. Safe for concurrent use.
-func (e *Engine) cachePendingEquip(objectId int64, equip [10]int, qualities [10]int) {
+// cachePendingEquip stashes the full equipment+qualities+spells for an
+// ObjectId so a later UpsertByGuid can pick it up. Safe for concurrent use.
+func (e *Engine) cachePendingEquip(objectId int64, equip [10]int, qualities [10]int, spells [14]int) {
 	e.pendingEquipMu.Lock()
-	e.pendingEquip[objectId] = pendingEquipEntry{Equipment: equip, Qualities: qualities}
+	e.pendingEquip[objectId] = pendingEquipEntry{Equipment: equip, Qualities: qualities, ActiveSpells: spells}
 	e.pendingEquipMu.Unlock()
 }
 
@@ -1193,7 +1385,7 @@ func (e *Engine) applyCachedEquipment(ent *Entity) {
 	if !ok {
 		return
 	}
-	e.applyEquipmentArray(ent, entry.Equipment, entry.Qualities)
+	e.applyEquipmentArray(ent, entry.Equipment, entry.Qualities, entry.ActiveSpells)
 }
 
 func (e *Engine) handleNewCharacter(p map[byte]any) {
@@ -1219,23 +1411,24 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	}
 }
 
-// applyEquipment reads the equipment + quality arrays from the event,
-// classifies the player's class from the MainHand slot, computes average
-// IP across the core slots, and writes everything onto the entity.
+// applyEquipment reads the equipment + quality + spells arrays from the
+// event, classifies the player's class from the MainHand slot, computes
+// average IP across the core slots, and writes everything onto the
+// entity.
 func (e *Engine) applyEquipment(ent *Entity, p map[byte]any) {
 	if ent == nil || e.items == nil {
 		return
 	}
-	equip, qualities, ok := parseEquipmentParams(p)
+	equip, qualities, spells, ok := parseEquipmentParams(p)
 	if !ok {
 		return
 	}
-	e.applyEquipmentArray(ent, equip, qualities)
+	e.applyEquipmentArray(ent, equip, qualities, spells)
 }
 
 // applyEquipmentArray is the inner write — used both by live equipment
 // events and by the cached-equipment replay path.
-func (e *Engine) applyEquipmentArray(ent *Entity, equip [10]int, qualities [10]int) {
+func (e *Engine) applyEquipmentArray(ent *Entity, equip [10]int, qualities [10]int, spells [14]int) {
 	if ent == nil || e.items == nil {
 		return
 	}
@@ -1249,6 +1442,7 @@ func (e *Engine) applyEquipmentArray(ent *Entity, equip [10]int, qualities [10]i
 	e.store.mu.Lock()
 	ent.Equipment = equip
 	ent.Qualities = qualities
+	ent.ActiveSpells = spells
 	ent.ItemPower = ip
 	e.store.mu.Unlock()
 }

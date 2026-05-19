@@ -13,6 +13,8 @@ export interface PlayerSnapshot {
 	roleLabel?: string; // "DAGGERS" / "ADEPT'S ARCLIGHT BLASTERS"
 	itemPower?: number; // Averaged IP across core gear slots — rendered in the
 	                    // IPChip in place of the old XBW-style 3-letter chip.
+	equipmentSlots?: SlotInfo[];     // Per-slot resolved loadout (powers IP tooltip + Party panel)
+	activeSpellSlots?: SpellSlotInfo[]; // Bound abilities (Q/W/E/Armor/Head/Shoes/Potion/Food)
 	currentDamage: number;
 	currentDps: number;
 	overallDamage: number;
@@ -103,6 +105,82 @@ export interface Snapshot {
 	session?: Session;
 	events?: ActivityEvent[];
 	recent?: FightArchive[];
+	sessions?: ArchivedSession[]; // Local-disk archived sessions
+	zones?: ZoneVisit[];          // Recent zone history
+	dungeon?: DungeonRun;         // Active run-scoped scope (when inside a dungeon)
+	loot?: LootEntry[];           // Loot ring buffer (most recent first)
+	looterTotals?: LooterTotals[];// Per-looter rollup
+}
+
+export interface LootEntry {
+	at: string;
+	looter: string;
+	looterIsLocal?: boolean;
+	lootedFrom?: string;
+	itemIndex?: number;
+	uniqueName?: string;
+	displayName?: string;
+	quantity: number;
+	isSilver?: boolean;
+	silverValue?: number;
+	zone?: string;
+	dungeonId?: string;
+}
+
+export interface LooterTotals {
+	name: string;
+	isLocal?: boolean;
+	itemCount: number;
+	silverTotal: number;
+	valueTotal: number;
+}
+
+export interface SlotInfo {
+	slot: string;     // "MainHand" / "OffHand" / "Head" / "Chest" / "Shoes" / "Bag" / "Cape" / "Mount" / "Potion" / "Food"
+	name?: string;
+	itemPower?: number;
+}
+
+export interface SpellSlotInfo {
+	slot: string;     // "Q" / "W" / "E" / "Armor" / "Head" / "Shoes" / "Cape" / "Potion" / "Food"
+	name?: string;
+}
+
+export interface ArchivedSession {
+	id: string;
+	startedAt: string;
+	endedAt: string;
+	durationMs: number;
+	zone?: string;
+	localName?: string;
+	fameTotal: number;
+	silverTotal: number;
+	respecTotal: number;
+	mightTotal: number;
+	deathsTotal: number;
+	fightCount: number;
+	tag?: string;
+}
+
+export interface ZoneVisit {
+	name: string;
+	enteredAt: string;
+	leftAt?: string;
+	durationMs?: number;
+}
+
+export interface DungeonRun {
+	id: string;
+	zone: string;
+	type: string; // "solo" | "group" | "avalonian" | "mists" | "hellgate"
+	enteredAt: string;
+	endedAt?: string;
+	durationMs?: number;
+	fameGained: number;
+	silverGained: number;
+	respecGained: number;
+	mightGained: number;
+	deathsInRun?: number;
 }
 
 export interface FightArchive {
