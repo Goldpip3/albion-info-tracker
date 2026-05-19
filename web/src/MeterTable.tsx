@@ -207,7 +207,12 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				</div>
 			</div>
 
-			{/* Bar + dual value */}
+			{/* Bar + dual value. In the Healing pane, non-healer roles
+			    have nothing to plot — render a muted dash instead of a
+			    zero-width bar so the eye doesn't waste time on it. */}
+			{mode === "heal" && !healsForRole(roleKey) ? (
+				<div className="flex items-center" style={{ marginLeft: 8, color: "var(--sk-fg-3)", fontSize: 12 }}>—</div>
+			) : (
 			<div className="relative h-full flex items-center">
 				<div
 					style={{
@@ -266,34 +271,70 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 					</span>
 				</div>
 			</div>
+			)}
 
 			{/* DPS / HPS — tinted to the player's class accent so the rate
-			    ties to the bar above it (matches the design's per-row colour
-			    coding). Falls back to the muted tone for Taken (no rate). */}
+			    ties to the bar above it. Falls back to dim "—" for roles
+			    that don't produce the active metric (HPS on a DPS row). */}
 			<div className="flex flex-col items-end" style={{ lineHeight: 1, gap: 2 }}>
-				<span
-					className="sk-mono"
-					style={{
-						fontSize: 16,
-						fontWeight: 600,
-						color: primary.rate != null ? barColor : "var(--sk-fg-3)",
-						letterSpacing: "-0.02em",
-					}}
-				>
-					{primary.rate != null ? fmtRate(primary.rate) : "—"}
-				</span>
-				<span className="sk-upper" style={{ color: "var(--sk-fg-2)", fontSize: 10, fontWeight: 600 }}>
-					{mode === "heal" ? "hps" : mode === "damage" ? "dps" : ""}
-				</span>
+				{(() => {
+					const showRate = primary.rate != null && !(mode === "heal" && !healsForRole(roleKey));
+					return (
+						<>
+							<span
+								className="sk-mono"
+								style={{
+									fontSize: 16,
+									fontWeight: 600,
+									color: showRate ? barColor : "var(--sk-fg-3)",
+									letterSpacing: "-0.02em",
+								}}
+							>
+								{showRate ? fmtRate(primary.rate!) : "—"}
+							</span>
+							<span className="sk-upper" style={{ color: "var(--sk-fg-2)", fontSize: 10, fontWeight: 600 }}>
+								{mode === "heal" ? "hps" : mode === "damage" ? "dps" : ""}
+							</span>
+						</>
+					);
+				})()}
 			</div>
 
-			{/* Taken chip */}
+			{/* Taken — everyone takes damage. */}
 			<MiniChip color="var(--sk-taken)" value={fmt(player.currentTaken)} glyph="↓" />
-			{/* Healing chip */}
-			<MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
-			{/* Overheal chip — dim grey since it's a "waste" stat */}
-			<MiniChip color="var(--sk-fg-3)" value={fmt(player.overheal ?? 0)} glyph="~" />
+			{/* Heal / overheal — only render for roles that actually heal.
+			    Pure DPS / tanks / control show "—" so the row reads cleanly. */}
+			{healsForRole(roleKey)
+				? <MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
+				: <BlankChip />}
+			{healsForRole(roleKey)
+				? <MiniChip color="var(--sk-fg-3)" value={fmt(player.overheal ?? 0)} glyph="~" />
+				: <BlankChip />}
 		</div>
+	);
+}
+
+// healsForRole returns true when a role meaningfully produces heals. Pure
+// DPS / tanks / control don't, so their heal/overheal cells should read
+// blank to keep the row scannable.
+function healsForRole(role: RoleKey): boolean {
+	return role === "healer" || role === "support";
+}
+
+function BlankChip(): React.ReactElement {
+	return (
+		<span
+			className="sk-mono"
+			style={{
+				fontSize: 12,
+				color: "var(--sk-fg-3)",
+				textAlign: "right",
+				justifyContent: "flex-end",
+				display: "inline-flex",
+			}}
+		>
+			—
+		</span>
 	);
 }
 
