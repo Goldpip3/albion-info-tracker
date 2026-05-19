@@ -7,6 +7,7 @@ import { SettingsPanel } from "./SettingsPanel.tsx";
 import { DrillIn } from "./DrillIn.tsx";
 import { ActivityLog } from "./ActivityLog.tsx";
 import { SessionStrip } from "./SessionStrip.tsx";
+import { isDemoMode, useDemoSnapshot } from "./demo.ts";
 import { accentOklch, useSettings } from "./useSettings.ts";
 import type { FightArchive, Mode, PlayerSnapshot, Snapshot } from "./types.ts";
 
@@ -50,6 +51,12 @@ function readPairFromURL(): string | null {
 }
 
 export default function App(): React.ReactElement {
+	const demo = isDemoMode();
+	if (demo) return <DemoApp />;
+	return <LiveApp />;
+}
+
+function LiveApp(): React.ReactElement {
 	const [url, setUrl] = useStored("skirmish:url", "");
 	const [token, setToken] = useStored("skirmish:token", "");
 
@@ -223,6 +230,120 @@ export default function App(): React.ReactElement {
 			)}
 			{drillGuid && meterSnapshot && (() => {
 				const p = meterSnapshot.players.find((p) => p.userGuid === drillGuid);
+				return p ? <DrillIn player={p} onClose={() => setDrillGuid(null)} /> : null;
+			})()}
+		</div>
+	);
+}
+
+// DemoApp renders the meter using a hand-crafted snapshot from demo.ts
+// — no agent, no WebSocket. Activates when the URL has ?demo=1.
+// Useful for verifying class chips, role labels, per-class bar colours,
+// and the FarmStrip with realistic data even when not in-game.
+function DemoApp(): React.ReactElement {
+	const { settings, update, reset } = useSettings();
+	const [showSettings, setShowSettings] = useState(false);
+	const [drillGuid, setDrillGuid] = useState<string | null>(null);
+	const [viewingFight, setViewingFight] = useState<number | null>(null);
+	const { snapshot, lastMessageAt } = useDemoSnapshot();
+
+	useEffect(() => {
+		const { fg, tint } = accentOklch(settings.accent);
+		document.documentElement.style.setProperty("--sk-local", fg);
+		document.documentElement.style.setProperty("--sk-local-tint", tint);
+	}, [settings.accent]);
+
+	const ALL_PANES: Array<{ key: keyof typeof settings.panes; mode: Mode; label: string; tone: string }> = [
+		{ key: "damage", mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
+		{ key: "heal",   mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
+		{ key: "taken",  mode: "taken",  label: "Taken",   tone: "var(--sk-taken)" },
+	];
+	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
+	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]);
+
+	return (
+		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
+			<Header
+				state="connected"
+				stale={false}
+				snapshot={snapshot}
+				panes={settings.panes}
+				togglePane={(key) => {
+					const next = { ...settings.panes, [key]: !settings.panes[key] };
+					const stillOn = Object.values(next).some(Boolean);
+					if (stillOn) update("panes", next);
+				}}
+				viewingFight={viewingFight}
+				setViewingFight={setViewingFight}
+				onSettings={() => setShowSettings(true)}
+				onNewSession={() => {/* demo no-op */}}
+				onReset={() => {/* demo no-op */}}
+				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
+				showLog={settings.showActivityLog}
+			/>
+			<SessionStrip snapshot={snapshot} />
+			<main className="flex-1 overflow-hidden flex flex-col">
+				<div className="flex-1 overflow-hidden">
+					{activePanes.length === 1 ? (
+						<div className="h-full overflow-auto">
+							<MeterTable
+								snapshot={snapshot}
+								mode={activePanes[0].mode}
+								settings={settings}
+								onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+							/>
+						</div>
+					) : (
+						<div
+							className="grid h-full"
+							style={{ gridTemplateColumns: `repeat(${activePanes.length}, minmax(0, 1fr))` }}
+						>
+							{activePanes.map((p, i) => (
+								<div
+									key={p.mode}
+									className="flex flex-col overflow-hidden"
+									style={{ borderRight: i < activePanes.length - 1 ? "1px solid var(--sk-line)" : "none" }}
+								>
+									<div
+										className="sk-upper flex items-center"
+										style={{
+											padding: "8px 14px",
+											borderBottom: "1px solid var(--sk-line)",
+											color: p.tone,
+											fontWeight: 600,
+											background: "var(--sk-bg-1)",
+											gap: 8,
+										}}
+									>
+										<span style={{ width: 6, height: 6, borderRadius: 99, background: p.tone }} />
+										{p.label}
+									</div>
+									<div className="flex-1 overflow-auto">
+										<MeterTable
+											snapshot={snapshot}
+											mode={p.mode}
+											settings={settings}
+											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
+										/>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+				{settings.showActivityLog && <ActivityLog snapshot={snapshot} />}
+			</main>
+			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
+			{showSettings && (
+				<SettingsPanel
+					settings={settings}
+					update={update}
+					reset={reset}
+					onClose={() => setShowSettings(false)}
+				/>
+			)}
+			{drillGuid && (() => {
+				const p = snapshot.players.find((p) => p.userGuid === drillGuid);
 				return p ? <DrillIn player={p} onClose={() => setDrillGuid(null)} /> : null;
 			})()}
 		</div>
