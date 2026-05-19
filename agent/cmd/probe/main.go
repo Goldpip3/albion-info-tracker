@@ -6,10 +6,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
 )
+
+func contains(s, sub string) bool {
+	return strings.Contains(strings.ToUpper(s), strings.ToUpper(sub))
+}
 
 func main() {
 	cfg, err := config.Load()
@@ -37,6 +42,20 @@ func main() {
 		fmt.Println("spells.bin:", err)
 	} else {
 		fmt.Printf("spells.bin OK — %d entries\n", spells.Len())
+		// Search for crossbow/explosive/bomb abilities — anything the
+		// user might recognise.
+		patterns := []string{"EXPLOSIVE", "CROSSBOW", "BOLT", "DUALCROSSBOW", "ARCLIGHT", "FLICKER"}
+		for _, pat := range patterns {
+			fmt.Printf("  --- containing %q ---\n", pat)
+			n := 0
+			for i := 0; i < spells.Len()*2 && n < 8; i++ {
+				name := spells.Name(i)
+				if name != "" && contains(name, pat) {
+					fmt.Printf("  [%d] %s\n", i, name)
+					n++
+				}
+			}
+		}
 	}
 
 	loc, err := gamedata.LoadLocalization(cfg.AlbionInstallRoot, gamedata.ServerLive)
@@ -44,16 +63,17 @@ func main() {
 		fmt.Println("localization.bin:", err)
 	} else {
 		fmt.Printf("localization.bin OK — %d EN-US strings\n", loc.Len())
-		// Sample a few spell + item lookups to verify the wiring.
-		for _, uname := range []string{
-			"CROSSBOW_FLICKERSHOT_E",
-			"SKILLSHOT_TELEPORT_BUFF",
-			"CHAINDASH",
-			"T6_2H_CROSSBOWLARGE_HELL",
-			"T4_2H_DUALCROSSBOW_CRYSTAL",
-		} {
-			fmt.Printf("  spell %-35q → %q\n", uname, loc.SpellName(uname))
-			fmt.Printf("  item  %-35q → %q\n", uname, loc.ItemName(uname))
+		// Reverse-lookup: find @SPELLS_ tu-ids whose English value
+		// contains "explosive bolt" or similar so we can wire the
+		// real spell uniquename to the right user-visible name.
+		fmt.Println("  --- localization reverse-lookup ---")
+		searchTerms := []string{"explosive bolt", "frost bolt", "flickershot", "chain slash", "auto attack"}
+		hits := loc.Search(searchTerms, 12)
+		for term, results := range hits {
+			fmt.Printf("  %q matches:\n", term)
+			for _, r := range results {
+				fmt.Printf("    %-50s → %q\n", r.Tuid, r.Value)
+			}
 		}
 	}
 }

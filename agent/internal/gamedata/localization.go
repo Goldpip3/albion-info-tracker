@@ -43,6 +43,38 @@ func (l *Localization) Len() int {
 	return len(l.byTuid)
 }
 
+// SearchHit is one row of a Localization.Search result.
+type SearchHit struct {
+	Tuid  string
+	Value string
+}
+
+// Search does a case-insensitive substring scan over the EN-US values.
+// Used by the probe to figure out which @SPELLS_* tu-id corresponds to
+// an in-game ability name like "Explosive Bolt".
+func (l *Localization) Search(terms []string, limitPerTerm int) map[string][]SearchHit {
+	out := make(map[string][]SearchHit, len(terms))
+	if l == nil {
+		return out
+	}
+	lower := make([]string, len(terms))
+	for i, t := range terms {
+		lower[i] = strings.ToLower(t)
+	}
+	for tuid, val := range l.byTuid {
+		v := strings.ToLower(val)
+		for i, t := range lower {
+			if !strings.Contains(v, t) {
+				continue
+			}
+			if len(out[terms[i]]) < limitPerTerm {
+				out[terms[i]] = append(out[terms[i]], SearchHit{Tuid: tuid, Value: val})
+			}
+		}
+	}
+	return out
+}
+
 // ItemName resolves an items.bin uniquename to its in-game display name.
 // "T6_2H_CROSSBOWLARGE_HELL@2" → "Boltcaster" (or similar — depends on the
 // patch's localization table). Strips the "@<level>" suffix before lookup
