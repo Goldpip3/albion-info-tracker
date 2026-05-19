@@ -45,8 +45,20 @@ type Engine struct {
 	// shows the numeric index.
 	spells *gamedata.SpellCatalog
 
-	// loc, when set, turns spells.bin / items.bin uniquenames into the
-	// user-facing English names shown in Albion's tooltips
+	// mobs, when set, resolves the MobIndex param on NewMob events to a
+	// uniquename so the drill-in's "Targets" tab can read "Fox" instead
+	// of "#8087".
+	mobs *gamedata.MobCatalog
+
+	// mobNames caches resolved English mob names keyed by ObjectId.
+	// Populated on NewMob, consumed by topTargets when the target isn't
+	// a tracked player entity. Mobs aren't entered into the Store —
+	// the store is reserved for player-shaped entities.
+	mobNamesMu sync.RWMutex
+	mobNames   map[int64]string
+
+	// loc, when set, turns spells.bin / items.bin / mobs.bin uniquenames
+	// into the user-facing English names shown in Albion's tooltips
 	// ("Flickershot" instead of "CROSSBOW_FLICKERSHOT_E").
 	loc *gamedata.Localization
 
@@ -177,6 +189,7 @@ func NewEngine() *Engine {
 		activeWindows:  make(map[int64]map[int]*debuffWindow),
 		recentCastsCap: 64,
 		pendingEquip:   make(map[int64]pendingEquipEntry),
+		mobNames:       make(map[int64]string),
 	}
 }
 
@@ -304,6 +317,21 @@ func (e *Engine) SetSpellCatalog(c *gamedata.SpellCatalog) {
 	e.spells = c
 }
 
+// SetMobCatalog wires a mobs.bin catalog into the engine. Used by the
+// NewMob handler to resolve MobIndex into a friendly name shown in the
+// drill-in's Targets tab.
+func (e *Engine) SetMobCatalog(c *gamedata.MobCatalog) {
+	e.mobs = c
+}
+
+// MobName returns the cached English name for a mob ObjectId, or "" if
+// the agent never saw a NewMob event for that ObjectId.
+func (e *Engine) MobName(objectId int64) string {
+	e.mobNamesMu.RLock()
+	defer e.mobNamesMu.RUnlock()
+	return e.mobNames[objectId]
+}
+
 // SetSessionsStore wires a disk-backed sessions archive. When set,
 // ResetSession will write a snapshot of the current session to the
 // store before zeroing counters. Optional — the agent runs fine without.
@@ -422,6 +450,8 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventOtherGrabbedLoot:
 		dbg("OtherGrabbedLoot %v", ev.Parameters)
 		e.handleOtherGrabbedLoot(ev.Parameters)
+	case gamecodes.EventNewMob:
+		e.handleNewMob(ev.Parameters)
 	case gamecodes.EventPartyJoined:
 		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
@@ -1281,6 +1311,29 @@ func readIntArray(v any) []int {
 	return nil
 }
 
+// handleNewMob fires when Albion sends a new mob into the player's
+// visible range. Param 0 = ObjectId, param 1 = MobIndex (post-July-2025
+// schema requires subtracting 15 — handled in MobCatalog.Lookup).
+// Cache the resolved English name keyed by ObjectId so the drill-in's
+// Targets tab can render "Fox" instead of "#8087".
+func (e *Engine) handleNewMob(p map[byte]any) {
+	if e.mobs == nil {
+		return
+	}
+	objectId, _ := paramLong(p, 0)
+	mobIdx, _ := paramLong(p, 1)
+	if objectId == 0 || mobIdx <= 0 {
+		return
+	}
+	name := e.mobs.Name(int(mobIdx), e.loc)
+	if name == "" {
+		return
+	}
+	e.mobNamesMu.Lock()
+	e.mobNames[objectId] = name
+	e.mobNamesMu.Unlock()
+}
+
 // handleOtherGrabbedLoot fires when a party/visible player grabs an item
 // or silver pile from a corpse / chest. Recorded into the loot log with
 // the looter's name + item index + quantity + zone + dungeon-id tags so
@@ -1412,6 +1465,19 @@ func parseEquipmentParams(p map[byte]any) ([10]int, [10]int, [14]int, bool) {
 		for i, v := range intsOfArray(rawS, 14) {
 			spells[i] = v
 		}
+	}
+	// Verbose: dump every param key + type + the three parsed arrays so
+	// we can pin down which byte Albion is shipping quality in on the
+	// current patch. Grep "parseEquipmentParams" in the verbose log.
+	if verbose {
+		keys := make([]string, 0, len(p))
+		for k, v := range p {
+			keys = append(keys, fmt.Sprintf("%d=%T", k, v))
+		}
+		log.Printf("parseEquipmentParams keys=[%s]", strings.Join(keys, " "))
+		log.Printf("parseEquipmentParams equip=%v", equip)
+		log.Printf("parseEquipmentParams qualities=%v", qualities)
+		log.Printf("parseEquipmentParams spells=%v", spells)
 	}
 	return equip, qualities, spells, true
 }

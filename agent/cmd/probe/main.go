@@ -37,6 +37,19 @@ func main() {
 		}
 	}
 
+	mobs, err := gamedata.LoadMobCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive)
+	if err != nil {
+		fmt.Println("mobs.bin:", err)
+	} else {
+		fmt.Printf("mobs.bin OK — %d entries\n", mobs.Len())
+		// Spot-check a handful — Albion's old-style entries should resolve
+		// readable names with or without localization.
+		for _, idx := range []int{15, 30, 100, 500, 1000, 2500, 4000} {
+			e := mobs.Lookup(idx)
+			fmt.Printf("  [%d→%d] %s\n", idx, e.Index, e.UniqueName)
+		}
+	}
+
 	spells, err := gamedata.LoadSpellCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive)
 	if err != nil {
 		fmt.Println("spells.bin:", err)

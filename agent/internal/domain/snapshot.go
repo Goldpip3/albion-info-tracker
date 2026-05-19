@@ -227,8 +227,12 @@ func (e *Engine) activeSpellSlots(ent *Entity) []SpellSlotInfo {
 }
 
 // topTargets returns the top n damage recipients for an entity,
-// resolving names against tracked entities. Unresolved targets render
-// as "#<objectId>". Caller must hold store.mu.
+// resolving names in this order:
+//   1. tracked player entity by ObjectId (other party members hit by
+//      friendly fire / training dummies)
+//   2. mob name cache (populated from NewMob events)
+//   3. "" — frontend renders "#<id>" as the final fallback
+// Caller must hold store.mu.
 func (e *Engine) topTargets(ent *Entity, n int) []TargetBreakdown {
 	if len(ent.ByTarget) == 0 {
 		return nil
@@ -238,6 +242,9 @@ func (e *Engine) topTargets(ent *Entity, n int) []TargetBreakdown {
 		var name string
 		if t := e.store.byObjectIdLocked(id); t != nil {
 			name = t.Name
+		}
+		if name == "" {
+			name = e.MobName(id)
 		}
 		out = append(out, TargetBreakdown{ObjectId: id, Name: name, Damage: dmg})
 	}
