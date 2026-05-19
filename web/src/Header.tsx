@@ -207,7 +207,7 @@ interface FightHeaderProps {
 const TABS: Array<{ id: keyof PaneSet; label: string }> = [
 	{ id: "damage", label: "Damage" },
 	{ id: "heal",   label: "Healing" },
-	{ id: "taken",  label: "Taken" },
+	{ id: "taken",  label: "Tank" },
 ];
 
 function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFight }: FightHeaderProps): React.ReactElement {

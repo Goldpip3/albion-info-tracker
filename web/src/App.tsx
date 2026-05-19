@@ -117,7 +117,7 @@ function LiveApp(): React.ReactElement {
 	const ALL_PANES: Array<{ key: keyof typeof settings.panes; mode: Mode; label: string; tone: string }> = [
 		{ key: "damage", mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
 		{ key: "heal",   mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
-		{ key: "taken",  mode: "taken",  label: "Taken",   tone: "var(--sk-taken)" },
+		{ key: "taken",  mode: "taken",  label: "Tank",    tone: "var(--sk-taken)" },
 	];
 	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
 	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]); // defensive
@@ -201,6 +201,7 @@ function LiveApp(): React.ReactElement {
 											snapshot={meterSnapshot}
 											mode={p.mode}
 											settings={settings}
+											compact={activePanes.length > 1}
 											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
 										/>
 									</div>
@@ -256,7 +257,7 @@ function DemoApp(): React.ReactElement {
 	const ALL_PANES: Array<{ key: keyof typeof settings.panes; mode: Mode; label: string; tone: string }> = [
 		{ key: "damage", mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
 		{ key: "heal",   mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
-		{ key: "taken",  mode: "taken",  label: "Taken",   tone: "var(--sk-taken)" },
+		{ key: "taken",  mode: "taken",  label: "Tank",    tone: "var(--sk-taken)" },
 	];
 	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
 	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]);
@@ -323,6 +324,7 @@ function DemoApp(): React.ReactElement {
 											snapshot={snapshot}
 											mode={p.mode}
 											settings={settings}
+											compact={activePanes.length > 1}
 											onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
 										/>
 									</div>

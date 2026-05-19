@@ -10,9 +10,13 @@ interface MeterTableProps {
 	mode: Mode;
 	settings: Settings;
 	onDrillIn: (p: PlayerSnapshot) => void;
+	// compact drops the right-side stat columns (Taken / Heal / Over) and
+	// shrinks the rate column. Used when several panes are side-by-side so
+	// each pane doesn't overflow its narrow column.
+	compact?: boolean;
 }
 
-export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTableProps): React.ReactElement {
+export function MeterTable({ snapshot, mode, settings, onDrillIn, compact }: MeterTableProps): React.ReactElement {
 	const players = snapshot?.players ?? [];
 	const [hovered, setHovered] = useState<PlayerSnapshot | null>(null);
 
@@ -75,7 +79,9 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 			<div
 				className="grid items-center"
 				style={{
-					gridTemplateColumns: "28px 200px 1fr 90px 70px 70px 70px",
+					gridTemplateColumns: compact
+						? "28px minmax(0, 1fr) minmax(0, 2fr) 70px"
+						: "28px 200px 1fr 90px 70px 70px 70px",
 					gap: 12,
 					padding: "10px 14px",
 					borderBottom: "1px solid var(--sk-line)",
@@ -91,9 +97,9 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 				<span>Player</span>
 				<span>{headerLabel[mode]}</span>
 				<span style={{ textAlign: "right" }}>{rateHeader[mode]}</span>
-				<span style={{ textAlign: "right" }} title="Damage taken">↓ Taken</span>
-				<span style={{ textAlign: "right" }} title="Healing done">+ Heal</span>
-				<span style={{ textAlign: "right" }} title="Overheal — heal that hit max-HP targets">~ Over</span>
+				{!compact && <span style={{ textAlign: "right" }} title="Damage taken">↓ Taken</span>}
+				{!compact && <span style={{ textAlign: "right" }} title="Healing done">+ Heal</span>}
+				{!compact && <span style={{ textAlign: "right" }} title="Overheal — heal that hit max-HP targets">~ Over</span>}
 			</div>
 
 			{/* Rows */}
@@ -108,6 +114,7 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 						partyTotal={partyTotal}
 						primary={primaryFor(p)}
 						settings={settings}
+						compact={compact}
 						onHover={setHovered}
 						onDrillIn={onDrillIn}
 					/>
@@ -127,11 +134,12 @@ interface PlayerRowProps {
 	partyTotal: number;
 	primary: { cur: number; ovr: number; rate: number | null };
 	settings: Settings;
+	compact?: boolean;
 	onHover: (p: PlayerSnapshot | null) => void;
 	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
+function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, compact, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
 	const isLocal = player.isLocal ?? false;
 	const roleKey: RoleKey = roleKeyOf(player.role);
 	// Bar / DPS / chip share a per-weapon accent. Holy gold ≠ Nature
@@ -153,7 +161,9 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				position: "relative",
 				height: rowH,
 				display: "grid",
-				gridTemplateColumns: "28px 200px 1fr 90px 70px 70px 70px",
+				gridTemplateColumns: compact
+				? "28px minmax(0, 1fr) minmax(0, 2fr) 70px"
+				: "28px 200px 1fr 90px 70px 70px 70px",
 				alignItems: "center",
 				gap: 12,
 				padding: `0 14px 0 12px`,
@@ -300,16 +310,19 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				})()}
 			</div>
 
-			{/* Taken — everyone takes damage. */}
-			<MiniChip color="var(--sk-taken)" value={fmt(player.currentTaken)} glyph="↓" />
-			{/* Heal / overheal — only render for roles that actually heal.
-			    Pure DPS / tanks / control show "—" so the row reads cleanly. */}
-			{healsForRole(roleKey)
-				? <MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
-				: <BlankChip />}
-			{healsForRole(roleKey)
-				? <MiniChip color="var(--sk-fg-3)" value={fmt(player.overheal ?? 0)} glyph="~" />
-				: <BlankChip />}
+			{/* In compact (multi-pane) mode the right-side stat columns are
+			    dropped — the other panes already show those metrics. */}
+			{!compact && (
+				<>
+					<MiniChip color="var(--sk-taken)" value={fmt(player.currentTaken)} glyph="↓" />
+					{healsForRole(roleKey)
+						? <MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
+						: <BlankChip />}
+					{healsForRole(roleKey)
+						? <MiniChip color="var(--sk-fg-3)" value={fmt(player.overheal ?? 0)} glyph="~" />
+						: <BlankChip />}
+				</>
+			)}
 		</div>
 	);
 }
