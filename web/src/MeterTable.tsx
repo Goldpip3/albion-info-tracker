@@ -253,6 +253,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 							color: "var(--sk-fg-0)",
 							letterSpacing: "-0.02em",
 						}}
+						title={isLocal ? "Local player" : undefined}
 					>
 						{fmt(primary.cur)}
 					</span>
@@ -349,7 +350,7 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 						style={{
 							fontSize: 13,
 							fontWeight: 600,
-							color: player.isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+							color: "var(--sk-fg-0)",
 						}}
 					>
 						{player.name || "(unknown)"}

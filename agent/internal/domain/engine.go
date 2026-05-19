@@ -169,6 +169,9 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventNewCharacter:
 		dbg("NewCharacter %v", ev.Parameters)
 		e.handleNewCharacter(ev.Parameters)
+	case gamecodes.EventCharacterEquipmentChanged:
+		dbg("CharacterEquipmentChanged %v", ev.Parameters)
+		e.handleEquipmentChanged(ev.Parameters)
 	case gamecodes.EventPartyJoined:
 		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
@@ -513,6 +516,23 @@ func (e *Engine) FightStatus(now time.Time) (number int, elapsed time.Duration, 
 	return e.fightNumber, now.Sub(e.fightStart), stillIn
 }
 
+// handleEquipmentChanged updates a tracked entity's class chip + role when
+// they swap weapons. Critical for the local player — Albion never
+// broadcasts the local user via NewCharacter, so this is the only path
+// that gets your own "MELEE DPS · DAGGERS" subtitle on screen. Param 0 =
+// ObjectId, param 2 = short[] equipment array with index 0 = MainHand.
+func (e *Engine) handleEquipmentChanged(p map[byte]any) {
+	objectId, ok := paramLong(p, 0)
+	if !ok || objectId == 0 {
+		return
+	}
+	ent := e.store.ByObjectId(objectId)
+	if ent == nil {
+		return
+	}
+	e.applyEquipment(ent, p)
+}
+
 func (e *Engine) handleNewCharacter(p map[byte]any) {
 	objectId, _ := paramLong(p, 0)
 	name, _ := paramString(p, 1)
@@ -533,15 +553,17 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	}
 }
 
-// applyEquipment reads param 40 (the 10-slot equipment array) from a
-// NewCharacter event and uses index 0 (MainHand) to classify the weapon.
-// Subsequent NewCharacter / CharacterEquipmentChanged events for the same
-// player will overwrite as the player re-equips.
+// applyEquipment reads a 10-slot equipment array and uses index 0
+// (MainHand) to classify the weapon. NewCharacter ships the array in
+// param 40; CharacterEquipmentChanged ships it in param 2.
 func (e *Engine) applyEquipment(ent *Entity, p map[byte]any) {
 	if ent == nil || e.items == nil {
 		return
 	}
 	equip, ok := p[40]
+	if !ok {
+		equip, ok = p[2]
+	}
 	if !ok {
 		return
 	}
