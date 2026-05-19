@@ -332,6 +332,26 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 						</button>
 					);
 				})}
+				<button
+					disabled
+					style={{
+						appearance: "none",
+						border: 0,
+						cursor: "not-allowed",
+						padding: "5px 11px",
+						borderRadius: 4,
+						background: "transparent",
+						color: "var(--sk-fg-3)",
+						fontFamily: "var(--sk-font-sans)",
+						fontSize: 11.5,
+						fontWeight: 500,
+						letterSpacing: "0.02em",
+					}}
+					title="Mechanics breakdown — coming soon"
+				>
+					Mechanics
+					<span style={{ marginLeft: 5, fontSize: 9, color: "var(--sk-fg-3)" }}>soon</span>
+				</button>
 			</div>
 
 			<div className="flex items-center ml-auto" style={{ gap: 18 }}>

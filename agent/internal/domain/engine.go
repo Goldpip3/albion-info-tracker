@@ -172,6 +172,9 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventCharacterEquipmentChanged:
 		dbg("CharacterEquipmentChanged %v", ev.Parameters)
 		e.handleEquipmentChanged(ev.Parameters)
+	case gamecodes.EventChangeEquipment:
+		dbg("ChangeEquipment %v", ev.Parameters)
+		e.handleEquipmentChanged(ev.Parameters)
 	case gamecodes.EventPartyJoined:
 		dbg("PartyJoined %v", ev.Parameters)
 		e.handlePartyJoined(ev.Parameters)
