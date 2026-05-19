@@ -422,8 +422,24 @@ auto-pair flow puts them in their own meter room.
   upsert.
 - **Items.bin index range** — naive loader missed enchantment variants
   + journal pairs, capped at 5808. Now produces 12,060 to match SAT.
+- **Spells.bin index range** — same shape of bug: naive loader walked
+  ALL nested elements via recursive token stream. SAT counts only
+  top-level passivespell / activespell / togglespell; activespell with
+  a `<channelingspell>` child claims TWO consecutive indices. Result:
+  every CausingSpellIndex on the wire mapped to the wrong uniquename
+  for high-tier abilities. "Explosive Bolt" (BOLTSHOT) is at 3021 now,
+  not 2953.
 - **Tooltip name mismatch** — uniquenames are internal; in-game names
   come from localization.bin. Loaded and wired through.
+- **Silver tracked via wrong event** — we listened to `UpdateMoney`
+  (wallet sync, fires on deposits/purchases) instead of `TakeSilver`
+  (loot pickup). Loot silver was missing from the dashboard. Switched
+  to `TakeSilver` with `YieldAfterTax = YieldPreTax - GuildTax`,
+  matching SAT.
+- **Fame under-counted** — delta-tracking `TotalPlayerFame` lagged the
+  in-game popup by ~1 tick and dropped premium / satchel / bonus
+  multipliers. Switched to SAT's per-event
+  `(FameWithZoneMultiplier + Premium + Satchel) × Bonus`.
 - **Frost Staff misclassified as RangedDPS** — reclassified to
   RoleControl to match Albion's vocabulary.
 - **Healer accent split** — Holy Staff (gold) vs Nature Staff (green)
@@ -497,15 +513,124 @@ but per-deployment preview subdomains are static. Open
 
 ---
 
-## 10. What's deliberately not built
+## 10. Persistence and run-scoping (F1–F5)
 
-- **Loot tracking**, **trade**, **market**, **guild events**,
-  **harvesting**, **dungeon-tracking** — out of scope. SAT does these;
-  we are damage-meter-only.
-- **HTTP gameinfo API calls** — SAT hits
-  `https://gameinfo.albiononline.com/api/gameinfo/players/<name>` for
-  some local-player data. We have everything we need from the Photon
-  stream + game-data files.
+After the initial damage-meter MVP, four feature families layered onto
+the engine to give the agent a longer memory.
+
+### F1 — Session persistence (`internal/domain/sessions.go`)
+
+When the user clicks **"New session"**, before zeroing counters the
+engine writes the prior session's metadata to
+`%LocalAppData%\GDA\sessions\<unix-ms>.json` (or
+`$XDG_CACHE_HOME/gda/sessions` on POSIX). The file carries final
+fame/silver/combatFame/might/deaths, fight count, zone, local player
+name. Boot rescans the directory; the snapshot exposes the cached list
+in `snap.sessions`. The web `SessionsPanel` renders that list with
+per-row delete; deletion goes through the existing command channel as
+`{action: "deleteSession", arg: <id>}`.
+
+No cloud, no token-tied identity — everything stays on the user's
+machine.
+
+### F2 — Zone history (`internal/domain/zones.go`)
+
+`zoneLog` is an in-memory ring buffer (cap 25) of `ZoneVisit{Name,
+EnteredAt, LeftAt, DurationMs}`. Updated from `handleJoinResponse`
+after the zone name is prettified. De-dupes consecutive same-zone
+re-entries (Albion fires `JoinResponse` on respawn into the same map).
+Snapshot exposes the list in `snap.zones`.
+
+### F3 — Party panel + live equipment/spell tracking
+
+`CharacterEquipmentChanged` already updates `Entity.Equipment[10]`. We
+extended `parseEquipmentParams` to also read the **active spells array**
+(param 7, `short[14]`) into `Entity.ActiveSpells`. Snapshot exposes a
+resolved per-slot view via `equipmentSlots[]` (slot label + name + IP)
+and `activeSpellSlots[]` (slot key + localized spell name). The web
+`PartyPanel` modal renders one row per player with chips for every
+bound ability and equipped piece — automatically refreshing on every
+push (every 200 ms when state changes).
+
+Slot key mapping for spells (mirrors SAT):
+- 0/1/2 → MainHand Q / W / E
+- 3 → Armor (chest active)
+- 4 → Head
+- 5 → Shoes
+- 12 → Potion
+- 13 → Food
+
+### F4 — IP per-slot tooltip
+
+The `IPChip` (which replaced the legacy `ClassChip` text in player
+rows) now portals a tooltip on hover showing MainHand 1340 / OffHand —
+/ Head 1280 / Chest 1300 / Shoes 1310 / Cape 1290 with the localized
+item names. Bag/Mount/Potion/Food are hidden — they don't contribute
+to the averaged IP.
+
+### F5 — Dungeon tracker (`internal/domain/dungeon.go`)
+
+`classifyDungeon(rawMapIndex)` recognises Albion's instance patterns:
+- `@HELLGATE`, `AVALON_ROAD`, `@AVALONIAN`
+- `@RANDOMDUNGEON_SOLO` / `SOLODUNGEON`
+- `@RANDOMDUNGEON_GROUP` / `GROUPDUNGEON`
+- `MISTS_` / `@MISTS`
+- `@CORRUPTED`
+
+On a JoinResponse into one of these zones, `openDungeon` stamps a
+`DungeonRun` with baselines = current session counters. On exit (any
+non-dungeon `JoinResponse`), `closeDungeon` freezes the end time.
+`CurrentDungeon()` returns a snapshot-friendly copy with live deltas
+(current session counters minus baselines), so the
+`DungeonStrip` above the meter shows "what this run paid" in real
+time.
+
+## 11. Loot logger + AODP prices (F6 + F7)
+
+### Loot capture (`internal/domain/loot.go`)
+
+`OtherGrabbedLoot` (event 285) fires when ANY visible player loots
+something — including the user. Params:
+- 1: lootedFromName (corpse owner / mob name)
+- 2: looterByName (the friend or you)
+- 3: isSilver (bool)
+- 4: itemIndex (items.bin index, 0 when isSilver)
+- 5: quantity
+
+`handleOtherGrabbedLoot` builds a `LootEntry` with the resolved
+in-game name (via items.bin + localization), tags it with the current
+zone + dungeon id, marks `LooterIsLocal` when the name matches the
+local entity. Stored in a ring buffer (cap 500). Snapshot exposes
+`snap.loot` (chronological) + `snap.looterTotals` (per-looter rollup,
+local first then by value desc).
+
+### Price client (`internal/aodp/client.go`)
+
+`aodp.Client` polls the Albion Online Data Project HTTP API for market
+prices. Default endpoint: `https://west.albion-online-data.com/api/v2
+/stats/prices/<uniquename>.json`. 5-minute per-item TTL, throttled to
+1 request/second (their published limit). All cached in memory only,
+no disk persistence.
+
+When a non-silver loot event lands, `noteLoot` enqueues a price fetch
+for the item. The next time `LootLog()` is called for the snapshot,
+cached prices are applied to compute `silverValue = price × qty`. If
+the agent's offline or the item isn't priced yet, value stays 0 — the
+loot still logs.
+
+`LooterTotalsList` rolls up by looter name. Each `LooterTotals` row
+carries `ItemCount`, `SilverTotal` (direct silver pickups), and
+`ValueTotal` (silver + estimated item value). The web `LootPanel`
+renders "Totals" and "Items" tabs with a party-total footer.
+
+## 12. What's deliberately not built
+
+- **Trade / market / mail / guild events / harvesting** — out of scope.
+  SAT does these; we are damage-meter-plus-loot.
+- **HTTP gameinfo API calls** for player profile data — SAT hits
+  `https://gameinfo.albiononline.com/api/gameinfo/players/<name>`. We
+  have everything we need from the Photon stream + game-data files.
+  AODP for market prices is the only HTTP dependency we accept.
 - **Crit % per ability** — Albion doesn't expose a crit flag in
   `HealthUpdate`; SAT doesn't track this either.
 - **Level-3 attribution math** — multiplying assist damage by the
@@ -513,6 +638,5 @@ but per-deployment preview subdomains are static. Open
   hardcoded multiplier table per debuff; current "damage during
   window" is the honest version.
 - **Multi-language UI** — localization loader keeps only EN-US.
-- **Persistence beyond the agent process** — fight history (last 20)
-  + session counters all live in agent RAM. Closing the agent clears
-  everything. By design — nothing is written to disk, nothing leaks.
+- **Cloud history per-token** — drafted in `proposals/feature_backlog.md`
+  but not built. Real privacy footprint (token = identity).

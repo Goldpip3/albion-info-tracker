@@ -18,23 +18,30 @@ CLAUDE.md auto-loads when Claude Code is run from the project root or a subdir. 
 Project root: `C:\Users\colom\Claude Projects\Albion DPS\`
 
 ```
-src/                   C# SAT solution (sat-fork stack; preserved on go-port too)
-agent/                 Go agent — capture + parse + state + WS push
-  cmd/agent/           entrypoint
-  cmd/probe/           one-shot diagnostic — loads items/spells/localization without UAC
-  internal/capture/    Windows raw-socket Photon UDP capture
-  internal/photon/     Protocol18 deserializer + outer parser + fragment reassembly
-  internal/gamecodes/  generated EventCodes/OperationCodes enums (mirrored from SAT)
-  internal/gamedata/   DES-CBC + gzip + XML decoders for *.bin game files
-  internal/domain/     entity store, combat tracker, Photon event handlers, session economy
-  internal/push/       WebSocket push client (coder/websocket, reconnect+backoff)
-  internal/config/     agent.json + env-var loader
-worker/                Cloudflare Worker + Durable Object backend (TS)
-web/                   React + Vite + Tailwind v4 frontend
-  src/                 components, hooks, types, demo data
-  public/assets/       GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
-GDA Launcher.lnk       double-click to launch the agent with --open-browser
-ARCHITECTURE.md        deep-dive into protocol, indexing, race fixes, data flow
+src/                       C# SAT solution (sat-fork stack; preserved on go-port too)
+agent/                     Go agent — capture + parse + state + WS push
+  cmd/agent/               entrypoint
+  cmd/probe/               one-shot diagnostic — loads items/spells/localization without UAC
+  internal/capture/        Windows raw-socket Photon UDP capture
+  internal/photon/         Protocol18 deserializer + outer parser + fragment reassembly
+  internal/gamecodes/      generated EventCodes/OperationCodes enums (mirrored from SAT)
+  internal/gamedata/       DES-CBC + gzip + XML decoders for *.bin game files
+                           includes role.go (weapon classifier), itempower.go (IP math),
+                           localization.go (TMX), spells_override.go (hand-curated names)
+  internal/domain/         entity store, combat tracker, Photon event handlers,
+                           session economy, sessions.go (disk archive), zones.go (map log),
+                           dungeon.go (run-scoped scope), loot.go (per-looter rollup)
+  internal/aodp/           Albion Online Data Project price client (loot value)
+  internal/push/           WebSocket push client (coder/websocket, reconnect+backoff)
+  internal/config/         agent.json + env-var loader
+worker/                    Cloudflare Worker + Durable Object backend (TS)
+web/                       React + Vite + Tailwind v4 frontend
+  src/                     components, hooks, types, demo data, panels
+                           (SessionsPanel, PartyPanel, LootPanel, DungeonStrip, IPChip)
+  public/assets/           GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
+GDA Launcher.lnk           double-click to launch the agent with --open-browser
+ARCHITECTURE.md            deep-dive into protocol, indexing, race fixes, data flow
+proposals/                 feature backlog drafts (not yet implemented)
 ```
 
 ## Git
@@ -118,10 +125,10 @@ Missing `agent.json` triggers the first-run wizard (auto-generates a token, open
 | Event / op | Actual code | What we extract |
 |---|---|---|
 | `HealthUpdate` | 6 | affectedId, healthChange, causerId — damage/heal/taken attribution by ObjectId |
-| `NewCharacter` | 29 | objectId + name + guid + guild + equipment array (param 40, slot 0 = MainHand) — primary identity source for non-local players |
+| `NewCharacter` | 29 | objectId + name + guid + guild + equipment array (param 40), qualities (41), spells (43) |
 | `Join` response | op 2 | objectId + guid + name + guild + zone (param 8) — **only** authoritative source for the local player |
 | `JoinFinished` | 2 | zone-change marker |
-| `CharacterEquipmentChanged` | 90 | objectId + equipment array (param 2) — **arrives BEFORE Join response for the local player**, so cached in `pendingEquip` and replayed |
+| `CharacterEquipmentChanged` | 90 | objectId + equipment array (param 2), qualities (3), **active spells (param 7)** — arrives BEFORE Join response for the local player; cached in `pendingEquip` and replayed on Upsert |
 | `ChangeEquipment` | 5 | older variant of the above; same handler |
 | `MountStart` | 212 | rider objectId — stashed for next NewMountObject |
 | `NewMountObject` | 310 | rider guid — paired with stashed objectId within a 2 s window |
@@ -130,14 +137,19 @@ Missing `agent.json` triggers the first-run wizard (auto-generates a token, open
 | `PartyPlayerLeft` | 235 | guid leaving |
 | `PartyDisbanded` | 237 | resets party flags |
 | `Died` | (see events.go) | name + killer for activity log + per-entity death count |
-| `CastFinished` | (see events.go) | per-spell cast count (BySpell + BySpellSession), recent-cast ring buffer for debuff-window attribution |
-| `ActiveSpellEffectsUpdate` | (see events.go) | active buffs/debuffs on target — diffed against prior set to open/close debuff windows |
-| `UpdateFame` | 91 | TotalPlayerFame (FixPoint) — delta-tracked into session.fameTotal |
-| `UpdateMoney` | 89 | CurrentPlayerSilver (FixPoint) — delta-tracked into session.silverTotal |
-| `UpdateReSpecPoints` | 92 | per-event gained credits OR lifetime total (array form, param 0 element 1) — chosen via baseline-delta logic |
-| `MightAndFavorReceivedEvent` | 470 | Might gained (FixPoint) — session.mightTotal |
+| `CastFinished` | (see events.go) | per-spell cast count + recent-cast ring buffer for debuff-window attribution |
+| `ActiveSpellEffectsUpdate` | (see events.go) | active buffs/debuffs — diffed to open/close debuff windows |
+| `OtherGrabbedLoot` | 285 | looter name + corpse source + item index + quantity + isSilver — fed into the loot logger |
+| `UpdateFame` | 91 | FameWithZoneMultiplier (param 2) + PremiumFame + SatchelFame + BonusFactor → per-event TotalGainedFame (SAT formula) accumulated into `session.fameTotal` |
+| `TakeSilver` | 70 | YieldPreTax (FixPoint) - GuildTax → YieldAfterTax credited to `session.silverTotal` for the local player's pickups |
+| `UpdateReSpecPoints` | 92 | "Combat Fame Credits" — per-event gained OR lifetime baseline-delta; UI labels this as "Combat Fame" |
+| `MightAndFavorReceivedEvent` | 470 | Might gained (FixPoint) — `session.mightTotal` |
 
-**Not handled** (deliberately out of scope): dungeon tracker, loot, trade, market, guild, mail, harvest, chat.
+**Critical fixes worth highlighting**:
+- **Silver** uses `TakeSilver` (loot pickup) not `UpdateMoney` (wallet sync). The latter only fires on deposits/purchases, so prior versions missed silver banked from kills.
+- **Fame** uses SAT's `TotalGainedFame = (FameWithZoneMultiplier + Premium + Satchel) × Bonus` — delta-tracking `TotalPlayerFame` lagged the in-game popup and missed premium boosts.
+
+**Not handled** (deliberately out of scope): trade, market, guild events, mail, harvest, chat. Loot tracking IS in (F6 + F7).
 
 ### Game-data loaders
 
@@ -218,25 +230,30 @@ npm run dev
 ## Current state (working / known gaps)
 
 ✅ **Confirmed working end-to-end**:
-- Agent captures + parses Photon UDP
-- Local player class detection via `CharacterEquipmentChanged` + pre-Join equipment cache
-- Items.bin loader produces 12,060 entries with enchantment expansion
-- Localization translates spell/item uniquenames to tooltip names ("Adept's Arclight Blasters", "Chain Slash")
-- Per-class accent colours: Daggers red, Fire amber, Frost cyan, Hammer steel, Arcane violet, Holy gold, Nature green
-- Multi-pane mode (Damage / Healing / Tank side-by-side) with compact 4-column layout
-- Stat cards (Fame / Silver / Respec / Might) with sparkline pulse, accent rails
-- Drill-in with four tabs: Fight / Session / Targets / Assists
-- Debuff-window attribution ("Level 2" assist tracking)
-- Session-level cast counts
-- Per-target damage breakdown
-- Fight history archive (last 20 fights, kept in agent RAM)
-- 250 ms snapshot push rate
+- Agent captures + parses Photon UDP at 200 ms push rate (dirty-gen skips idle ticks).
+- Local player class + IP detection via `CharacterEquipmentChanged` + pre-Join equipment cache. Live equipment & spell swaps reflect within ~250ms.
+- Items.bin loader produces 12,060 entries with enchantment expansion. Spells.bin loader 9,166 entries with channeling expansion (matches SAT).
+- Localization.bin (38,174 EN-US strings) translates spell/item uniquenames to tooltip names ("Adept's Arclight Blasters", "Flickershot", "Chain Slash", "Explosive Bolt"). Falls back to override table + prettifier.
+- Per-class accent colours: Daggers red, Fire amber, Frost cyan, Hammer steel, Arcane violet, Holy gold, Nature green.
+- **IPChip** replaces the legacy XBW-style 3-letter chip — shows averaged IP across core slots with a hover tooltip breaking down each slot.
+- Multi-pane mode (Damage / Healing / Tank side-by-side) with compact 4-column layout.
+- WoW-Details-style per-pane sub-metric selectors (Damage/DPS/Total · Healing/HPS/Total/Overheal · Taken/Total).
+- Stat cards (Fame / Silver / Combat Fame / Might) with rate-pulse sparklines and accent rails.
+- Drill-in with four tabs: Fight / Session / Targets / Assists (Level-2 debuff-window attribution).
+- Fight history archive (last 20 fights, agent RAM only).
+- **Session persistence** — on-disk archive in `%LocalAppData%\GDA\sessions` with a UI panel for review + per-row delete.
+- **Zone history** — append-only zone log with enter/leave timestamps.
+- **Party panel** — modal with each visible player's IP / class / weapon / bound abilities; live on equipment+spell swap.
+- **Dungeon scope** — auto-opens on entry to solo/group/avalonian/mists/hellgate instances. Run-scoped delta strip above the meter.
+- **Loot logger + AODP prices** — `OtherGrabbedLoot` captures who looted what; `aodp.Client` polls the West Albion Data Project API for item values; LootPanel shows per-looter rollup + chronological log.
+- **Combat Fame Credits** correctly labeled (was "Respec" — same currency, different game era).
 
 ⚠️ **Known gaps**:
-- **Mid-zone party detection** — same fundamental limitation as SAT. `PartyJoined` doesn't fire retroactively. Mitigations: mount-event binding (any party member fresh-mounting binds them), re-zone, `ALBION_AGENT_SHOW_ALL=1`.
-- **Some spells return blank tooltip name** — passive sub-effects like `SKILLSHOT_TELEPORT_BUFF` aren't in localization.bin; fall through to the prettified uniquename. Acceptable; the relevant abilities ("Flickershot", "Chain Slash") do resolve correctly.
-- **Crit % detection** — Albion doesn't expose a crit flag in HealthUpdate; SAT doesn't track this either. Would require server-side damage formula reproduction.
+- **Mid-zone party detection** — same fundamental limitation as SAT. `PartyJoined` doesn't fire retroactively. Mitigations: mount-event binding, re-zone, `ALBION_AGENT_SHOW_ALL=1`.
+- **Some passive sub-effects return blank tooltip name** — fall through to prettified uniquename. Main abilities resolve correctly.
+- **Crit % detection** — Albion doesn't expose a crit flag; SAT doesn't track this either.
 - **Mechanics pane content** — placeholder only.
+- **Level-3 debuff attribution** — Assists show "damage during your debuff window," not a hard multiplier. Would need a per-debuff modifier table.
 
 ---
 
