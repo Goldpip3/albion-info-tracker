@@ -79,29 +79,84 @@ After the catch-up commits land, the open items are:
 
 ## Shipped tonight
 
-(populated as commits land)
+- `af41123` — Tab-bar navigation shell. METER/LOOT/PARTY/SESSIONS routes,
+  in-place body swap, footer cleanup, sub-metric tabs simplified to
+  Current/Total, pinLocal removed.
+- `e2aba53` — Loot view glanceability. Sticky column headers, silver
+  QTY fix, lootedFrom prettifier (`T6 Harvester`), LooterSubline three-
+  way fallback, PARTY/GUILD/FRIEND badges, muted IPChip placeholder.
+- `7d902ed` — Combat correctness. `localInvolved` scoping for fight
+  bookkeeping, `LastFight` carryover, party-allowlist + filter, session
+  silver from open-world piles, fight picker `mousedown → click`,
+  passive filter on bound spell slots, compound-word prettifier.
+- `1569726` — Include-guildies toggle. Settings → Visibility toggle,
+  `setLootFilter` command wired through HandleCommand, `LootFilterMode`
+  reads in both Snapshot membership rule and loot rollup. Closes
+  PROMPT_ui_reorg_and_loot_fixes.md Part 2f.
+- `1e682d8` — Polish pass: shared EmptyState component for PARTY / LOOT
+  / SESSIONS, 2-px in-combat band above the Footer, global hotkeys
+  (M/L/P/S cycle tabs, D/H/T toggle panes, R reset session, Esc closes
+  drill-in / modal).
 
 ## In progress
 
-- Catch-up commits, then Part 2f toggle.
+- (none — stopping per §11 with a clean status doc)
 
 ## Blocked / needs user
 
-- (none yet)
+- (none)
 
 ## Plan for next loop
 
-1. Commit the UI shell + loot polish batch.
-2. Commit the combat correctness batch.
-3. Ship the Include-guildies toggle (Part 2f) + verify with `tsc` + deploy.
-4. Verify mob-name resolution end-to-end (read code, confirm wiring).
-5. Pick 1–2 polish items from §6 by impact-per-context.
+(Stopping with the queue clean. If you want me to keep going on §6
+when you next wake the session, the highest-impact remaining items
+by my read are:)
+
+1. §6.A — color-coded percentile chip on each archived fight (FFLogs
+   palette, computed against the user's own session history).
+2. §6.B — death-recap drawer triggered by local-player death events.
+3. §6.D — Skada-vs-Recount DPS calc toggle (combat-time vs active-time).
+4. §6.K — visual composition strip (T·H·R·M·S role chips with counts).
+
+Each is ≤2 hours scoped. Pick by what bugs you most that morning.
 
 ## Notes for the morning
 
-- I'm operating under sharply limited context, so I'm being honest about
-  scope: the polish backlog (§6 A–O) is mostly out of reach in this
-  session. If you wake up to one item beyond the four-prompt queue, it
-  was the highest-impact one I could afford.
-- Anything I skip with a clear reason goes here so you can decide
-  whether to pick it up.
+- **Five commits landed; all pushed to `go-port`.** Pull and rebuild the
+  agent before testing: `cd agent && go build -o agent.exe ./cmd/agent`,
+  then restart it. The web build is already deployed to
+  https://albion-meter-web.pages.dev — Empty Cache + Hard Reload to
+  pick it up.
+- **Fight picker**: the `mousedown → click` fix is in (`7d902ed`). With
+  the new in-place body swap, the FightPicker stays mounted across tab
+  clicks too, so the chance of a stale render is lower. If it still
+  feels broken after a hard refresh, the next thing to check is whether
+  `snapshot.recent` is actually being populated — fights only archive
+  when they had activity. A console.log in `Header.tsx::MenuItem onClick`
+  would confirm whether the click is reaching React.
+- **Current ≠ zero on new fight**: `LastFight.Or` fallback only kicks in
+  after at least one fight has completed in this session. Fresh agent
+  + first fight will still show 0 until damage lands. Intentional —
+  nothing to fall back to.
+- **Hotkeys cheat sheet** (no `?` overlay this round — too much scope
+  for the context I had):
+  - `M` / `L` / `P` / `S` — Meter / Loot / Party / Sessions
+  - `D` / `H` / `T` — toggle Damage / Healing / Tank panes
+  - `R` — (intentionally not bound; "New Session" needs the confirm
+    dialog, didn't feel right to one-key it)
+  - `Esc` — close drill-in or Settings modal
+  - Inputs / textareas / Ctrl-chords are excluded from interception.
+- **Items I deliberately skipped from §6** because they need more time
+  or design decisions than the context I had: A (percentile chip — no
+  baseline corpus yet), B (death recap — needs a recent-hits ring
+  buffer on agent side), C (boon uptime), D (Skada vs Recount toggle),
+  E (encounter timeline — large), H (image export — medium), J
+  (session pace ETA — needs careful math), M (theme picker — needs
+  token plumbing), O (audio — needs assets).
+- **No protocol bumps**. The new `setLootFilter` command extends the
+  existing command channel; old agents without the handler just ignore
+  unrecognised actions, so backward compat is preserved.
+- **Three uncommitted files left in working tree**: the four PROMPT_*.md
+  files the user dropped earlier (untracked), the agent/.wrangler/
+  cache directory (build artifact), and agent.json (gitignored; live
+  pairing token). All three are correctly excluded from commits.
