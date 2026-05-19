@@ -84,13 +84,14 @@ type SpellBreakdown struct {
 
 // Composition counts each role across the snapshot's players.
 type Composition struct {
-	Tank      int `json:"tank"`
-	Healer    int `json:"healer"`
-	Ranged    int `json:"ranged"`
-	Melee     int `json:"melee"`
-	Support   int `json:"support"`
-	Unknown   int `json:"unknown"`
-	Total     int `json:"total"`
+	Tank    int `json:"tank"`
+	Healer  int `json:"healer"`
+	Ranged  int `json:"ranged"`
+	Melee   int `json:"melee"`
+	Support int `json:"support"`
+	Control int `json:"control"`
+	Unknown int `json:"unknown"`
+	Total   int `json:"total"`
 }
 
 // Fight is the running state of the current combat encounter.
@@ -208,6 +209,8 @@ func (e *Engine) Snapshot() Snapshot {
 			out.Composition.Melee++
 		case "S":
 			out.Composition.Support++
+		case "C":
+			out.Composition.Control++
 		default:
 			out.Composition.Unknown++
 		}

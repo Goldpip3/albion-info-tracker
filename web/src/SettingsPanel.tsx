@@ -9,7 +9,7 @@ interface SettingsPanelProps {
 }
 
 const ACCENT_OPTIONS: AccentColor[] = ["cyan", "violet", "amber", "lime", "rose"];
-const DENSITY_OPTIONS: Array<[Density, string]> = [[24, "Compact"], [28, "Regular"], [34, "Comfy"]];
+const DENSITY_OPTIONS: Array<[Density, string]> = [[28, "Compact"], [34, "Regular"], [40, "Comfy"]];
 const BAR_STYLE_OPTIONS: Array<[BarStyle, string]> = [["outline", "Outline"], ["tint", "Tint"], ["solid", "Solid"]];
 
 export function SettingsPanel({ settings, update, reset, onClose }: SettingsPanelProps): React.ReactElement {

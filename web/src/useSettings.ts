@@ -26,7 +26,7 @@ export interface PaneSet {
 // default). When changed, the App-level effect overwrites --sk-local on
 // :root so every component re-tints without re-rendering.
 export type AccentColor = "cyan" | "violet" | "amber" | "lime" | "rose";
-export type Density = 24 | 28 | 34;
+export type Density = 28 | 34 | 40;
 export type BarStyle = "outline" | "tint" | "solid";
 
 export interface ColumnVisibility {
@@ -40,7 +40,7 @@ export interface ColumnVisibility {
 
 const DEFAULT: Settings = {
 	accent: "cyan",
-	density: 34,
+	density: 40,
 	barStyle: "outline",
 	pinLocal: true,
 	groupByRole: false,

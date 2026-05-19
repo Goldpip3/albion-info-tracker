@@ -69,12 +69,13 @@ function FarmCard({ label, accent, value, rate, spark, glyph, live }: Omit<CardS
 		<div
 			style={{
 				background: "var(--sk-bg-1)",
-				padding: "14px 18px 14px",
+				padding: "14px 18px 12px",
 				display: "flex",
 				flexDirection: "column",
 				gap: 6,
 				position: "relative",
 				overflow: "hidden",
+				minHeight: 96,
 			}}
 		>
 			<div className="flex items-center justify-between" style={{ marginBottom: 2 }}>
@@ -94,8 +95,13 @@ function FarmCard({ label, accent, value, rate, spark, glyph, live }: Omit<CardS
 				</div>
 				<Sparkline data={spark} color={accent} live={live} />
 			</div>
-			<span className="sk-display" style={{
-				color: "var(--sk-fg-0)", fontSize: 30, lineHeight: 1,
+			<span style={{
+				fontFamily: "var(--sk-font-mono)",
+				fontVariantNumeric: "tabular-nums",
+				fontWeight: 500,
+				color: "var(--sk-fg-0)",
+				fontSize: 30,
+				lineHeight: 1,
 				letterSpacing: "-0.03em",
 			}}>{value}</span>
 			<div className="flex items-baseline" style={{ gap: 8 }}>

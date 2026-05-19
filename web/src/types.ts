@@ -41,6 +41,7 @@ export interface Composition {
 	ranged: number;
 	melee: number;
 	support: number;
+	control: number;
 	unknown: number;
 	total: number;
 }

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Mode, PlayerSnapshot, Snapshot } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
 import { ClassChip } from "./ClassChip.tsx";
-import { fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
+import { classAccent, fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
 
 interface MeterTableProps {
 	snapshot: Snapshot | null;
@@ -73,15 +73,18 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 		<div className="relative h-full flex flex-col">
 			{/* Column header */}
 			<div
-				className="grid items-center px-3.5 py-2"
+				className="grid items-center"
 				style={{
 					gridTemplateColumns: "28px 200px 1fr 90px 80px 70px",
 					gap: 12,
+					padding: "10px 14px",
 					borderBottom: "1px solid var(--sk-line)",
+					background: "var(--sk-bg-inset)",
 					fontSize: 10.5,
 					textTransform: "uppercase",
-					letterSpacing: "0.08em",
-					color: "var(--sk-fg-3)",
+					letterSpacing: "0.1em",
+					color: "var(--sk-fg-2)",
+					fontWeight: 600,
 				}}
 			>
 				<span style={{ textAlign: "right", paddingRight: 4 }}>#</span>
@@ -130,10 +133,9 @@ interface PlayerRowProps {
 function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
 	const isLocal = player.isLocal ?? false;
 	const roleKey: RoleKey = roleKeyOf(player.role);
-	// Bar color follows the PLAYER'S class accent (daggers red, frost
-	// staff cyan, holy/nature green, etc.) so a glance tells you who is
-	// who without reading the role label. This matches the design.
-	const barColor = `var(--sk-role-${roleKey})`;
+	// Bar / DPS / chip share a per-weapon accent. Holy gold ≠ Nature
+	// green ≠ Frost cyan ≠ Daggers red — see classAccent() in format.ts.
+	const barColor = classAccent(player.classCode, roleKey);
 	const barTint = `color-mix(in oklab, ${barColor} 16%, transparent)`;
 	const pct = max > 0 ? Math.min(100, (primary.cur / max) * 100) : 0;
 	const rowH = settings.density;
@@ -194,7 +196,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 							className="sk-upper truncate"
 							style={{
 								fontSize: 10,
-								color: `var(--sk-role-${roleKey})`,
+								color: barColor,
 								fontWeight: 600,
 							}}
 						>

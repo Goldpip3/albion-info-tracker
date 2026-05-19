@@ -7,12 +7,13 @@ import "strings"
 type Role string
 
 const (
-	RoleTank       Role = "T"
-	RoleHealer     Role = "H"
-	RoleRangedDPS  Role = "R"
-	RoleMeleeDPS   Role = "M"
-	RoleSupport    Role = "S"
-	RoleUnknown    Role = "?"
+	RoleTank      Role = "T"
+	RoleHealer    Role = "H"
+	RoleRangedDPS Role = "R"
+	RoleMeleeDPS  Role = "M"
+	RoleSupport   Role = "S"
+	RoleControl   Role = "C"
+	RoleUnknown   Role = "?"
 )
 
 // WeaponClassification is the (3-letter chip, role, full label) tuple
@@ -72,13 +73,13 @@ func ClassifyWeapon(uniqueName string) WeaponClassification {
 	case contains(u, "FIRESTAFF"):
 		return cls("FIR", RoleRangedDPS, "RANGED DPS · FIRE STAFF")
 	case contains(u, "FROSTSTAFF"):
-		return cls("FRO", RoleRangedDPS, "RANGED DPS · FROST STAFF")
+		return cls("FRO", RoleControl, "CONTROL · FROST STAFF")
 	case contains(u, "CURSEDSTAFF"):
 		return cls("CRS", RoleRangedDPS, "RANGED DPS · CURSED STAFF")
 	case contains(u, "GREATFIRE"):
 		return cls("FIR", RoleRangedDPS, "RANGED DPS · GREAT FIRE")
 	case contains(u, "GREATFROST"):
-		return cls("FRO", RoleRangedDPS, "RANGED DPS · GREAT FROST")
+		return cls("FRO", RoleControl, "CONTROL · GREAT FROST")
 	case contains(u, "GREATCURSED"):
 		return cls("CRS", RoleRangedDPS, "RANGED DPS · GREAT CURSED")
 

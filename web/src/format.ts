@@ -25,7 +25,7 @@ export function fmtDuration(sec: number): string {
 	return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-// roleKey maps the agent's T/H/R/M/S/? letter to the design's lowercase
+// roleKey maps the agent's T/H/R/M/S/C/? letter to the design's lowercase
 // role token used to look up CSS role colors (var(--sk-role-tank), etc.).
 export type RoleKey = "tank" | "healer" | "rdps" | "mdps" | "support" | "control" | "unknown";
 
@@ -39,6 +39,44 @@ export function roleKeyOf(role: string | undefined): RoleKey {
 		case "C": return "control";
 		default:  return "unknown";
 	}
+}
+
+// CLASS_ACCENT maps a 3-letter chip code to a specific hex accent. Holy
+// Staff (HLY) and Nature Staff (NTR) split here so the two healer weapons
+// read distinctly — gold vs green — even though both share RoleHealer.
+const CLASS_ACCENT: Record<string, string> = {
+	// Healers (split per-weapon)
+	HLY: "#ffd770", DVN: "#ffd770", RED: "#ffd770",
+	NTR: "#5cf0a4", WLD: "#5cf0a4", FAL: "#5cf0a4",
+	// Tanks
+	HAM: "#8aa3ff", MAC: "#8aa3ff", QRT: "#8aa3ff", KNK: "#8aa3ff",
+	// Ranged DPS
+	LBW: "#ffb43a", WBW: "#ffb43a", BOW: "#ffb43a", XBW: "#ffb43a",
+	FIR: "#ffb43a", CRS: "#ffb43a",
+	// Control
+	FRO: "#6fd8ff",
+	// Support
+	ARC: "#c08cff",
+	// Melee DPS
+	DGR: "#ff6464", GRT: "#ff6464", SWD: "#ff6464",
+	AXE: "#ff6464", SPR: "#ff6464",
+};
+
+const ROLE_ACCENT: Record<RoleKey, string> = {
+	tank:    "#8aa3ff",
+	healer:  "#5cf0a4",
+	rdps:    "#ffb43a",
+	mdps:    "#ff6464",
+	support: "#c08cff",
+	control: "#6fd8ff",
+	unknown: "#6a6a76",
+};
+
+// classAccent picks the per-weapon hex color when known; otherwise falls
+// back to the role color. Drives bar fill, DPS column, and class chip.
+export function classAccent(classCode: string | undefined, role: RoleKey): string {
+	if (classCode && CLASS_ACCENT[classCode]) return CLASS_ACCENT[classCode];
+	return ROLE_ACCENT[role];
 }
 
 // Pretty-print a spell uniquename. TOKEN_CASE → Title case.
