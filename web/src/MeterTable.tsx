@@ -185,7 +185,7 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 						style={{
 							fontSize: 14.5,
 							fontWeight: 600,
-							color: isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+							color: "var(--sk-fg-0)",
 							letterSpacing: "-0.005em",
 						}}
 					>
