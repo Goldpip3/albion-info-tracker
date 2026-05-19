@@ -45,6 +45,12 @@ func ClassifyWeapon(uniqueName string) WeaponClassification {
 		return cls("XBW", RoleRangedDPS, "ENERGY SHAPER")
 	case contains(u, "AVALON_CROSSBOW"), contains(u, "CROSSBOW_AVALON"):
 		return cls("XBW", RoleRangedDPS, "ARLIGHT BLASTER")
+	case contains(u, "CROSSBOW_CANNON"):
+		return cls("XBW", RoleRangedDPS, "SIEGEBOW")
+	case contains(u, "DUALCROSSBOW_CRYSTAL"):
+		return cls("XBW", RoleRangedDPS, "CRYSTAL DUAL CROSSBOWS")
+	case contains(u, "DUALCROSSBOW"):
+		return cls("XBW", RoleRangedDPS, "DUAL CROSSBOWS")
 	case contains(u, "CROSSBOWLARGE"):
 		return cls("XBW", RoleRangedDPS, "HEAVY CROSSBOW")
 	case contains(u, "CROSSBOWSMALL"):

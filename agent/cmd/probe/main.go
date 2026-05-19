@@ -25,8 +25,9 @@ func main() {
 		fmt.Println("items.bin:", err)
 	} else {
 		fmt.Printf("items.bin OK — %d entries\n", items.Len())
-		// Try a few well-known weapons to make sure the classifier maps cleanly.
-		for _, idx := range []int{1, 100, 500, 1000, 2000, 4000} {
+		// Sample range + the index Goldpipe's MainHand resolved to in
+		// the verbose log, to verify Tier 8 weapons resolve.
+		for _, idx := range []int{1, 100, 500, 1000, 2000, 4000, 6620, 6621, 6622, 6623, 6624, 6625} {
 			fmt.Printf("  [%d] %q\n", idx, items.Name(idx))
 		}
 	}
