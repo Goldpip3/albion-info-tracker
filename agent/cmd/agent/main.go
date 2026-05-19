@@ -29,16 +29,16 @@ func main() {
 	parser := photon.New(photon.Handlers{
 		OnEvent: func(e photon.EventData) {
 			events++
-			fmt.Printf("EVENT  code=%-3d  params=%s\n", e.Code, formatParams(e.Parameters))
+			fmt.Printf("EVENT  [%3d]  params=%s\n", realCode(e.Parameters, e.Code), formatParams(e.Parameters))
 		},
 		OnRequest: func(r photon.OperationRequest) {
 			requests++
-			fmt.Printf("REQ    op=%-3d   params=%s\n", r.OperationCode, formatParams(r.Parameters))
+			fmt.Printf("REQ    [%3d]  params=%s\n", realCode(r.Parameters, r.OperationCode), formatParams(r.Parameters))
 		},
 		OnResponse: func(r photon.OperationResponse) {
 			responses++
-			fmt.Printf("RESP   op=%-3d   rc=%d  msg=%q  params=%s\n",
-				r.OperationCode, r.ReturnCode, r.DebugMessage, formatParams(r.Parameters))
+			fmt.Printf("RESP   [%3d]  rc=%d  msg=%q  params=%s\n",
+				realCode(r.Parameters, r.OperationCode), r.ReturnCode, r.DebugMessage, formatParams(r.Parameters))
 		},
 	})
 
@@ -50,6 +50,41 @@ func main() {
 		log.Fatalf("capture: %v", err)
 	}
 	log.Printf("stopped: %d events, %d requests, %d responses", events, requests, responses)
+}
+
+// realCode returns the authoritative Photon code. For events, the
+// application-level code lives at parameter 252 when it can't fit in a single
+// byte; for operations it's at 253. Falls back to the byte after messageType.
+func realCode(p map[byte]any, fallback byte) int {
+	for _, k := range []byte{252, 253} {
+		if v, ok := p[k]; ok {
+			if n, ok := toInt(v); ok {
+				return n
+			}
+		}
+	}
+	return int(fallback)
+}
+
+func toInt(v any) (int, bool) {
+	switch x := v.(type) {
+	case byte:
+		return int(x), true
+	case int16:
+		return int(x), true
+	case int32:
+		return int(x), true
+	case int64:
+		return int(x), true
+	case uint16:
+		return int(x), true
+	case uint32:
+		return int(x), true
+	case uint64:
+		return int(x), true
+	default:
+		return 0, false
+	}
 }
 
 // formatParams renders a parameter table in deterministic key order, with a
