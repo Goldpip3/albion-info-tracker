@@ -70,6 +70,14 @@ type Engine struct {
 	activeWindows  map[int64]map[int]*debuffWindow // target → spell → window
 	recentCasts    []recentCast                    // ring of recent CastFinished events
 	recentCastsCap int
+
+	// pendingEquip caches MainHand item indices from CharacterEquipmentChanged
+	// events that arrived before we knew about the target entity. Albion fires
+	// equipment events for the local player BEFORE the Join response, so
+	// without this cache the local player's class never resolves.
+	// Keyed by ObjectId. Cleared when consumed.
+	pendingEquipMu sync.Mutex
+	pendingEquip   map[int64]int
 }
 
 // debuffWindow is one open "this player's debuff is on this target right
@@ -119,6 +127,7 @@ func NewEngine() *Engine {
 		session:        SessionStats{Start: now},
 		activeWindows:  make(map[int64]map[int]*debuffWindow),
 		recentCastsCap: 64,
+		pendingEquip:   make(map[int64]int),
 	}
 }
 
@@ -296,7 +305,7 @@ func (e *Engine) handleJoinResponse(p map[byte]any) {
 	if guid.IsZero() {
 		return
 	}
-	e.store.UpsertByGuid(guid, objectId, name, guild)
+	ent := e.store.UpsertByGuid(guid, objectId, name, guild)
 	e.store.SetLocalGuid(guid)
 	// Local player is always in their own party for damage-meter purposes,
 	// even when actually solo — that matches SAT's behaviour.
@@ -307,6 +316,11 @@ func (e *Engine) handleJoinResponse(p map[byte]any) {
 	if mi, ok := paramString(p, 8); ok && mi != "" {
 		e.setZone(mi)
 	}
+	// Apply any equipment event that arrived BEFORE this Join response.
+	// Albion broadcasts the local user's CharacterEquipmentChanged a tick
+	// or two before the Join response itself, so the equipment landed in
+	// pendingEquip without an entity to attach to. Replay now.
+	e.applyCachedEquipment(ent)
 }
 
 // setZone caches the current zone label for inclusion in snapshots.
@@ -1006,20 +1020,78 @@ func readIntArray(v any) []int {
 }
 
 // handleEquipmentChanged updates a tracked entity's class chip + role when
-// they swap weapons. Critical for the local player — Albion never
-// broadcasts the local user via NewCharacter, so this is the only path
-// that gets your own "MELEE DPS · DAGGERS" subtitle on screen. Param 0 =
-// ObjectId, param 2 = short[] equipment array with index 0 = MainHand.
+// they swap weapons. Critical for the local player — Albion fires equipment
+// events for the local user BEFORE the Join response, so we cache the
+// MainHand item index by ObjectId and replay when the entity registers.
+//
+// Param 0 = ObjectId, param 2 = short[] equipment array (index 0 = MainHand).
 func (e *Engine) handleEquipmentChanged(p map[byte]any) {
 	objectId, ok := paramLong(p, 0)
 	if !ok || objectId == 0 {
 		return
+	}
+	// Always cache the mainhand index — useful even if the entity is
+	// already known, because subsequent weapon swaps overwrite the cache.
+	if equip, ok := p[40]; ok {
+		if mh := firstIntOfArray(equip); mh > 0 {
+			e.cachePendingEquip(objectId, mh)
+		}
+	}
+	if equip, ok := p[2]; ok {
+		if mh := firstIntOfArray(equip); mh > 0 {
+			e.cachePendingEquip(objectId, mh)
+		}
 	}
 	ent := e.store.ByObjectId(objectId)
 	if ent == nil {
 		return
 	}
 	e.applyEquipment(ent, p)
+}
+
+// cachePendingEquip stashes the MainHand item index for an ObjectId so a
+// later UpsertByGuid (typically the Join response for the local player)
+// can pick it up. Safe for concurrent use.
+func (e *Engine) cachePendingEquip(objectId int64, mainHand int) {
+	e.pendingEquipMu.Lock()
+	e.pendingEquip[objectId] = mainHand
+	e.pendingEquipMu.Unlock()
+}
+
+// takePendingEquip returns and clears the cached MainHand for an ObjectId.
+// Caller will apply the classification and the cache entry is gone.
+func (e *Engine) takePendingEquip(objectId int64) (int, bool) {
+	e.pendingEquipMu.Lock()
+	defer e.pendingEquipMu.Unlock()
+	mh, ok := e.pendingEquip[objectId]
+	if ok {
+		delete(e.pendingEquip, objectId)
+	}
+	return mh, ok
+}
+
+// applyCachedEquipment classifies an entity using the cached MainHand item
+// index (if any). Called from handleJoinResponse after the local player's
+// entity is finally registered.
+func (e *Engine) applyCachedEquipment(ent *Entity) {
+	if ent == nil || e.items == nil || ent.ObjectId == 0 {
+		return
+	}
+	mh, ok := e.takePendingEquip(ent.ObjectId)
+	if !ok || mh <= 0 {
+		return
+	}
+	name := e.items.Name(mh)
+	if name == "" {
+		return
+	}
+	c := gamedata.ClassifyWeapon(name)
+	e.store.mu.Lock()
+	ent.MainHandItemId = mh
+	ent.ClassCode = c.Code
+	ent.Role = string(c.Role)
+	ent.RoleLabel = c.Label
+	e.store.mu.Unlock()
 }
 
 func (e *Engine) handleNewCharacter(p map[byte]any) {
@@ -1032,6 +1104,9 @@ func (e *Engine) handleNewCharacter(p map[byte]any) {
 	}
 	ent := e.store.UpsertByGuid(guid, objectId, name, guild)
 	e.applyEquipment(ent, p)
+	// Same race as the local Join response — a CharacterEquipmentChanged
+	// event for this player may have arrived before NewCharacter. Replay.
+	e.applyCachedEquipment(ent)
 	// Param 22 carries MaxHealth (the entity's HP cap at spawn). Capturing
 	// it here is the only reliable way to compute overheal later, since
 	// HealthUpdate only tells us the new HP after the change, not the cap.
