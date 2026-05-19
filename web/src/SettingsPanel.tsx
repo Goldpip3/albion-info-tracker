@@ -1,4 +1,4 @@
-import type { AccentColor, BarStyle, Density, PaneMode, Settings } from "./useSettings.ts";
+import type { AccentColor, BarStyle, Density, Settings } from "./useSettings.ts";
 import { accentOklch } from "./useSettings.ts";
 
 interface SettingsPanelProps {
@@ -115,12 +115,40 @@ export function SettingsPanel({ settings, update, reset, onClose }: SettingsPane
 					</Group>
 
 					<Group title="Layout">
-						<Setting label="Pane mode" sub="Single tab-switched view, or three columns side by side">
-							<Segment<PaneMode>
-								options={[["single", "Single"], ["triple", "Triple"]]}
-								current={settings.paneMode}
-								onChange={(v) => update("paneMode", v)}
-							/>
+						<Setting label="Active panes" sub="Pick which metric tables show side-by-side. Tabs in the header do the same.">
+							<div className="flex flex-wrap" style={{ gap: 6 }}>
+								{(["damage", "heal", "taken"] as const).map((k) => {
+									const on = settings.panes[k];
+									const others = Object.entries(settings.panes).filter(([key, v]) => key !== k && v).length;
+									const wouldRemoveLast = on && others === 0;
+									return (
+										<button
+											key={k}
+											onClick={() => {
+												if (wouldRemoveLast) return;
+												update("panes", { ...settings.panes, [k]: !on });
+											}}
+											style={{
+												appearance: "none",
+												border: on
+													? "1px solid color-mix(in oklab, var(--sk-local) 45%, var(--sk-line))"
+													: "1px solid var(--sk-line)",
+												background: on
+													? "color-mix(in oklab, var(--sk-local) 12%, var(--sk-bg-2))"
+													: "var(--sk-bg-2)",
+												color: on ? "var(--sk-fg-0)" : "var(--sk-fg-3)",
+												padding: "3px 9px",
+												borderRadius: 99,
+												cursor: wouldRemoveLast ? "not-allowed" : "pointer",
+												fontSize: 11,
+											}}
+											title={wouldRemoveLast ? "At least one pane must stay on" : ""}
+										>
+											{k.charAt(0).toUpperCase() + k.slice(1)}
+										</button>
+									);
+								})}
+							</div>
 						</Setting>
 						<Setting label="Activity log" sub="Show recent hits / heals / deaths under the meter">
 							<Toggle

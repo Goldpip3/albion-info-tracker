@@ -1,32 +1,29 @@
-import type { ConnectionState, Mode, Snapshot } from "./types.ts";
+import type { ConnectionState, Snapshot } from "./types.ts";
+import type { PaneSet } from "./useSettings.ts";
 import { fmtDuration, fmtRate } from "./format.ts";
 
 interface HeaderProps {
 	state: ConnectionState;
 	stale: boolean;
 	snapshot: Snapshot | null;
-	mode: Mode;
-	setMode: (m: Mode) => void;
+	panes: PaneSet;
+	togglePane: (m: keyof PaneSet) => void;
 	onSettings: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
-	hideTabs?: boolean;
 }
 
 // Header = TitleBar (dynamic per-user name + agent status + controls)
 // stacked on top of FightHeader (combat state + duration + fight label +
-// optional mode tabs + party DPS + top + composition).
+// tab-style pane toggles + party DPS + top + composition).
 export function Header({
-	state, stale, snapshot, mode, setMode,
-	onSettings, onReset, onToggleLog, showLog, hideTabs,
+	state, stale, snapshot, panes, togglePane,
+	onSettings, onReset, onToggleLog, showLog,
 }: HeaderProps): React.ReactElement {
 	const localPlayer = snapshot?.players.find((p) => p.isLocal);
 	const localName = localPlayer?.name;
 
-	// Keep the document title in sync so the browser tab shows whose meter
-	// this is. Falls back to a generic label until the local-player record
-	// arrives in a snapshot.
 	const docTitle = localName ? `${localName}'s Data Analytics` : "Combat Analytics";
 	if (typeof document !== "undefined" && document.title !== docTitle) {
 		document.title = docTitle;
@@ -43,7 +40,7 @@ export function Header({
 				onToggleLog={onToggleLog}
 				showLog={showLog}
 			/>
-			<FightHeader snapshot={snapshot} mode={mode} setMode={setMode} hideTabs={hideTabs} />
+			<FightHeader snapshot={snapshot} panes={panes} togglePane={togglePane} />
 		</div>
 	);
 }
@@ -126,19 +123,17 @@ function AgentPill({ state, stale }: { state: ConnectionState; stale: boolean })
 
 interface FightHeaderProps {
 	snapshot: Snapshot | null;
-	mode: Mode;
-	setMode: (m: Mode) => void;
-	hideTabs?: boolean;
+	panes: PaneSet;
+	togglePane: (m: keyof PaneSet) => void;
 }
 
-const TABS: Array<{ id: Mode; label: string; disabled?: boolean }> = [
+const TABS: Array<{ id: keyof PaneSet; label: string }> = [
 	{ id: "damage", label: "Damage" },
 	{ id: "heal",   label: "Healing" },
 	{ id: "taken",  label: "Taken" },
-	{ id: "mechanics", label: "Mechanics", disabled: true },
 ];
 
-function FightHeader({ snapshot, mode, setMode, hideTabs }: FightHeaderProps): React.ReactElement {
+function FightHeader({ snapshot, panes, togglePane }: FightHeaderProps): React.ReactElement {
 	const inCombat = snapshot?.fight?.inCombat ?? false;
 	const elapsedSec = (snapshot?.fight?.elapsedMs ?? 0) / 1000;
 	const fightN = snapshot?.fight?.number ?? 0;
@@ -183,53 +178,48 @@ function FightHeader({ snapshot, mode, setMode, hideTabs }: FightHeaderProps): R
 				</span>
 			</div>
 
-			{!hideTabs && (
-				<div
-					className="flex items-center"
-					style={{
-						gap: 2,
-						background: "var(--sk-bg-2)",
-						padding: 3,
-						borderRadius: 6,
-						border: "1px solid var(--sk-line)",
-					}}
-				>
-					{TABS.map((t) => {
-						const active = t.id === mode;
-						return (
-							<button
-								key={t.id}
-								disabled={t.disabled}
-								onClick={() => !t.disabled && setMode(t.id)}
-								style={{
-									appearance: "none",
-									border: 0,
-									cursor: t.disabled ? "not-allowed" : "pointer",
-									padding: "5px 11px",
-									borderRadius: 4,
-									background: active ? "var(--sk-bg-3)" : "transparent",
-									color: t.disabled
-										? "var(--sk-fg-3)"
-										: active
-										? "var(--sk-fg-0)"
-										: "var(--sk-fg-1)",
-									fontFamily: "var(--sk-font-sans)",
-									fontSize: 11.5,
-									fontWeight: 500,
-									letterSpacing: "0.02em",
-									boxShadow: active ? "inset 0 0 0 1px var(--sk-line-2)" : "none",
-									transition: "all 160ms var(--sk-ease)",
-								}}
-							>
-								{t.label}
-								{t.disabled && (
-									<span style={{ marginLeft: 5, fontSize: 9, color: "var(--sk-fg-3)" }}>soon</span>
-								)}
-							</button>
-						);
-					})}
-				</div>
-			)}
+			<div
+				className="flex items-center"
+				style={{
+					gap: 2,
+					background: "var(--sk-bg-2)",
+					padding: 3,
+					borderRadius: 6,
+					border: "1px solid var(--sk-line)",
+				}}
+				title="Click to add/remove this metric as a pane. At least one must stay on."
+			>
+				{TABS.map((t) => {
+					const active = panes[t.id];
+					const onCount = (panes.damage ? 1 : 0) + (panes.heal ? 1 : 0) + (panes.taken ? 1 : 0);
+					const wouldRemoveLast = active && onCount === 1;
+					return (
+						<button
+							key={String(t.id)}
+							onClick={() => !wouldRemoveLast && togglePane(t.id)}
+							style={{
+								appearance: "none",
+								border: 0,
+								cursor: wouldRemoveLast ? "not-allowed" : "pointer",
+								padding: "5px 11px",
+								borderRadius: 4,
+								background: active ? "var(--sk-bg-3)" : "transparent",
+								color: active ? "var(--sk-fg-0)" : "var(--sk-fg-1)",
+								fontFamily: "var(--sk-font-sans)",
+								fontSize: 11.5,
+								fontWeight: 500,
+								letterSpacing: "0.02em",
+								boxShadow: active ? "inset 0 0 0 1px var(--sk-line-2)" : "none",
+								transition: "all 160ms var(--sk-ease)",
+								opacity: wouldRemoveLast ? 0.85 : 1,
+							}}
+							title={active ? (wouldRemoveLast ? "At least one pane must stay on" : "Click to hide this pane") : "Click to show this pane"}
+						>
+							{t.label}
+						</button>
+					);
+				})}
+			</div>
 
 			<div className="flex items-center ml-auto" style={{ gap: 18 }}>
 				<SummaryStat label="Party DPS" value={fmtRate(partyDps)} accent="var(--sk-damage)" />

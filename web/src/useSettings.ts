@@ -10,12 +10,17 @@ export interface Settings {
 	groupByRole: boolean;
 	columns: ColumnVisibility;
 	showActivityLog: boolean;
-	paneMode: PaneMode;
+	panes: PaneSet;
 }
 
-// PaneMode controls whether the meter renders one tab-driven panel or
-// shows Damage / Healing / Taken side by side simultaneously.
-export type PaneMode = "single" | "triple";
+// PaneSet picks which metric tables show side-by-side. WoW Details-style —
+// click a header tab to add/remove that metric as a pane. At least one
+// must stay on; the UI blocks turning off the last one.
+export interface PaneSet {
+	damage: boolean;
+	heal: boolean;
+	taken: boolean;
+}
 
 // Accent options match the design canvas's Theme accent row (cyan = local
 // default). When changed, the App-level effect overwrites --sk-local on
@@ -48,7 +53,7 @@ const DEFAULT: Settings = {
 		critPct: false,
 	},
 	showActivityLog: false,
-	paneMode: "single",
+	panes: { damage: true, heal: false, taken: false },
 };
 
 const KEY = "skirmish:settings";
@@ -67,6 +72,7 @@ export function useSettings(): {
 				...DEFAULT,
 				...parsed,
 				columns: { ...DEFAULT.columns, ...(parsed.columns ?? {}) },
+				panes: { ...DEFAULT.panes, ...(parsed.panes ?? {}) },
 			};
 		} catch {
 			return DEFAULT;

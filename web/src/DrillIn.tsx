@@ -86,12 +86,14 @@ function DrillHeader({
 					>
 						{player.name || "(unknown)"}
 					</div>
-					<div
-						className="sk-upper"
-						style={{ color: `var(--sk-role-${roleKey})`, fontSize: 9.5 }}
-					>
-						{player.roleLabel || "—"}
-					</div>
+					{player.roleLabel && (
+						<div
+							className="sk-upper"
+							style={{ color: `var(--sk-role-${roleKey})`, fontSize: 9.5 }}
+						>
+							{player.roleLabel}
+						</div>
+					)}
 				</div>
 			</div>
 			<div className="flex" style={{ gap: 22 }}>

@@ -171,16 +171,18 @@ function PlayerRow({ player, rank, mode, max, primary, settings, onHover, onDril
 					>
 						{player.name || `${player.userGuid.slice(0, 8)}…`}
 					</span>
-					<span
-						className="sk-upper truncate"
-						style={{
-							fontSize: 9.5,
-							color: `var(--sk-role-${roleKey})`,
-							opacity: 0.85,
-						}}
-					>
-						{player.roleLabel || (player.guild ?? "")}
-					</span>
+					{player.roleLabel && (
+						<span
+							className="sk-upper truncate"
+							style={{
+								fontSize: 9.5,
+								color: `var(--sk-role-${roleKey})`,
+								opacity: 0.85,
+							}}
+						>
+							{player.roleLabel}
+						</span>
+					)}
 				</div>
 			</div>
 
@@ -318,9 +320,11 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 					>
 						{player.name || "(unknown)"}
 					</div>
-					<div className="sk-upper" style={{ fontSize: 9.5, color: roleColor }}>
-						{player.roleLabel || "—"}
-					</div>
+					{player.roleLabel && (
+						<div className="sk-upper" style={{ fontSize: 9.5, color: roleColor }}>
+							{player.roleLabel}
+						</div>
+					)}
 				</div>
 			</div>
 			<div className="flex flex-col" style={{ gap: 6 }}>
