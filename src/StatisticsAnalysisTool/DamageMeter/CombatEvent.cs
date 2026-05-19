@@ -106,6 +106,13 @@ public sealed class CombatEvent
         IsActive = false;
     }
 
+    public TimeSpan GetEffectiveDuration()
+    {
+        var end = EndTime ?? DateTime.UtcNow;
+        var duration = end - StartTime;
+        return duration > TimeSpan.Zero ? duration : TimeSpan.Zero;
+    }
+
     internal CombatEvent Clone()
     {
         var combatEvent = new CombatEvent

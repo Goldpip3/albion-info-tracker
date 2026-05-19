@@ -34,6 +34,19 @@ public sealed class CombatEventTracker(TrackingController trackingController)
         }
     }
 
+    public CombatEvent GetActiveOrLastCompletedEventSnapshot()
+    {
+        lock (_syncLock)
+        {
+            if (_activeCombatEvent != null)
+            {
+                return _activeCombatEvent.Clone();
+            }
+
+            return _combatEvents.Count > 0 ? _combatEvents[^1].Clone() : null;
+        }
+    }
+
     public void TrackNewMob(NewMobEvent newMobEvent)
     {
         if (newMobEvent?.ObjectId is not { } mobObjectId)

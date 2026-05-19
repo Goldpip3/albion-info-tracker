@@ -191,6 +191,13 @@ public sealed class DamageMeterSnapshotFragment : BaseViewModel
         }
     }
 
+    // Snapshots have no live "current fight" — render the overall value only.
+    public string DamageDualString => DamageShortString;
+    public string DpsDualString => $"{DpsString} dps";
+    public string HealDualString => HealShortString;
+    public string HpsDualString => $"{HpsString} hps";
+    public string TakenDamageDualString => TakenDamageShortString;
+
     #endregion
 
     public DamageMeterStyleFragmentType DamageMeterStyleFragmentType

@@ -35,6 +35,16 @@ public class DamageMeterFragment : BaseViewModel
     private string _takenDamageShortString;
     private double _takenDamageInPercent;
     private double _takenDamagePercentage;
+    private long _currentDamage;
+    private string _currentDamageShortString = "0";
+    private double _currentDps;
+    private string _currentDpsString = "0";
+    private long _currentHeal;
+    private string _currentHealShortString = "0";
+    private double _currentHps;
+    private string _currentHpsString = "0";
+    private long _currentTakenDamage;
+    private string _currentTakenDamageShortString = "0";
     private DamageMeterStyleFragmentType _damageMeterStyleFragmentType;
     private Visibility _spellsContainerVisibility = Visibility.Collapsed;
     private ObservableCollection<UsedSpellFragment> _spells = new();
@@ -132,6 +142,7 @@ public class DamageMeterFragment : BaseViewModel
         {
             _damageShortString = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DamageDualString));
         }
     }
 
@@ -142,6 +153,7 @@ public class DamageMeterFragment : BaseViewModel
         {
             _dpsString = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(DpsDualString));
         }
     }
 
@@ -198,6 +210,7 @@ public class DamageMeterFragment : BaseViewModel
         {
             _healShortString = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HealDualString));
         }
     }
 
@@ -208,6 +221,7 @@ public class DamageMeterFragment : BaseViewModel
         {
             _hpsString = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HpsDualString));
         }
     }
 
@@ -284,6 +298,7 @@ public class DamageMeterFragment : BaseViewModel
         {
             _takenDamageShortString = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(TakenDamageDualString));
         }
     }
 
@@ -306,6 +321,126 @@ public class DamageMeterFragment : BaseViewModel
             OnPropertyChanged();
         }
     }
+
+    #endregion
+
+    #region Current fight (Skada-style: live event, or last completed if out of combat)
+
+    public long CurrentDamage
+    {
+        get => _currentDamage;
+        set
+        {
+            _currentDamage = value;
+            CurrentDamageShortString = _currentDamage.ToShortNumberString();
+            OnPropertyChanged();
+        }
+    }
+
+    public string CurrentDamageShortString
+    {
+        get => _currentDamageShortString;
+        private set
+        {
+            _currentDamageShortString = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DamageDualString));
+        }
+    }
+
+    public double CurrentDps
+    {
+        get => _currentDps;
+        set
+        {
+            _currentDps = value;
+            CurrentDpsString = _currentDps.ToShortNumberString();
+            OnPropertyChanged();
+        }
+    }
+
+    public string CurrentDpsString
+    {
+        get => _currentDpsString;
+        private set
+        {
+            _currentDpsString = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DpsDualString));
+        }
+    }
+
+    public long CurrentHeal
+    {
+        get => _currentHeal;
+        set
+        {
+            _currentHeal = value;
+            CurrentHealShortString = _currentHeal.ToShortNumberString();
+            OnPropertyChanged();
+        }
+    }
+
+    public string CurrentHealShortString
+    {
+        get => _currentHealShortString;
+        private set
+        {
+            _currentHealShortString = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HealDualString));
+        }
+    }
+
+    public double CurrentHps
+    {
+        get => _currentHps;
+        set
+        {
+            _currentHps = value;
+            CurrentHpsString = _currentHps.ToShortNumberString();
+            OnPropertyChanged();
+        }
+    }
+
+    public string CurrentHpsString
+    {
+        get => _currentHpsString;
+        private set
+        {
+            _currentHpsString = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HpsDualString));
+        }
+    }
+
+    public long CurrentTakenDamage
+    {
+        get => _currentTakenDamage;
+        set
+        {
+            _currentTakenDamage = value;
+            CurrentTakenDamageShortString = _currentTakenDamage.ToShortNumberString();
+            OnPropertyChanged();
+        }
+    }
+
+    public string CurrentTakenDamageShortString
+    {
+        get => _currentTakenDamageShortString;
+        private set
+        {
+            _currentTakenDamageShortString = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TakenDamageDualString));
+        }
+    }
+
+    public string DamageDualString => $"{_currentDamageShortString ?? "0"} | {_damageShortString ?? "0"}";
+    public string DpsDualString => $"{_currentDpsString ?? "0"} | {_dpsString ?? "0"} dps";
+    public string HealDualString => $"{_currentHealShortString ?? "0"} | {_healShortString ?? "0"}";
+    public string HpsDualString => $"{_currentHpsString ?? "0"} | {_hpsString ?? "0"} hps";
+    public string TakenDamageDualString => $"{_currentTakenDamageShortString ?? "0"} | {_takenDamageShortString ?? "0"}";
 
     #endregion
 

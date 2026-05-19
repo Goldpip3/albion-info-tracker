@@ -166,6 +166,7 @@ public class CombatController
         var currentTotalDamage = entities.GetCurrentTotalDamage();
         var currentTotalHeal = entities.GetCurrentTotalHeal();
         var currentTotalTakenDamage = entities.GetCurrentTotalDamage();
+        var currentEvent = CombatEventTracker.GetActiveOrLastCompletedEventSnapshot();
 
         _trackingController.EntityController.DetectUsedWeapon();
 
@@ -179,11 +180,11 @@ public class CombatController
             var fragment = damageMeter.ToList().FirstOrDefault(x => x.CauserGuid == healthChangeObject.Value.UserGuid);
             if (fragment != null)
             {
-                await UpdateDamageMeterFragmentAsync(fragment, healthChangeObject, entities, currentTotalDamage, currentTotalHeal, currentTotalTakenDamage);
+                await UpdateDamageMeterFragmentAsync(fragment, healthChangeObject, entities, currentTotalDamage, currentTotalHeal, currentTotalTakenDamage, currentEvent);
             }
             else
             {
-                await AddDamageMeterFragmentAsync(damageMeter, healthChangeObject, entities, currentTotalDamage, currentTotalHeal, currentTotalTakenDamage).ConfigureAwait(true);
+                await AddDamageMeterFragmentAsync(damageMeter, healthChangeObject, entities, currentTotalDamage, currentTotalHeal, currentTotalTakenDamage, currentEvent).ConfigureAwait(true);
             }
 
             Application.Current.Dispatcher.Invoke(() => _mainWindowViewModel.DamageMeterBindings?.SetDamageMeterSort());
@@ -194,9 +195,10 @@ public class CombatController
     }
 
     private static async Task UpdateDamageMeterFragmentAsync(DamageMeterFragment fragment, KeyValuePair<Guid, PlayerGameObject> healthChangeObject,
-        List<KeyValuePair<Guid, PlayerGameObject>> entities, long currentTotalDamage, long currentTotalHeal, long currentTotalTakenDamage)
+        List<KeyValuePair<Guid, PlayerGameObject>> entities, long currentTotalDamage, long currentTotalHeal, long currentTotalTakenDamage, CombatEvent currentEvent)
     {
         var healthChangeObjectValue = healthChangeObject.Value;
+        ApplyCurrentFightStats(fragment, healthChangeObjectValue?.ObjectId, currentEvent);
 
         if (healthChangeObjectValue?.CharacterEquipment?.MainHand != null)
         {
@@ -260,7 +262,7 @@ public class CombatController
     }
 
     private static async Task AddDamageMeterFragmentAsync(ICollection<DamageMeterFragment> damageMeter, KeyValuePair<Guid, PlayerGameObject> healthChangeObject,
-        List<KeyValuePair<Guid, PlayerGameObject>> entities, long currentTotalDamage, long currentTotalHeal, long currentTotalTakenDamage)
+        List<KeyValuePair<Guid, PlayerGameObject>> entities, long currentTotalDamage, long currentTotalHeal, long currentTotalTakenDamage, CombatEvent currentEvent)
     {
         if (healthChangeObject.Value == null
             || (double.IsNaN(healthChangeObject.Value.Damage) && double.IsNaN(healthChangeObject.Value.Heal) && double.IsNaN(healthChangeObject.Value.Overhealed))
@@ -300,10 +302,44 @@ public class CombatController
             Spells = spells
         };
 
+        ApplyCurrentFightStats(damageMeterFragment, healthChangeObjectValue.ObjectId, currentEvent);
+
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             damageMeter.Add(damageMeterFragment);
         });
+    }
+
+    private static void ApplyCurrentFightStats(DamageMeterFragment fragment, long? objectId, CombatEvent currentEvent)
+    {
+        if (currentEvent == null || !objectId.HasValue)
+        {
+            fragment.CurrentDamage = 0;
+            fragment.CurrentDps = 0;
+            fragment.CurrentHeal = 0;
+            fragment.CurrentHps = 0;
+            fragment.CurrentTakenDamage = 0;
+            return;
+        }
+
+        var participant = currentEvent.Participants.FirstOrDefault(p => p.ObjectId == objectId.Value);
+        if (participant == null)
+        {
+            fragment.CurrentDamage = 0;
+            fragment.CurrentDps = 0;
+            fragment.CurrentHeal = 0;
+            fragment.CurrentHps = 0;
+            fragment.CurrentTakenDamage = 0;
+            return;
+        }
+
+        // Floor the divisor at 1s so the first-tick "tiny duration" doesn't inflate DPS into the millions.
+        var seconds = Math.Max(currentEvent.GetEffectiveDuration().TotalSeconds, 1.0);
+        fragment.CurrentDamage = participant.Damage;
+        fragment.CurrentHeal = participant.Heal;
+        fragment.CurrentTakenDamage = participant.TakenDamage;
+        fragment.CurrentDps = participant.Damage / seconds;
+        fragment.CurrentHps = participant.Heal / seconds;
     }
 
     private static bool HasDamageMeterDupes(IEnumerable<DamageMeterFragment> damageMeter)

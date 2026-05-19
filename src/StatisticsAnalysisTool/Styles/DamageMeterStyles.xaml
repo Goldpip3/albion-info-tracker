@@ -151,10 +151,12 @@
                     <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamagePercentage}" 
                            ContentStringFormat="{}{0:N2}%" MinWidth="55" Margin="10,5" HorizontalContentAlignment="Right" VerticalAlignment="Top" />
                     <Label Content="{Binding Name}" MinWidth="125" MaxWidth="125" Margin="10,5, 0, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamageShortString}" 
-                           MinWidth="100" MaxWidth="100" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DpsString}" 
-                           ContentStringFormat="{}{0:N0}/dps" MinWidth="75" MaxWidth="75" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamageDualString}"
+                           MinWidth="140" MaxWidth="140" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DpsDualString}"
+                           MinWidth="130" MaxWidth="130" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
                     <Grid Width="16" Height="16" Margin="0,10" VerticalAlignment="Top" ToolTip="{Binding TranslationCombatTime, FallbackValue='COMBAT_TIME'}">
                         <fa5:ImageAwesome Icon="Regular_Clock" Foreground="{StaticResource SolidColorBrush.Text.1}" />
                     </Grid>
@@ -193,8 +195,9 @@
                     <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding TakenDamagePercentage}" 
                            ContentStringFormat="{}{0:N2}%" MinWidth="55" Margin="10,5" HorizontalContentAlignment="Right" VerticalAlignment="Top" />
                     <Label Content="{Binding Name}" MinWidth="125" MaxWidth="125" Margin="10,5, 0, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding TakenDamageShortString}" 
-                           MinWidth="100" MaxWidth="100" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding TakenDamageDualString}"
+                           MinWidth="140" MaxWidth="140" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
                     <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="" MinWidth="75" MaxWidth="75" 
                            FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top" />
                     <Grid Width="16" Height="16" Margin="0,10" VerticalAlignment="Top" ToolTip="{Binding TranslationCombatTime, FallbackValue='COMBAT_TIME'}">
@@ -243,10 +246,12 @@
                                ToolTip="{Binding TranslationOverhealedPercentageOfTotalHealing}" />
                     </StackPanel>
                     <Label Content="{Binding Name}" MinWidth="125" MaxWidth="125" Margin="10,5, 0, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HealShortString}" 
-                           MinWidth="100" MaxWidth="100" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HpsString}" 
-                           ContentStringFormat="{}{0:N0}/hps" MinWidth="75" MaxWidth="75" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HealDualString}"
+                           MinWidth="140" MaxWidth="140" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HpsDualString}"
+                           MinWidth="130" MaxWidth="130" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
                     <Grid Width="16" Height="16" Margin="0,10" VerticalAlignment="Top" ToolTip="{Binding TranslationCombatTime, FallbackValue='COMBAT_TIME'}">
                         <fa5:ImageAwesome Icon="Regular_Clock" Foreground="{StaticResource SolidColorBrush.Text.1}" />
                     </Grid>
@@ -317,10 +322,12 @@
                     <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamagePercentage}" 
                            ContentStringFormat="{}{0:N2}%" MinWidth="55" Margin="10,5" HorizontalContentAlignment="Right" VerticalAlignment="Top" />
                     <Label Content="{Binding Name}" MinWidth="125" MaxWidth="125" Margin="10,5, 0, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamageShortString}" 
-                           MinWidth="100" MaxWidth="100" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DpsString}" 
-                           ContentStringFormat="{}{0:N0}/dps" MinWidth="75" MaxWidth="75" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DamageDualString}"
+                           MinWidth="140" MaxWidth="140" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding DpsDualString}"
+                           MinWidth="130" MaxWidth="130" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
                     <Grid Width="16" Height="16" Margin="0,10" VerticalAlignment="Top" ToolTip="{Binding TranslationCombatTime, FallbackValue='COMBAT_TIME'}">
                         <fa5:ImageAwesome Icon="Regular_Clock" Foreground="{StaticResource SolidColorBrush.Text.1}" />
                     </Grid>
@@ -402,10 +409,12 @@
                                ContentStringFormat="{}{0:N2}%" Margin="0,-15,0,0" Padding="0,0" HorizontalContentAlignment="Right" VerticalAlignment="Top" VerticalContentAlignment="Top" />
                     </StackPanel>
                     <Label Content="{Binding Name}" MinWidth="125" MaxWidth="125" Margin="10,5, 0, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HealShortString}" 
-                           MinWidth="100" MaxWidth="100" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top" />
-                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HpsString}" 
-                           ContentStringFormat="{}{0:N0}/hps" MinWidth="75" MaxWidth="75" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HealDualString}"
+                           MinWidth="140" MaxWidth="140" FontWeight="Bold" Margin="10,5, 5, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
+                    <Label Foreground="{StaticResource SolidColorBrush.Weapon.Text}" Content="{Binding HpsDualString}"
+                           MinWidth="130" MaxWidth="130" FontWeight="Bold" Margin="10,5, 50, 0" VerticalAlignment="Top"
+                           HorizontalContentAlignment="Center" />
                     <Grid Width="16" Height="16" Margin="0,10" VerticalAlignment="Top" ToolTip="{Binding TranslationCombatTime, FallbackValue='COMBAT_TIME'}">
                         <fa5:ImageAwesome Icon="Regular_Clock" Foreground="{StaticResource SolidColorBrush.Text.1}" />
                     </Grid>
