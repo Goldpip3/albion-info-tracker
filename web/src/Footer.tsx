@@ -5,22 +5,33 @@ interface FooterProps {
 	lastMessageAt: number | null;
 }
 
-const BUILD = "V0.1 · BUILD T1A"; // bumped per release
+const BUILD = "v0.5.0 · build t1f";
 
 export function Footer({ snapshot, lastMessageAt }: FooterProps): React.ReactElement {
-	const ago = lastMessageAt ? ((Date.now() - lastMessageAt) / 1000).toFixed(1) : "—";
+	const ago = lastMessageAt
+		? `${((Date.now() - lastMessageAt) / 1000).toFixed(1)}s ago`
+		: "—";
 	return (
-		<footer className="border-t border-skirmish-line px-4 py-1.5 flex items-center text-[10px] tracking-[0.12em] uppercase text-skirmish-muted">
-			<span>Tick · 0.5s</span>
-			<span className="mx-3 text-skirmish-line">|</span>
-			<span>Last update {ago}s ago</span>
-			<span className="ml-auto">{BUILD}</span>
-			{snapshot && (
-				<>
-					<span className="mx-3 text-skirmish-line">|</span>
-					<span>{new Date(snapshot.generatedAt).toLocaleTimeString()}</span>
-				</>
-			)}
-		</footer>
+		<div
+			className="flex items-center justify-between px-4 py-2"
+			style={{
+				borderTop: "1px solid var(--sk-line)",
+				background: "var(--sk-bg-1)",
+			}}
+		>
+			<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>
+				Tick · 0.5s &nbsp;·&nbsp; Last update {ago}
+				{snapshot && (
+					<>
+						&nbsp;·&nbsp; <span className="sk-mono" style={{ textTransform: "none", letterSpacing: 0 }}>
+							{new Date(snapshot.generatedAt).toLocaleTimeString()}
+						</span>
+					</>
+				)}
+			</span>
+			<span className="sk-upper sk-mono" style={{ color: "var(--sk-fg-3)" }}>
+				{BUILD}
+			</span>
+		</div>
 	);
 }

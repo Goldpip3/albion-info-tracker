@@ -46,13 +46,13 @@ export default function App(): React.ReactElement {
 		enabled: configured,
 	});
 
-	// Apply the chosen accent color as CSS variables so existing utility
-	// classes (text-skirmish-amber, bg-skirmish-amber/15 …) shift palette
-	// without a re-render of every component.
+	// Apply the chosen accent color as CSS variables so every component
+	// re-tints without a re-render. Drives --sk-local + --sk-local-tint
+	// across the whole tree.
 	useEffect(() => {
-		const { fg, dim } = accentOklch(settings.accent);
-		document.documentElement.style.setProperty("--color-skirmish-amber", fg);
-		document.documentElement.style.setProperty("--color-skirmish-amber-dim", dim);
+		const { fg, tint } = accentOklch(settings.accent);
+		document.documentElement.style.setProperty("--sk-local", fg);
+		document.documentElement.style.setProperty("--sk-local-tint", tint);
 	}, [settings.accent]);
 
 	const stale = useMemo(() => {
@@ -65,7 +65,7 @@ export default function App(): React.ReactElement {
 	}
 
 	return (
-		<div className="min-h-dvh flex flex-col bg-skirmish-bg text-skirmish-text">
+		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
 			<Header
 				state={state}
 				stale={stale}
@@ -80,19 +80,24 @@ export default function App(): React.ReactElement {
 					}
 				}}
 			/>
-			<main className="flex-1 overflow-auto">
-				<MeterTable
-					snapshot={snapshot}
-					mode={mode}
-					settings={settings}
-					onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
-				/>
-				{error && (
-					<div className="px-4 py-2 text-xs text-rose-300">connection: {error}</div>
-				)}
-				<div className="px-3 py-3">
-					<ActivityLog snapshot={snapshot} />
+			<main className="flex-1 overflow-hidden flex flex-col">
+				<div className="flex-1 overflow-auto">
+					<MeterTable
+						snapshot={snapshot}
+						mode={mode}
+						settings={settings}
+						onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+					/>
 				</div>
+				{error && (
+					<div
+						className="px-4 py-2 sk-upper"
+						style={{ color: "var(--sk-err)", borderTop: "1px solid var(--sk-line)" }}
+					>
+						connection: {error}
+					</div>
+				)}
+				<ActivityLog snapshot={snapshot} />
 			</main>
 			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
 			{showSettings && (
@@ -126,7 +131,6 @@ function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.
 	const [copied, setCopied] = useState(false);
 
 	const generate = (): void => {
-		// 16 random bytes → 32 hex chars. Matches the agent's generator.
 		const bytes = new Uint8Array(16);
 		crypto.getRandomValues(bytes);
 		const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -136,39 +140,72 @@ function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch {
-			/* clipboard may be unavailable in non-HTTPS contexts */
+			/* private mode etc */
 		}
 	};
 
 	return (
-		<div className="min-h-dvh flex items-center justify-center p-4 bg-skirmish-bg">
+		<div className="min-h-dvh flex items-center justify-center p-4" style={{ background: "var(--sk-bg-0)" }}>
 			<form
-				className="w-full max-w-sm space-y-4 bg-skirmish-bg2 border border-skirmish-line rounded-md p-6"
+				className="w-full max-w-sm"
+				style={{
+					background: "var(--sk-bg-1)",
+					border: "1px solid var(--sk-line)",
+					borderRadius: 8,
+					padding: 22,
+				}}
 				onSubmit={(e) => {
 					e.preventDefault();
 					setUrl(localUrl.trim());
 					setToken(localToken.trim());
 				}}
 			>
-				<div className="space-y-1">
-					<div className="text-xs tracking-[0.25em] uppercase text-skirmish-amber font-semibold">
-						SKIRMISH
-					</div>
-					<h1 className="text-lg font-medium text-skirmish-text">Pair your agent</h1>
-					<p className="text-xs text-skirmish-dim">
-						Generate a token below, paste it into the agent when prompted, and
-						launch the agent. Or generate one in the agent first and paste it
-						here.
-					</p>
+				<div className="flex items-center mb-2.5" style={{ gap: 7 }}>
+					<svg width="18" height="18" viewBox="0 0 18 18" style={{ display: "block" }}>
+						<rect x="1.5" y="3"  width="11" height="2" fill="var(--sk-damage)" />
+						<rect x="1.5" y="8"  width="15" height="2" fill="var(--sk-fg-0)" />
+						<rect x="1.5" y="13" width="6"  height="2" fill="var(--sk-local)" />
+					</svg>
+					<span
+						style={{
+							fontFamily: "var(--sk-font-mono)",
+							fontSize: 12.5,
+							fontWeight: 600,
+							letterSpacing: "0.18em",
+							color: "var(--sk-fg-0)",
+							textTransform: "uppercase",
+						}}
+					>
+						Skirmish
+					</span>
 				</div>
 
-				<label className="block text-sm">
-					<div className="flex items-baseline justify-between">
-						<span className="text-[10px] uppercase tracking-[0.15em] text-skirmish-muted">Pairing token</span>
+				<h1 style={{ fontSize: 17, fontWeight: 500, marginBottom: 6, color: "var(--sk-fg-0)" }}>
+					Pair your agent
+				</h1>
+				<p style={{ fontSize: 12, color: "var(--sk-fg-2)", marginBottom: 18, lineHeight: 1.5 }}>
+					Generate a token below and paste it into the agent when prompted —
+					or generate one in the agent and paste it here. Both ends meet in
+					the same backend room.
+				</p>
+
+				<label className="block">
+					<div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+						<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>Pairing token</span>
 						<button
 							type="button"
 							onClick={generate}
-							className="text-[10px] uppercase tracking-[0.12em] text-skirmish-amber hover:underline"
+							className="sk-upper"
+							style={{
+								appearance: "none",
+								background: "transparent",
+								border: 0,
+								color: "var(--sk-local)",
+								cursor: "pointer",
+								padding: 0,
+								textDecoration: "underline",
+								textUnderlineOffset: 3,
+							}}
 						>
 							{copied ? "✓ Copied" : "Generate"}
 						</button>
@@ -178,31 +215,68 @@ function SetupScreen({ url, token, setUrl, setToken }: SetupScreenProps): React.
 						value={localToken}
 						onChange={(e) => setLocalToken(e.target.value)}
 						placeholder="32 hex chars"
-						className="mt-1 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm tnum focus:outline-none focus:border-skirmish-amber"
+						className="sk-mono"
+						style={{
+							width: "100%",
+							background: "var(--sk-bg-0)",
+							border: "1px solid var(--sk-line)",
+							borderRadius: 4,
+							padding: "8px 10px",
+							fontSize: 12,
+							color: "var(--sk-fg-0)",
+							outline: "none",
+						}}
 					/>
 				</label>
 
-				<details className="text-xs">
-					<summary className="text-skirmish-muted cursor-pointer select-none">
-						Advanced — custom Worker URL
+				<details style={{ marginTop: 14 }}>
+					<summary
+						className="sk-upper"
+						style={{ color: "var(--sk-fg-3)", cursor: "pointer", listStyle: "none" }}
+					>
+						Advanced — Worker URL
 					</summary>
 					<input
 						type="text"
 						value={localUrl}
 						onChange={(e) => setLocalUrl(e.target.value)}
-						className="mt-2 block w-full rounded bg-skirmish-bg border border-skirmish-line px-2 py-1.5 text-sm focus:outline-none focus:border-skirmish-amber"
+						style={{
+							marginTop: 8,
+							width: "100%",
+							background: "var(--sk-bg-0)",
+							border: "1px solid var(--sk-line)",
+							borderRadius: 4,
+							padding: "6px 9px",
+							fontSize: 11,
+							color: "var(--sk-fg-1)",
+							outline: "none",
+							fontFamily: "var(--sk-font-mono)",
+						}}
 					/>
 				</details>
 
 				<button
 					type="submit"
 					disabled={!localToken.trim()}
-					className="w-full bg-skirmish-amber hover:bg-skirmish-amber-dim text-skirmish-bg font-medium rounded py-1.5 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+					style={{
+						marginTop: 20,
+						width: "100%",
+						appearance: "none",
+						background: "var(--sk-local)",
+						color: "var(--sk-bg-0)",
+						border: 0,
+						borderRadius: 4,
+						padding: "9px 12px",
+						fontSize: 12.5,
+						fontWeight: 600,
+						cursor: localToken.trim() ? "pointer" : "not-allowed",
+						opacity: localToken.trim() ? 1 : 0.5,
+					}}
 				>
 					Connect
 				</button>
 
-				<p className="text-[11px] text-skirmish-muted">
+				<p style={{ marginTop: 14, fontSize: 11, color: "var(--sk-fg-3)", lineHeight: 1.5 }}>
 					Anyone with this token sees the same meter room. Keep it private
 					unless you want to share.
 				</p>

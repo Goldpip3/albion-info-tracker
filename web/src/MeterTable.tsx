@@ -1,6 +1,8 @@
 import { useState } from "react";
-import type { PlayerSnapshot, Snapshot, Mode } from "./types.ts";
+import type { Mode, PlayerSnapshot, Snapshot } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
+import { ClassChip } from "./ClassChip.tsx";
+import { fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
 
 interface MeterTableProps {
 	snapshot: Snapshot | null;
@@ -13,289 +15,346 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 	const players = snapshot?.players ?? [];
 	const [hovered, setHovered] = useState<PlayerSnapshot | null>(null);
 
-	const sortKey = (p: PlayerSnapshot): number => {
+	const primaryFor = (p: PlayerSnapshot): { cur: number; ovr: number; rate: number | null } => {
 		switch (mode) {
 			case "damage":
-				return p.currentDamage;
+				return { cur: p.currentDamage, ovr: p.overallDamage, rate: p.currentDps };
 			case "heal":
-				return p.currentHeal;
+				return { cur: p.currentHeal, ovr: p.overallHeal, rate: p.currentHps };
 			case "taken":
-				return p.currentTaken;
+				return { cur: p.currentTaken, ovr: p.overallTaken, rate: null };
 			case "mechanics":
-				return p.currentDamage;
+				return { cur: p.currentDamage, ovr: p.overallDamage, rate: null };
 		}
 	};
 
-	const primaryFor = (p: PlayerSnapshot): { cur: number; ovr: number } => {
-		switch (mode) {
-			case "damage":
-				return { cur: p.currentDamage, ovr: p.overallDamage };
-			case "heal":
-				return { cur: p.currentHeal, ovr: p.overallHeal };
-			case "taken":
-				return { cur: p.currentTaken, ovr: p.overallTaken };
-			case "mechanics":
-				return { cur: p.currentDamage, ovr: p.overallDamage };
-		}
-	};
+	let sorted = [...players].sort((a, b) => primaryFor(b).cur - primaryFor(a).cur);
 
-	let sorted = [...players].sort((a, b) => sortKey(b) - sortKey(a));
-
-	// Pin local user to the top of the list if requested, regardless of rank.
 	if (settings.pinLocal) {
 		const local = sorted.find((p) => p.isLocal);
-		if (local) {
-			sorted = [local, ...sorted.filter((p) => p !== local)];
-		}
+		if (local) sorted = [local, ...sorted.filter((p) => p !== local)];
 	}
 
 	const max = sorted[0] ? primaryFor(sorted[0]).cur : 0;
 
 	if (sorted.length === 0) {
 		return (
-			<div className="text-skirmish-dim text-sm px-4 py-16 text-center">
-				No players tracked yet. Re-zone in Albion (walk through any portal)
-				to populate.
-			</div>
+			<EmptyState />
 		);
 	}
 
 	const headerLabel: Record<Mode, string> = {
-		damage: "DAMAGE · CURRENT / SESSION",
-		heal: "HEALING · CURRENT / SESSION",
-		taken: "DAMAGE TAKEN · CURRENT / SESSION",
-		mechanics: "MECHANICS · COUNTS",
+		damage: "Damage · Current / Session",
+		heal: "Healing · Current / Session",
+		taken: "Damage Taken · Current / Session",
+		mechanics: "Mechanics",
 	};
-	const rateLabel: Record<Mode, string> = {
+	const rateHeader: Record<Mode, string> = {
 		damage: "DPS",
 		heal: "HPS",
-		taken: "DPS",
-		mechanics: "TICKS",
+		taken: "",
+		mechanics: "",
 	};
 
-	const cols = visibleColumns(settings, mode);
-	const gridCols = `2rem minmax(11rem,16rem) 1fr ${cols.rate ? "4rem " : ""}${cols.taken ? "5rem " : ""}${cols.heal ? "5rem" : ""}`.trim();
-
 	return (
-		<div className="relative">
+		<div className="relative h-full flex flex-col">
+			{/* Column header */}
 			<div
-				className="grid gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.15em] text-skirmish-muted border-b border-skirmish-line"
-				style={{ gridTemplateColumns: gridCols }}
+				className="grid items-center px-3.5 py-2"
+				style={{
+					gridTemplateColumns: "28px 200px 1fr 90px 80px 70px",
+					gap: 12,
+					borderBottom: "1px solid var(--sk-line)",
+					fontSize: 10.5,
+					textTransform: "uppercase",
+					letterSpacing: "0.08em",
+					color: "var(--sk-fg-3)",
+				}}
 			>
-				<div>#</div>
-				<div>Player</div>
-				<div>{headerLabel[mode]}</div>
-				{cols.rate && <div className="text-right">{rateLabel[mode]}</div>}
-				{cols.taken && <div className="text-right">↓ Taken</div>}
-				{cols.heal && <div className="text-right">+ Heal</div>}
+				<span style={{ textAlign: "right", paddingRight: 4 }}>#</span>
+				<span>Player</span>
+				<span>{headerLabel[mode]}</span>
+				<span style={{ textAlign: "right" }}>{rateHeader[mode]}</span>
+				<span style={{ textAlign: "right" }}>↓ Taken</span>
+				<span style={{ textAlign: "right" }}>+ Heal</span>
 			</div>
-			<div>
+
+			{/* Rows */}
+			<div className="flex-1 overflow-auto" style={{ display: "flex", flexDirection: "column", gap: 2, padding: "2px 0" }}>
 				{sorted.map((p, i) => (
-					<MeterRow
+					<PlayerRow
 						key={p.userGuid}
-						rank={i + 1}
 						player={p}
+						rank={i + 1}
 						mode={mode}
 						max={max}
+						primary={primaryFor(p)}
 						settings={settings}
-						cols={cols}
-						gridCols={gridCols}
 						onHover={setHovered}
 						onDrillIn={onDrillIn}
 					/>
 				))}
 			</div>
 
-			{hovered && <HoverTooltip player={hovered} />}
+			{hovered && <RowTooltip player={hovered} />}
 		</div>
 	);
 }
 
-interface VisibleCols {
-	rate: boolean;
-	taken: boolean;
-	heal: boolean;
-}
-
-function visibleColumns(s: Settings, mode: Mode): VisibleCols {
-	return {
-		rate: mode === "heal" ? s.columns.hps : s.columns.dps,
-		taken: s.columns.damageTaken,
-		heal: s.columns.healing,
-	};
-}
-
-interface MeterRowProps {
-	rank: number;
+interface PlayerRowProps {
 	player: PlayerSnapshot;
+	rank: number;
 	mode: Mode;
 	max: number;
+	primary: { cur: number; ovr: number; rate: number | null };
 	settings: Settings;
-	cols: VisibleCols;
-	gridCols: string;
 	onHover: (p: PlayerSnapshot | null) => void;
 	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover, onDrillIn }: MeterRowProps): React.ReactElement {
-	const cur =
-		mode === "damage"
-			? player.currentDamage
-			: mode === "heal"
-			? player.currentHeal
-			: mode === "taken"
-			? player.currentTaken
-			: player.currentDamage;
-	const ovr =
-		mode === "damage"
-			? player.overallDamage
-			: mode === "heal"
-			? player.overallHeal
-			: mode === "taken"
-			? player.overallTaken
-			: player.overallDamage;
-	const rate = mode === "heal" ? player.currentHps : mode === "taken" ? 0 : player.currentDps;
-	const pct = max > 0 ? (cur / max) * 100 : 0;
+function PlayerRow({ player, rank, mode, max, primary, settings, onHover, onDrillIn }: PlayerRowProps): React.ReactElement {
+	const isLocal = player.isLocal ?? false;
+	const roleKey: RoleKey = roleKeyOf(player.role);
+	const tabColor =
+		mode === "damage" ? "var(--sk-damage)" :
+		mode === "heal"   ? "var(--sk-heal)"   :
+		mode === "taken"  ? "var(--sk-taken)"  : "var(--sk-fg-1)";
+	const tabTint =
+		mode === "damage" ? "var(--sk-damage-tint)" :
+		mode === "heal"   ? "var(--sk-heal-tint)"   :
+		mode === "taken"  ? "var(--sk-taken-tint)"  : "transparent";
 
-	const chipText = player.classCode && player.classCode !== "—" ? player.classCode : player.isLocal ? "YOU" : "—";
-	const pyPad = settings.density === 24 ? "py-1" : settings.density === 28 ? "py-1.5" : "py-2";
+	const pct = max > 0 ? Math.min(100, (primary.cur / max) * 100) : 0;
+	const rowH = settings.density;
 
-	const barClass = barClassName(settings.barStyle, player.isLocal ?? false);
+	const barFill = settings.barStyle === "solid" ? tabColor : tabTint;
+	const barBorder = settings.barStyle === "outline" ? `1px solid ${tabColor}` : "1px solid transparent";
 
 	return (
 		<div
-			className={`group relative grid gap-3 px-4 ${pyPad} items-center border-b border-skirmish-line/40 hover:bg-skirmish-bg2/40 cursor-pointer`}
-			style={{ gridTemplateColumns: gridCols }}
 			onMouseEnter={() => onHover(player)}
 			onMouseLeave={() => onHover(null)}
 			onClick={() => onDrillIn(player)}
-			title="Click to drill into abilities"
+			style={{
+				position: "relative",
+				height: rowH,
+				display: "grid",
+				gridTemplateColumns: "28px 200px 1fr 90px 80px 70px",
+				alignItems: "center",
+				gap: 12,
+				padding: `0 14px 0 12px`,
+				background: isLocal ? "color-mix(in oklab, var(--sk-local) 5%, var(--sk-bg-1))" : "var(--sk-bg-1)",
+				borderLeft: isLocal ? "2px solid var(--sk-local)" : "2px solid transparent",
+				transition: "background 200ms var(--sk-ease)",
+				cursor: "pointer",
+			}}
 		>
-			<div className="text-skirmish-muted tnum text-xs">
-				{rank.toString().padStart(2, "0")}
-			</div>
+			{/* Rank */}
+			<span
+				className="sk-mono"
+				style={{ fontSize: 10.5, textAlign: "right", paddingRight: 4, color: "var(--sk-fg-3)" }}
+			>
+				{String(rank).padStart(2, "0")}
+			</span>
 
-			<div className="flex items-center gap-2 min-w-0">
-				<ClassChip text={chipText} isLocal={player.isLocal ?? false} />
-				<div className="min-w-0">
-					<div className={`truncate text-sm ${player.isLocal ? "text-skirmish-amber" : "text-skirmish-text"}`}>
-						{player.name || player.userGuid.slice(0, 8) + "…"}
-					</div>
-					<div className="truncate text-[10px] uppercase tracking-wider text-skirmish-muted">
-						{player.roleLabel || player.guild || "—"}
-					</div>
-				</div>
-			</div>
-
-			<div className="relative h-7 flex items-center">
-				<div className={`absolute inset-y-0 left-0 rounded-sm ${barClass}`} style={{ width: `${pct}%` }} aria-hidden="true" />
-				<div className="relative z-10 pl-2 flex items-baseline gap-2">
-					<span className="tnum text-sm text-skirmish-text">{formatNum(cur)}</span>
-					<span className="tnum text-[11px] text-skirmish-muted">
-						↓ {formatNum(ovr)} session
+			{/* Class chip + name + role label */}
+			<div className="flex items-center min-w-0" style={{ gap: 8 }}>
+				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={20} />
+				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
+					<span
+						className="truncate"
+						style={{
+							fontSize: 12.5,
+							fontWeight: isLocal ? 600 : 500,
+							color: isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+						}}
+					>
+						{player.name || `${player.userGuid.slice(0, 8)}…`}
+					</span>
+					<span
+						className="sk-upper truncate"
+						style={{
+							fontSize: 9.5,
+							color: `var(--sk-role-${roleKey})`,
+							opacity: 0.85,
+						}}
+					>
+						{player.roleLabel || (player.guild ?? "")}
 					</span>
 				</div>
 			</div>
 
-			{cols.rate && (
-				<div className="text-right">
-					<div className="tnum text-sm text-skirmish-text">{rate > 0 ? formatNum(rate) : "—"}</div>
-					<div className="text-[9px] uppercase text-skirmish-muted leading-none">
-						{mode === "heal" ? "hps" : "dps"}
-					</div>
+			{/* Bar + dual value */}
+			<div className="relative h-full flex items-center">
+				<div
+					style={{
+						position: "absolute",
+						inset: "auto 0",
+						top: "50%",
+						transform: "translateY(-50%)",
+						height: Math.max(14, rowH - 12),
+						background: "transparent",
+						borderRadius: 2,
+					}}
+				>
+					<div
+						style={{
+							position: "absolute",
+							inset: 0,
+							width: `${pct}%`,
+							background: barFill,
+							border: barBorder,
+							borderRadius: 2,
+							transition: "width var(--sk-bar-dur) var(--sk-ease)",
+						}}
+					/>
+					{[0.25, 0.5, 0.75].map((p) => (
+						<div
+							key={p}
+							style={{
+								position: "absolute",
+								left: `${p * 100}%`,
+								top: 0,
+								bottom: 0,
+								width: 1,
+								background: "var(--sk-line)",
+							}}
+						/>
+					))}
 				</div>
-			)}
+				<div className="relative z-10 flex items-baseline" style={{ marginLeft: 8, gap: 8 }}>
+					<span
+						className="sk-mono"
+						style={{ fontSize: 13, fontWeight: 600, color: isLocal ? "var(--sk-local)" : "var(--sk-fg-0)" }}
+					>
+						{fmt(primary.cur)}
+					</span>
+					<span className="sk-mono" style={{ fontSize: 10.5, color: "var(--sk-fg-1)", opacity: 0.7 }}>
+						↳ {fmt(primary.ovr)} session
+					</span>
+				</div>
+			</div>
 
-			{cols.taken && (
-				<div className="text-right tnum text-sm text-skirmish-taken/90">
-					↓ {player.currentTaken > 0 ? formatNum(player.currentTaken) : "0"}
-				</div>
-			)}
+			{/* DPS / HPS — tinted to active tab */}
+			<div className="flex flex-col items-end" style={{ lineHeight: 1, gap: 2 }}>
+				<span
+					className="sk-mono"
+					style={{
+						fontSize: 14,
+						fontWeight: 600,
+						color: primary.rate != null ? tabColor : "var(--sk-fg-3)",
+					}}
+				>
+					{primary.rate != null ? fmtRate(primary.rate) : "—"}
+				</span>
+				<span className="sk-upper" style={{ color: "var(--sk-fg-3)", fontSize: 9 }}>
+					{mode === "heal" ? "hps" : mode === "damage" ? "dps" : ""}
+				</span>
+			</div>
 
-			{cols.heal && (
-				<div className="text-right tnum text-sm text-skirmish-heal/90">
-					+ {player.currentHeal > 0 ? formatNum(player.currentHeal) : "0"}
-				</div>
-			)}
+			{/* Taken chip */}
+			<MiniChip color="var(--sk-taken)" value={fmt(player.currentTaken)} glyph="↓" />
+			{/* Healing chip */}
+			<MiniChip color="var(--sk-heal)" value={fmt(player.currentHeal)} glyph="+" />
 		</div>
 	);
 }
 
-function barClassName(style: Settings["barStyle"], isLocal: boolean): string {
-	if (isLocal) {
-		switch (style) {
-			case "solid":
-				return "bg-skirmish-amber";
-			case "tint":
-				return "bg-skirmish-amber/25";
-			case "outline":
-			default:
-				return "bg-skirmish-amber/20 border border-skirmish-amber";
-		}
-	}
-	switch (style) {
-		case "solid":
-			return "bg-skirmish-amber-dim/70";
-		case "tint":
-			return "bg-skirmish-amber-dim/20";
-		case "outline":
-		default:
-			return "border border-skirmish-amber-dim/60";
-	}
-}
-
-interface ClassChipProps {
-	text: string;
-	isLocal: boolean;
-}
-
-function ClassChip({ text, isLocal }: ClassChipProps): React.ReactElement {
-	const tone = isLocal
-		? "bg-skirmish-amber/15 text-skirmish-amber border-skirmish-amber/40"
-		: "bg-skirmish-bg2 text-skirmish-dim border-skirmish-line";
+function MiniChip({ color, value, glyph }: { color: string; value: string; glyph: string }): React.ReactElement {
 	return (
 		<span
-			className={`shrink-0 inline-flex items-center justify-center w-9 h-6 text-[10px] tracking-[0.12em] font-medium border rounded-sm ${tone}`}
+			className="sk-mono inline-flex items-center"
+			style={{
+				gap: 3,
+				fontSize: 10.5,
+				color: "var(--sk-fg-1)",
+				justifyContent: "flex-end",
+				textAlign: "right",
+			}}
 		>
-			{text}
+			<span style={{ color, opacity: 0.75 }}>{glyph}</span>
+			{value}
 		</span>
 	);
 }
 
-function HoverTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement {
+function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement {
+	const roleKey = roleKeyOf(player.role);
+	const roleColor = `var(--sk-role-${roleKey})`;
+	const lines: Array<{ label: string; value: string; tint: string }> = [
+		{ label: "Damage done",   value: fmt(player.overallDamage), tint: "var(--sk-damage)" },
+		{ label: "Healing done",  value: fmt(player.overallHeal),   tint: "var(--sk-heal)" },
+		{ label: "Damage taken",  value: fmt(player.overallTaken),  tint: "var(--sk-taken)" },
+		{ label: "DPS · current", value: fmtRate(player.currentDps),tint: "var(--sk-fg-0)" },
+	];
 	return (
-		<div className="fixed bottom-12 right-4 z-40 w-64 bg-skirmish-bg2/95 backdrop-blur border border-skirmish-line rounded-md p-3 text-xs shadow-2xl pointer-events-none">
-			<div className="flex items-baseline gap-2 mb-2">
-				<div className={`text-sm font-medium ${player.isLocal ? "text-skirmish-amber" : "text-skirmish-text"}`}>
-					{player.name || "(unknown)"}
+		<div
+			style={{
+				position: "absolute",
+				right: 14,
+				bottom: 14,
+				width: 240,
+				background: "var(--sk-bg-2)",
+				border: "1px solid var(--sk-line-2)",
+				borderRadius: 6,
+				padding: 12,
+				boxShadow: "0 12px 32px -8px rgba(0,0,0,0.6), 0 2px 0 var(--sk-line)",
+				zIndex: 5,
+				pointerEvents: "none",
+			}}
+		>
+			<div
+				className="flex items-center"
+				style={{ gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--sk-line)" }}
+			>
+				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={22} />
+				<div className="min-w-0">
+					<div
+						style={{
+							fontSize: 13,
+							fontWeight: 600,
+							color: player.isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+						}}
+					>
+						{player.name || "(unknown)"}
+					</div>
+					<div className="sk-upper" style={{ fontSize: 9.5, color: roleColor }}>
+						{player.roleLabel || "—"}
+					</div>
 				</div>
-				{player.guild && <div className="text-skirmish-muted text-[10px]">[{player.guild}]</div>}
 			</div>
-			<StatRow label="Damage current"  value={formatNum(player.currentDamage)} />
-			<StatRow label="Damage session"  value={formatNum(player.overallDamage)} dim />
-			<StatRow label="DPS"             value={formatNum(player.currentDps)} />
-			<StatRow label="Healing current" value={formatNum(player.currentHeal)} />
-			<StatRow label="Healing session" value={formatNum(player.overallHeal)} dim />
-			<StatRow label="Taken current"   value={formatNum(player.currentTaken)} />
-			<StatRow label="Taken session"   value={formatNum(player.overallTaken)} dim />
+			<div className="flex flex-col" style={{ gap: 6 }}>
+				{lines.map((l) => (
+					<div key={l.label} className="flex items-baseline justify-between" style={{ gap: 8 }}>
+						<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>{l.label}</span>
+						<span className="sk-mono" style={{ fontSize: 12, color: l.tint, fontWeight: 600 }}>{l.value}</span>
+					</div>
+				))}
+			</div>
+			<div
+				className="flex justify-between"
+				style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--sk-line)" }}
+			>
+				<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>Click row → drill in</span>
+			</div>
 		</div>
 	);
 }
 
-function StatRow({ label, value, dim }: { label: string; value: string; dim?: boolean }): React.ReactElement {
+function EmptyState(): React.ReactElement {
 	return (
-		<div className="flex justify-between py-0.5">
-			<span className={`text-[10px] uppercase tracking-wider ${dim ? "text-skirmish-muted" : "text-skirmish-dim"}`}>
-				{label}
-			</span>
-			<span className={`tnum text-xs ${dim ? "text-skirmish-dim" : "text-skirmish-text"}`}>{value}</span>
+		<div className="flex items-center justify-center" style={{ minHeight: 240, color: "var(--sk-fg-2)" }}>
+			<div className="text-center" style={{ padding: 32 }}>
+				<div
+					className="sk-upper"
+					style={{ color: "var(--sk-fg-3)", marginBottom: 8 }}
+				>
+					Waiting for combat
+				</div>
+				<div style={{ fontSize: 13, color: "var(--sk-fg-1)" }}>
+					Re-zone in Albion (walk through any portal) to populate the meter.
+				</div>
+			</div>
 		</div>
 	);
-}
-
-function formatNum(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-	if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
-	if (n >= 1000) return `${(n / 1000).toFixed(2)}K`;
-	return Math.round(n).toString();
 }

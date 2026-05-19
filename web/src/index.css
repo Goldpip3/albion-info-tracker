@@ -1,30 +1,116 @@
 @import "tailwindcss";
 
-/* Skirmish theme tokens. Inline @theme block becomes Tailwind utilities,
-   so a class like text-skirmish-amber works alongside the standard palette. */
-@theme {
-	--color-skirmish-bg: oklch(0.18 0.005 240);
-	--color-skirmish-bg2: oklch(0.22 0.005 240);
-	--color-skirmish-line: oklch(0.27 0.006 240);
-	--color-skirmish-text: oklch(0.93 0 0);
-	--color-skirmish-dim: oklch(0.62 0.005 240);
-	--color-skirmish-muted: oklch(0.45 0.005 240);
+/* ─── Skirmish design tokens ──────────────────────────────────────────
+   Mirrors tokens.css from the Claude Design handoff. All UI components
+   consume these via the var(--sk-*) names, so a runtime accent swap is
+   a single CSS-variable assignment on document.documentElement (see
+   App.tsx's useSettings effect). */
 
-	--color-skirmish-amber: oklch(0.79 0.16 78);
-	--color-skirmish-amber-dim: oklch(0.65 0.13 78);
+:root {
+	/* Base — cool near-black */
+	--sk-bg-0: #0a0b0d;
+	--sk-bg-1: #0f1114;
+	--sk-bg-2: #14171c;
+	--sk-bg-3: #1a1e25;
+	--sk-line: #1f242c;
+	--sk-line-2: #2a313b;
 
-	--color-skirmish-heal: oklch(0.75 0.18 145);
-	--color-skirmish-taken: oklch(0.7 0.2 25);
-	--color-skirmish-buff: oklch(0.7 0.18 285);
-	--color-skirmish-cc: oklch(0.82 0.16 90);
+	/* Text */
+	--sk-fg-0: #e7ebf0;
+	--sk-fg-1: #a4adb8;
+	--sk-fg-2: #6b7480;
+	--sk-fg-3: #444c57;
+
+	/* Accents — matched chroma 0.15, L 0.72/0.78 */
+	--sk-local:  oklch(0.78 0.13 215); /* cyan — local player */
+	--sk-damage: oklch(0.78 0.13 70);  /* amber — damage */
+	--sk-heal:   oklch(0.74 0.13 150); /* emerald — healing */
+	--sk-taken:  oklch(0.68 0.18 22);  /* crimson — taken */
+	--sk-warn:   oklch(0.78 0.13 90);
+	--sk-ok:     oklch(0.74 0.13 150);
+	--sk-err:    oklch(0.68 0.18 22);
+
+	/* Low-alpha tints for outlined bars */
+	--sk-local-tint:  color-mix(in oklab, var(--sk-local)  14%, transparent);
+	--sk-damage-tint: color-mix(in oklab, var(--sk-damage) 14%, transparent);
+	--sk-heal-tint:   color-mix(in oklab, var(--sk-heal)   14%, transparent);
+	--sk-taken-tint:  color-mix(in oklab, var(--sk-taken)  14%, transparent);
+
+	/* Role colors — matched chroma 0.13, L 0.72 */
+	--sk-role-tank:    oklch(0.72 0.13 250);
+	--sk-role-healer:  oklch(0.74 0.13 150);
+	--sk-role-mdps:    oklch(0.70 0.16 25);
+	--sk-role-rdps:    oklch(0.75 0.14 60);
+	--sk-role-support: oklch(0.72 0.14 290);
+	--sk-role-control: oklch(0.74 0.12 210);
+	--sk-role-unknown: var(--sk-fg-3);
+
+	/* Type */
+	--sk-font-sans: "Geist", "Inter", system-ui, -apple-system, sans-serif;
+	--sk-font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+	/* Density */
+	--sk-row-h: 28px;
+	--sk-radius: 4px;
+	--sk-radius-lg: 8px;
+
+	/* Motion */
+	--sk-ease: cubic-bezier(.2, .7, .2, 1);
+	--sk-bar-dur: 350ms;
 }
 
-body {
-	background: var(--color-skirmish-bg);
-	color: var(--color-skirmish-text);
+/* ─── Tailwind v4 theme bridge ────────────────────────────────────────
+   Exposes the design tokens as Tailwind utilities (bg-sk-bg-0, text-sk-fg-1,
+   border-sk-line, etc.) without forcing me to write inline styles
+   everywhere. */
+@theme {
+	--color-sk-bg-0: var(--sk-bg-0);
+	--color-sk-bg-1: var(--sk-bg-1);
+	--color-sk-bg-2: var(--sk-bg-2);
+	--color-sk-bg-3: var(--sk-bg-3);
+	--color-sk-line: var(--sk-line);
+	--color-sk-line-2: var(--sk-line-2);
+	--color-sk-fg-0: var(--sk-fg-0);
+	--color-sk-fg-1: var(--sk-fg-1);
+	--color-sk-fg-2: var(--sk-fg-2);
+	--color-sk-fg-3: var(--sk-fg-3);
+	--color-sk-local: var(--sk-local);
+	--color-sk-damage: var(--sk-damage);
+	--color-sk-heal: var(--sk-heal);
+	--color-sk-taken: var(--sk-taken);
+
+	--font-sans: var(--sk-font-sans);
+	--font-mono: var(--sk-font-mono);
+}
+
+html, body {
+	background: var(--sk-bg-0);
+	color: var(--sk-fg-0);
+	font-family: var(--sk-font-sans);
+	font-size: 13px;
+	line-height: 1.35;
 	font-feature-settings: "ss01", "cv11";
 }
 
-.tnum {
+.tnum, .sk-mono {
+	font-family: var(--sk-font-mono);
 	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.01em;
+}
+
+.sk-upper {
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	font-size: 10.5px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--sk-line-2); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Shared keyframes */
+@keyframes sk-pulse {
+	0%, 100% { transform: scale(1); opacity: 1; }
+	50%      { transform: scale(1.25); opacity: 0.7; }
 }

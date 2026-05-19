@@ -7,11 +7,14 @@ export interface Settings {
 	density: Density;
 	barStyle: BarStyle;
 	pinLocal: boolean;
-	groupByRole: boolean; // hooked up in T3
+	groupByRole: boolean;
 	columns: ColumnVisibility;
 }
 
-export type AccentColor = "amber" | "blue" | "purple" | "green" | "red" | "yellow" | "pink";
+// Accent options match the design canvas's Theme accent row (cyan = local
+// default). When changed, the App-level effect overwrites --sk-local on
+// :root so every component re-tints without re-rendering.
+export type AccentColor = "cyan" | "violet" | "amber" | "lime" | "rose";
 export type Density = 24 | 28 | 34;
 export type BarStyle = "outline" | "tint" | "solid";
 
@@ -21,15 +24,23 @@ export interface ColumnVisibility {
 	hps: boolean;
 	damageTaken: boolean;
 	healing: boolean;
+	critPct: boolean;
 }
 
 const DEFAULT: Settings = {
-	accent: "amber",
+	accent: "cyan",
 	density: 28,
 	barStyle: "outline",
 	pinLocal: true,
 	groupByRole: false,
-	columns: { itemPower: false, dps: true, hps: false, damageTaken: true, healing: true },
+	columns: {
+		itemPower: false,
+		dps: true,
+		hps: false,
+		damageTaken: true,
+		healing: true,
+		critPct: false,
+	},
 };
 
 const KEY = "skirmish:settings";
@@ -74,17 +85,16 @@ export function useSettings(): {
 	return { settings, update, reset };
 }
 
-// accentOklch returns the OKLCH triplet for an accent so we can drive the
-// CSS variable in App.tsx. Matching tones to the design's color row.
-export function accentOklch(c: AccentColor): { fg: string; dim: string } {
+// accentOklch returns the OKLCH triplet for the local-player accent. The
+// "fg" value goes into --sk-local; the "tint" goes into --sk-local-tint
+// for outlined bar backgrounds. Hues match the design's swatch row.
+export function accentOklch(c: AccentColor): { fg: string; tint: string } {
 	switch (c) {
-		case "blue":   return { fg: "oklch(0.75 0.15 240)", dim: "oklch(0.6 0.13 240)" };
-		case "purple": return { fg: "oklch(0.7 0.18 295)",  dim: "oklch(0.55 0.16 295)" };
-		case "green":  return { fg: "oklch(0.75 0.18 145)", dim: "oklch(0.6 0.16 145)" };
-		case "red":    return { fg: "oklch(0.7 0.2 25)",    dim: "oklch(0.55 0.18 25)" };
-		case "yellow": return { fg: "oklch(0.85 0.17 95)",  dim: "oklch(0.7 0.15 95)" };
-		case "pink":   return { fg: "oklch(0.75 0.2 350)",  dim: "oklch(0.6 0.18 350)" };
-		case "amber":
-		default:       return { fg: "oklch(0.79 0.16 78)",  dim: "oklch(0.65 0.13 78)" };
+		case "violet": return { fg: "oklch(0.72 0.14 295)", tint: "color-mix(in oklab, oklch(0.72 0.14 295) 14%, transparent)" };
+		case "amber":  return { fg: "oklch(0.78 0.13 70)",  tint: "color-mix(in oklab, oklch(0.78 0.13 70) 14%, transparent)" };
+		case "lime":   return { fg: "oklch(0.74 0.13 150)", tint: "color-mix(in oklab, oklch(0.74 0.13 150) 14%, transparent)" };
+		case "rose":   return { fg: "oklch(0.68 0.18 22)",  tint: "color-mix(in oklab, oklch(0.68 0.18 22) 14%, transparent)" };
+		case "cyan":
+		default:       return { fg: "oklch(0.78 0.13 215)", tint: "color-mix(in oklab, oklch(0.78 0.13 215) 14%, transparent)" };
 	}
 }

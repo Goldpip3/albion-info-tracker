@@ -1,155 +1,239 @@
-import type { PlayerSnapshot } from "./types.ts";
+import type { PlayerSnapshot, SpellBreakdown } from "./types.ts";
+import { ClassChip } from "./ClassChip.tsx";
+import { fmt, fmtRate, prettySpell, roleKeyOf } from "./format.ts";
 
 interface DrillInProps {
 	player: PlayerSnapshot;
 	onClose: () => void;
 }
 
-// DrillIn renders the per-player breakdown screen modeled after the design
-// canvas. For T4 only the Abilities tab carries data — Targets / Taken /
-// Healing received / Timeline are stubs visible but inert.
+// Per-player drill-in. Matches details.jsx's PlayerDrillIn from the design:
+// header with class chip, name + role line, big stats, tab row, then a
+// table of abilities with damage-bar fills.
 export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
 	const spells = player.spells ?? [];
 	const max = spells[0]?.totalDamage ?? 0;
+	const roleKey = roleKeyOf(player.role);
 
 	return (
-		<div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-stretch justify-center p-2 md:p-6" onClick={onClose}>
+		<div
+			className="fixed inset-0 z-40 flex items-stretch justify-center p-2 md:p-6"
+			style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+			onClick={onClose}
+		>
 			<div
-				className="w-full max-w-3xl flex flex-col bg-skirmish-bg2 border border-skirmish-line rounded-md overflow-hidden"
+				className="w-full max-w-3xl flex flex-col"
+				style={{
+					background: "var(--sk-bg-0)",
+					border: "1px solid var(--sk-line)",
+					borderRadius: 8,
+					overflow: "hidden",
+				}}
 				onClick={(e) => e.stopPropagation()}
 			>
-				<DrillHeader player={player} onClose={onClose} />
+				<DrillHeader player={player} roleKey={roleKey} onClose={onClose} />
 				<DrillTabs />
-				<DrillAbilities spells={spells} max={max} />
+				<DrillColumnHeader />
+				<DrillRows spells={spells} max={max} />
 			</div>
 		</div>
 	);
 }
 
-function DrillHeader({ player, onClose }: { player: PlayerSnapshot; onClose: () => void }): React.ReactElement {
-	const chipText = player.classCode && player.classCode !== "—" ? player.classCode : "—";
+function DrillHeader({
+	player,
+	roleKey,
+	onClose,
+}: {
+	player: PlayerSnapshot;
+	roleKey: ReturnType<typeof roleKeyOf>;
+	onClose: () => void;
+}): React.ReactElement {
+	const totalHits = (player.spells ?? []).reduce((s, x) => s + x.hits, 0);
+	const maxHit = (player.spells ?? []).reduce((m, s) => Math.max(m, s.maxHit), 0);
+
 	return (
-		<header className="flex items-center gap-3 px-4 py-3 border-b border-skirmish-line">
-			<button onClick={onClose} className="text-skirmish-muted hover:text-skirmish-text text-xl leading-none">
-				←
-			</button>
-			<span className="shrink-0 inline-flex items-center justify-center w-10 h-7 text-[11px] tracking-[0.12em] font-medium border rounded-sm bg-skirmish-amber/15 text-skirmish-amber border-skirmish-amber/40">
-				{chipText}
-			</span>
-			<div className="min-w-0 mr-auto">
-				<div className={`truncate text-base font-medium ${player.isLocal ? "text-skirmish-amber" : "text-skirmish-text"}`}>
-					{player.name || "(unknown)"}
-				</div>
-				<div className="truncate text-[10px] uppercase tracking-wider text-skirmish-muted">
-					{player.roleLabel || player.guild || "—"}
+		<div
+			className="flex items-center justify-between px-4 py-3"
+			style={{ borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-1)" }}
+		>
+			<div className="flex items-center" style={{ gap: 12 }}>
+				<button
+					onClick={onClose}
+					aria-label="Close"
+					style={{
+						appearance: "none",
+						border: "1px solid var(--sk-line)",
+						background: "var(--sk-bg-2)",
+						color: "var(--sk-fg-1)",
+						width: 24,
+						height: 24,
+						borderRadius: 4,
+						cursor: "pointer",
+						fontSize: 12,
+					}}
+				>
+					←
+				</button>
+				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={28} />
+				<div>
+					<div
+						style={{
+							fontSize: 16,
+							fontWeight: 600,
+							color: player.isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
+						}}
+					>
+						{player.name || "(unknown)"}
+					</div>
+					<div
+						className="sk-upper"
+						style={{ color: `var(--sk-role-${roleKey})`, fontSize: 9.5 }}
+					>
+						{player.roleLabel || "—"}
+					</div>
 				</div>
 			</div>
-			<HeaderStat label="Damage" value={formatNum(player.currentDamage)} />
-			<HeaderStat label="DPS"    value={formatNum(player.currentDps)} />
-			<HeaderStat label="Hits"   value={(player.spells ?? []).reduce((s, x) => s + x.hits, 0).toString()} />
-			<HeaderStat label="Max"    value={formatNum(maxHit(player.spells ?? []))} />
-		</header>
+			<div className="flex" style={{ gap: 22 }}>
+				<Stat label="Damage" value={fmt(player.currentDamage)} accent="var(--sk-damage)" />
+				<Stat label="DPS"    value={fmtRate(player.currentDps)} />
+				<Stat label="Hits"   value={totalHits.toString()} />
+				<Stat label="Max"    value={fmt(maxHit)} />
+			</div>
+		</div>
 	);
 }
 
-function HeaderStat({ label, value }: { label: string; value: string }): React.ReactElement {
+function Stat({ label, value, accent }: { label: string; value: string; accent?: string }): React.ReactElement {
 	return (
-		<div className="text-right">
-			<div className="text-[9px] uppercase tracking-[0.15em] text-skirmish-muted leading-none">{label}</div>
-			<div className="tnum text-base text-skirmish-text">{value}</div>
+		<div className="flex flex-col items-end" style={{ gap: 2 }}>
+			<span className="sk-upper" style={{ color: "var(--sk-fg-3)" }}>{label}</span>
+			<span className="sk-mono" style={{ fontSize: 15, fontWeight: 600, color: accent ?? "var(--sk-fg-0)" }}>
+				{value}
+			</span>
 		</div>
 	);
 }
 
 function DrillTabs(): React.ReactElement {
-	const tabs = [
-		{ id: "abilities", label: "Abilities", active: true },
-		{ id: "targets", label: "Targets", active: false },
-		{ id: "taken", label: "Taken", active: false },
-		{ id: "healing", label: "Healing received", active: false },
-		{ id: "timeline", label: "Timeline", active: false },
-	];
+	const tabs = ["Abilities", "Targets", "Taken", "Healing received", "Timeline"];
 	return (
-		<div className="flex gap-2 px-4 py-2 border-b border-skirmish-line text-[11px] uppercase tracking-[0.12em]">
-			{tabs.map((t) => (
-				<button
-					key={t.id}
-					disabled={!t.active}
-					className={t.active
-						? "px-2 py-0.5 rounded bg-skirmish-text text-skirmish-bg"
-						: "px-2 py-0.5 rounded text-skirmish-muted/60 cursor-not-allowed"
-					}
-					title={t.active ? "" : "Coming soon"}
+		<div
+			className="flex"
+			style={{ padding: "0 16px", borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-1)" }}
+		>
+			{tabs.map((t, i) => (
+				<span
+					key={t}
+					style={{
+						padding: "10px 12px",
+						fontSize: 11.5,
+						color: i === 0 ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
+						fontWeight: i === 0 ? 600 : 400,
+						borderBottom: i === 0 ? "2px solid var(--sk-damage)" : "2px solid transparent",
+						cursor: i === 0 ? "default" : "not-allowed",
+						opacity: i === 0 ? 1 : 0.6,
+					}}
+					title={i === 0 ? "" : "Coming soon"}
 				>
-					{t.label}
-				</button>
+					{t}
+				</span>
 			))}
 		</div>
 	);
 }
 
-function DrillAbilities({ spells, max }: { spells: PlayerSnapshot["spells"]; max: number }): React.ReactElement {
-	if (!spells || spells.length === 0) {
+function DrillColumnHeader(): React.ReactElement {
+	return (
+		<div
+			className="grid items-center"
+			style={{
+				gridTemplateColumns: "1fr 70px 70px 70px",
+				gap: 12,
+				padding: "10px 18px",
+				fontSize: 10,
+				color: "var(--sk-fg-3)",
+				textTransform: "uppercase",
+				letterSpacing: "0.08em",
+				borderBottom: "1px solid var(--sk-line)",
+			}}
+		>
+			<span>Ability</span>
+			<span style={{ textAlign: "right" }}>Total</span>
+			<span style={{ textAlign: "right" }}>Hits</span>
+			<span style={{ textAlign: "right" }}>Max hit</span>
+		</div>
+	);
+}
+
+function DrillRows({ spells, max }: { spells: SpellBreakdown[]; max: number }): React.ReactElement {
+	if (spells.length === 0) {
 		return (
-			<div className="flex-1 px-4 py-16 text-center text-sm text-skirmish-dim">
+			<div
+				className="flex-1 flex items-center justify-center"
+				style={{ padding: 48, color: "var(--sk-fg-2)", fontSize: 13 }}
+			>
 				No abilities recorded in the current fight yet.
 			</div>
 		);
 	}
 	return (
 		<div className="flex-1 overflow-auto">
-			<div className="grid grid-cols-[1fr_5rem_5rem_5rem] gap-3 px-4 py-2 text-[10px] uppercase tracking-[0.15em] text-skirmish-muted border-b border-skirmish-line">
-				<div>Ability</div>
-				<div className="text-right">Total</div>
-				<div className="text-right">Hits</div>
-				<div className="text-right">Max hit</div>
-			</div>
-			<div>
-				{spells.map((s) => {
-					const pct = max > 0 ? (s.totalDamage / max) * 100 : 0;
-					return (
-						<div key={s.index} className="relative grid grid-cols-[1fr_5rem_5rem_5rem] gap-3 px-4 py-1.5 items-center border-b border-skirmish-line/40">
-							<div className="relative">
-								<div
-									className="absolute inset-y-0 left-0 -ml-2 rounded-sm bg-skirmish-amber/15 border border-skirmish-amber/40"
-									style={{ width: `calc(${pct}% + 1rem)` }}
-									aria-hidden="true"
-								/>
-								<div className="relative pl-1 truncate text-sm text-skirmish-text">
-									{prettyName(s.name) || `#${s.index}`}
-								</div>
-							</div>
-							<div className="text-right tnum text-sm">{formatNum(s.totalDamage)}</div>
-							<div className="text-right tnum text-sm text-skirmish-dim">{s.hits}</div>
-							<div className="text-right tnum text-sm text-skirmish-dim">{formatNum(s.maxHit)}</div>
+			{spells.map((s) => {
+				const pct = max > 0 ? (s.totalDamage / max) * 100 : 0;
+				return (
+					<div
+						key={s.index}
+						className="grid items-center"
+						style={{
+							gridTemplateColumns: "1fr 70px 70px 70px",
+							gap: 12,
+							padding: "8px 18px",
+							background: "var(--sk-bg-1)",
+							borderBottom: "1px solid var(--sk-line)",
+							height: 36,
+						}}
+					>
+						<div className="relative flex items-center" style={{ height: 22 }}>
+							<div
+								style={{
+									position: "absolute",
+									inset: 0,
+									border: "1px solid var(--sk-line)",
+									borderRadius: 2,
+								}}
+							/>
+							<div
+								style={{
+									position: "absolute",
+									top: 0,
+									bottom: 0,
+									left: 0,
+									width: `${pct}%`,
+									background: "var(--sk-damage-tint)",
+									border: "1px solid var(--sk-damage)",
+									borderRadius: 2,
+								}}
+							/>
+							<span
+								className="relative truncate"
+								style={{ marginLeft: 8, zIndex: 1, fontSize: 12, fontWeight: 500, color: "var(--sk-fg-0)" }}
+							>
+								{prettySpell(s.name) || `#${s.index}`}
+							</span>
 						</div>
-					);
-				})}
-			</div>
+						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: "var(--sk-damage)" }}>
+							{fmt(s.totalDamage)}
+						</span>
+						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>
+							{s.hits}
+						</span>
+						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>
+							{fmt(s.maxHit)}
+						</span>
+					</div>
+				);
+			})}
 		</div>
 	);
-}
-
-function maxHit(spells: PlayerSnapshot["spells"]): number {
-	if (!spells || spells.length === 0) return 0;
-	return spells.reduce((m, s) => (s.maxHit > m ? s.maxHit : m), 0);
-}
-
-// prettyName turns Albion's TOKEN_CASE into a more readable form.
-//   FIREBALL_AOE        → "Fireball aoe"
-//   PASSIVE_AA_STACK    → "Passive aa stack"
-function prettyName(name?: string): string {
-	if (!name) return "";
-	const parts = name.split("_").filter(Boolean);
-	if (parts.length === 0) return name;
-	const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
-	const rest = parts.slice(1).map((p) => p.toLowerCase()).join(" ");
-	return rest ? `${first} ${rest}` : first;
-}
-
-function formatNum(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-	if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`;
-	if (n >= 1000) return `${(n / 1000).toFixed(2)}K`;
-	return Math.round(n).toString();
 }
