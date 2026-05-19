@@ -41,8 +41,14 @@ func main() {
 			engine.SetItemCatalog(items)
 			log.Printf("items.bin: %d entries loaded for weapon classification", items.Len())
 		}
+		if spells, err := gamedata.LoadSpellCatalog(cfg.AlbionInstallRoot, gamedata.ServerLive); err != nil {
+			log.Printf("spells.bin: %v (spell drill-in will show numeric indexes)", err)
+		} else {
+			engine.SetSpellCatalog(spells)
+			log.Printf("spells.bin: %d entries loaded for ability names", spells.Len())
+		}
 	} else {
-		log.Print("AlbionInstallRoot not configured — class chips will be blank. Set ALBION_INSTALL or albionInstallRoot in agent.json.")
+		log.Print("AlbionInstallRoot not configured — class chips will be blank and spells unresolved. Set ALBION_INSTALL or albionInstallRoot in agent.json.")
 	}
 	parser := photon.New(engine.Handlers())
 

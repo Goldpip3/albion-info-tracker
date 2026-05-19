@@ -2,12 +2,41 @@ package domain
 
 import (
 	"os"
+	"sort"
 	"time"
 )
 
 // showAll loosens the meter's party gate. When true, Snapshot returns every
 // entity with combat activity, not just party members.
 var showAll = os.Getenv("ALBION_AGENT_SHOW_ALL") != ""
+
+// topSpells returns the top n spells for an entity by total damage,
+// resolving names via the engine's SpellCatalog when available. Caller
+// must hold store.mu.
+func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
+	if len(ent.BySpell) == 0 {
+		return nil
+	}
+	out := make([]SpellBreakdown, 0, len(ent.BySpell))
+	for idx, s := range ent.BySpell {
+		var name string
+		if e.spells != nil {
+			name = e.spells.Name(idx)
+		}
+		out = append(out, SpellBreakdown{
+			Index:       idx,
+			Name:        name,
+			TotalDamage: s.TotalDamage,
+			MaxHit:      s.MaxHit,
+			Hits:        s.Hits,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TotalDamage > out[j].TotalDamage })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
 
 // PlayerSnapshot is a serializable view of one party member's combat numbers
 // at an instant. Used both for stdout debugging now and for WebSocket push
@@ -36,6 +65,19 @@ type PlayerSnapshot struct {
 	OverallHPS    float64 `json:"overallHps"`
 	CurrentTaken  int64   `json:"currentTaken"`
 	OverallTaken  int64   `json:"overallTaken"`
+
+	// Top spells used during the current fight, sorted by total damage
+	// descending. Only included when there's something to show.
+	Spells []SpellBreakdown `json:"spells,omitempty"`
+}
+
+// SpellBreakdown is one row of the drill-in screen's ability table.
+type SpellBreakdown struct {
+	Index       int    `json:"index"`
+	Name        string `json:"name,omitempty"` // spells.bin uniquename, when known
+	TotalDamage int64  `json:"totalDamage"`
+	MaxHit      int64  `json:"maxHit"`
+	Hits        int    `json:"hits"`
 }
 
 // Composition counts each role across the snapshot's players.
@@ -112,6 +154,8 @@ func (e *Engine) Snapshot() Snapshot {
 			OverallHPS:    m.Overall.HPS(),
 			CurrentTaken:  m.Current.DamageTaken,
 			OverallTaken:  m.Overall.DamageTaken,
+
+			Spells: e.topSpells(m, 10),
 		})
 		switch m.Role {
 		case "T":

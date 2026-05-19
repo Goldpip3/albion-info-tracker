@@ -6,9 +6,10 @@ interface MeterTableProps {
 	snapshot: Snapshot | null;
 	mode: Mode;
 	settings: Settings;
+	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-export function MeterTable({ snapshot, mode, settings }: MeterTableProps): React.ReactElement {
+export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTableProps): React.ReactElement {
 	const players = snapshot?.players ?? [];
 	const [hovered, setHovered] = useState<PlayerSnapshot | null>(null);
 
@@ -100,6 +101,7 @@ export function MeterTable({ snapshot, mode, settings }: MeterTableProps): React
 						cols={cols}
 						gridCols={gridCols}
 						onHover={setHovered}
+						onDrillIn={onDrillIn}
 					/>
 				))}
 			</div>
@@ -132,9 +134,10 @@ interface MeterRowProps {
 	cols: VisibleCols;
 	gridCols: string;
 	onHover: (p: PlayerSnapshot | null) => void;
+	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
-function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover }: MeterRowProps): React.ReactElement {
+function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover, onDrillIn }: MeterRowProps): React.ReactElement {
 	const cur =
 		mode === "damage"
 			? player.currentDamage
@@ -161,10 +164,12 @@ function MeterRow({ rank, player, mode, max, settings, cols, gridCols, onHover }
 
 	return (
 		<div
-			className={`group relative grid gap-3 px-4 ${pyPad} items-center border-b border-skirmish-line/40 hover:bg-skirmish-bg2/40`}
+			className={`group relative grid gap-3 px-4 ${pyPad} items-center border-b border-skirmish-line/40 hover:bg-skirmish-bg2/40 cursor-pointer`}
 			style={{ gridTemplateColumns: gridCols }}
 			onMouseEnter={() => onHover(player)}
 			onMouseLeave={() => onHover(null)}
+			onClick={() => onDrillIn(player)}
+			title="Click to drill into abilities"
 		>
 			<div className="text-skirmish-muted tnum text-xs">
 				{rank.toString().padStart(2, "0")}

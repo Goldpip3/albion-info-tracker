@@ -28,7 +28,20 @@ type Entity struct {
 	Current CombatStats
 	Overall CombatStats
 
+	// BySpell aggregates damage per spell index for the drill-in view.
+	// Key is the CausingSpellIndex from HealthUpdate (param 7).
+	BySpell map[int]*SpellTotals
+
 	LastSeen time.Time
+}
+
+// SpellTotals is the per-(player, spell) breakdown shown on the drill-in
+// screen. Hits is the HealthUpdate count — not the true cast count, which
+// would require correlating CastStart events.
+type SpellTotals struct {
+	TotalDamage int64
+	MaxHit      int64
+	Hits        int
 }
 
 // Store is the in-memory entity registry. All mutating methods take the write

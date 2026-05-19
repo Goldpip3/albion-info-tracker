@@ -4,8 +4,9 @@ import { MeterTable } from "./MeterTable.tsx";
 import { Header } from "./Header.tsx";
 import { Footer } from "./Footer.tsx";
 import { SettingsPanel } from "./SettingsPanel.tsx";
+import { DrillIn } from "./DrillIn.tsx";
 import { accentOklch, useSettings } from "./useSettings.ts";
-import type { Mode } from "./types.ts";
+import type { Mode, PlayerSnapshot } from "./types.ts";
 
 function useStored(key: string, initial: string): [string, (v: string) => void] {
 	const [v, setV] = useState<string>(() => {
@@ -35,6 +36,7 @@ export default function App(): React.ReactElement {
 
 	const { settings, update, reset } = useSettings();
 	const [showSettings, setShowSettings] = useState(false);
+	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 
 	const configured = url.trim() !== "" && token.trim() !== "";
 	const { state, snapshot, lastMessageAt, error } = useMeterSocket({
@@ -78,7 +80,12 @@ export default function App(): React.ReactElement {
 				}}
 			/>
 			<main className="flex-1 overflow-auto">
-				<MeterTable snapshot={snapshot} mode={mode} settings={settings} />
+				<MeterTable
+					snapshot={snapshot}
+					mode={mode}
+					settings={settings}
+					onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+				/>
 				{error && (
 					<div className="px-4 py-2 text-xs text-rose-300">connection: {error}</div>
 				)}
@@ -92,6 +99,10 @@ export default function App(): React.ReactElement {
 					onClose={() => setShowSettings(false)}
 				/>
 			)}
+			{drillGuid && snapshot && (() => {
+				const p = snapshot.players.find((p) => p.userGuid === drillGuid);
+				return p ? <DrillIn player={p} onClose={() => setDrillGuid(null)} /> : null;
+			})()}
 		</div>
 	);
 }

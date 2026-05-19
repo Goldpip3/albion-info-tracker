@@ -20,6 +20,16 @@ export interface PlayerSnapshot {
 	overallHps: number;
 	currentTaken: number;
 	overallTaken: number;
+
+	spells?: SpellBreakdown[];
+}
+
+export interface SpellBreakdown {
+	index: number;
+	name?: string;
+	totalDamage: number;
+	maxHit: number;
+	hits: number;
 }
 
 export interface Composition {

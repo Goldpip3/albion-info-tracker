@@ -36,6 +36,11 @@ type Engine struct {
 	// "?" / "—" until the catalog loads or never loads.
 	items *gamedata.ItemCatalog
 
+	// spells, when set, resolves CausingSpellIndex from HealthUpdate to a
+	// uniquename for the drill-in screen. Nil is fine — the drill-in just
+	// shows the numeric index.
+	spells *gamedata.SpellCatalog
+
 	// Fight lifecycle. CombatStart is when the current fight began;
 	// LastDamageAt is the most-recent damage tick we saw. Out → in
 	// transitions increment FightNumber and reset every entity's
@@ -66,6 +71,17 @@ func NewEngine() *Engine {
 // role classification. Safe to call before or after capture starts.
 func (e *Engine) SetItemCatalog(c *gamedata.ItemCatalog) {
 	e.items = c
+}
+
+// SetSpellCatalog wires a spells.bin catalog into the engine so the drill-in
+// screen can resolve a CausingSpellIndex to a uniquename.
+func (e *Engine) SetSpellCatalog(c *gamedata.SpellCatalog) {
+	e.spells = c
+}
+
+// SpellCatalog returns the configured spell catalog, or nil.
+func (e *Engine) SpellCatalog() *gamedata.SpellCatalog {
+	return e.spells
 }
 
 // Store exposes the underlying store for read-only consumers like the
@@ -150,6 +166,7 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 	affected, _ := paramLong(p, 0)
 	change, _ := paramDouble(p, 2)
 	causer, _ := paramLong(p, 6)
+	spellIdx, _ := paramLong(p, 7)
 	if causer == 0 {
 		return
 	}
@@ -169,6 +186,7 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 		if causerEnt := e.store.ByObjectId(causer); causerEnt != nil {
 			e.store.mu.Lock()
 			recordDamage(&causerEnt.Current, &causerEnt.Overall, dmg, now)
+			recordSpell(causerEnt, int(spellIdx), dmg)
 			e.store.mu.Unlock()
 		}
 		if affEnt := e.store.ByObjectId(affected); affEnt != nil {
@@ -191,6 +209,24 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 	}
 }
 
+// recordSpell increments the per-spell totals for an entity. Caller must
+// hold store.mu.
+func recordSpell(ent *Entity, spellIdx int, dmg int64) {
+	if ent.BySpell == nil {
+		ent.BySpell = make(map[int]*SpellTotals, 8)
+	}
+	s, ok := ent.BySpell[spellIdx]
+	if !ok {
+		s = &SpellTotals{}
+		ent.BySpell[spellIdx] = s
+	}
+	s.TotalDamage += dmg
+	s.Hits++
+	if dmg > s.MaxHit {
+		s.MaxHit = dmg
+	}
+}
+
 // touchCombat updates lastDamageAt and, if we were idle long enough, ends
 // the prior fight and starts a new one — bumping FightNumber and zeroing
 // every entity's Current bucket. Called from handleHealthUpdate before any
@@ -209,12 +245,14 @@ func (e *Engine) touchCombat(now time.Time) {
 }
 
 // resetAllCurrent zeroes the per-fight stats for every tracked entity.
-// Overall persists for the session.
+// Overall persists for the session. Per-spell breakdown is also reset
+// here so the drill-in screen shows abilities used in *this* fight.
 func (e *Engine) resetAllCurrent() {
 	e.store.mu.Lock()
 	defer e.store.mu.Unlock()
 	for _, ent := range e.store.byGuid {
 		ent.Current.Reset()
+		ent.BySpell = nil
 	}
 }
 
