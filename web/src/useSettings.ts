@@ -9,7 +9,13 @@ export interface Settings {
 	pinLocal: boolean;
 	groupByRole: boolean;
 	columns: ColumnVisibility;
+	showActivityLog: boolean;
+	paneMode: PaneMode;
 }
+
+// PaneMode controls whether the meter renders one tab-driven panel or
+// shows Damage / Healing / Taken side by side simultaneously.
+export type PaneMode = "single" | "triple";
 
 // Accent options match the design canvas's Theme accent row (cyan = local
 // default). When changed, the App-level effect overwrites --sk-local on
@@ -41,6 +47,8 @@ const DEFAULT: Settings = {
 		healing: true,
 		critPct: false,
 	},
+	showActivityLog: false,
+	paneMode: "single",
 };
 
 const KEY = "skirmish:settings";

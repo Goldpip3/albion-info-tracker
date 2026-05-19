@@ -97,6 +97,8 @@ export default function App(): React.ReactElement {
 		return <SetupScreen url={url} token={token} setUrl={setUrl} setToken={setToken} />;
 	}
 
+	const triple = settings.paneMode === "triple";
+
 	return (
 		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
 			<Header
@@ -112,15 +114,28 @@ export default function App(): React.ReactElement {
 						setToken("");
 					}
 				}}
+				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
+				showLog={settings.showActivityLog}
+				hideTabs={triple}
 			/>
 			<main className="flex-1 overflow-hidden flex flex-col">
-				<div className="flex-1 overflow-auto">
-					<MeterTable
-						snapshot={snapshot}
-						mode={mode}
-						settings={settings}
-						onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
-					/>
+				<div className="flex-1 overflow-hidden">
+					{triple ? (
+						<TriplePane
+							snapshot={snapshot}
+							settings={settings}
+							onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+						/>
+					) : (
+						<div className="h-full overflow-auto">
+							<MeterTable
+								snapshot={snapshot}
+								mode={mode}
+								settings={settings}
+								onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+							/>
+						</div>
+					)}
 				</div>
 				{error && (
 					<div
@@ -130,7 +145,7 @@ export default function App(): React.ReactElement {
 						connection: {error}
 					</div>
 				)}
-				<ActivityLog snapshot={snapshot} />
+				{settings.showActivityLog && <ActivityLog snapshot={snapshot} />}
 			</main>
 			<Footer snapshot={snapshot} lastMessageAt={lastMessageAt} />
 			{showSettings && (
@@ -145,6 +160,66 @@ export default function App(): React.ReactElement {
 				const p = snapshot.players.find((p) => p.userGuid === drillGuid);
 				return p ? <DrillIn player={p} onClose={() => setDrillGuid(null)} /> : null;
 			})()}
+		</div>
+	);
+}
+
+// TriplePane renders three meter tables side-by-side, one each for damage,
+// healing, and taken damage. Each pane has its own caption row showing
+// what metric is locked in.
+function TriplePane({
+	snapshot,
+	settings,
+	onDrillIn,
+}: {
+	snapshot: ReturnType<typeof useMeterSocket>["snapshot"];
+	settings: ReturnType<typeof useSettings>["settings"];
+	onDrillIn: (p: PlayerSnapshot) => void;
+}): React.ReactElement {
+	const panes: Array<{ mode: Mode; label: string; tone: string }> = [
+		{ mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
+		{ mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
+		{ mode: "taken",  label: "Taken",   tone: "var(--sk-taken)" },
+	];
+	return (
+		<div className="grid h-full" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+			{panes.map((p, i) => (
+				<div
+					key={p.mode}
+					className="flex flex-col overflow-hidden"
+					style={{ borderRight: i < 2 ? "1px solid var(--sk-line)" : "none" }}
+				>
+					<div
+						className="sk-upper flex items-center"
+						style={{
+							padding: "8px 14px",
+							borderBottom: "1px solid var(--sk-line)",
+							color: p.tone,
+							fontWeight: 600,
+							background: "var(--sk-bg-1)",
+							gap: 8,
+						}}
+					>
+						<span
+							style={{
+								width: 6,
+								height: 6,
+								borderRadius: 99,
+								background: p.tone,
+							}}
+						/>
+						{p.label}
+					</div>
+					<div className="flex-1 overflow-auto">
+						<MeterTable
+							snapshot={snapshot}
+							mode={p.mode}
+							settings={settings}
+							onDrillIn={onDrillIn}
+						/>
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }

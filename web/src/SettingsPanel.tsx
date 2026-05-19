@@ -1,4 +1,4 @@
-import type { AccentColor, BarStyle, Density, Settings } from "./useSettings.ts";
+import type { AccentColor, BarStyle, Density, PaneMode, Settings } from "./useSettings.ts";
 import { accentOklch } from "./useSettings.ts";
 
 interface SettingsPanelProps {
@@ -110,6 +110,22 @@ export function SettingsPanel({ settings, update, reset, onClose }: SettingsPane
 								options={BAR_STYLE_OPTIONS}
 								current={settings.barStyle}
 								onChange={(v) => update("barStyle", v)}
+							/>
+						</Setting>
+					</Group>
+
+					<Group title="Layout">
+						<Setting label="Pane mode" sub="Single tab-switched view, or three columns side by side">
+							<Segment<PaneMode>
+								options={[["single", "Single"], ["triple", "Triple"]]}
+								current={settings.paneMode}
+								onChange={(v) => update("paneMode", v)}
+							/>
+						</Setting>
+						<Setting label="Activity log" sub="Show recent hits / heals / deaths under the meter">
+							<Toggle
+								on={settings.showActivityLog}
+								onClick={() => update("showActivityLog", !settings.showActivityLog)}
 							/>
 						</Setting>
 					</Group>
