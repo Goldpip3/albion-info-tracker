@@ -28,7 +28,17 @@ export function MeterTable({ snapshot, mode, settings, onDrillIn }: MeterTablePr
 		}
 	};
 
-	let sorted = [...players].sort((a, b) => primaryFor(b).cur - primaryFor(a).cur);
+	// Sort by the active metric, tie-breaking on userGuid so rows don't
+	// shuffle each tick when several players share the same value (very
+	// common out-of-combat where everyone's at 0). The agent rebuilds the
+	// player list from a Go map each snapshot and map iteration order is
+	// randomized, so without an explicit tie-break the input order leaks
+	// through stable sort and players visibly swap places.
+	let sorted = [...players].sort((a, b) => {
+		const d = primaryFor(b).cur - primaryFor(a).cur;
+		if (d !== 0) return d;
+		return a.userGuid < b.userGuid ? -1 : a.userGuid > b.userGuid ? 1 : 0;
+	});
 
 	if (settings.pinLocal) {
 		const local = sorted.find((p) => p.isLocal);
