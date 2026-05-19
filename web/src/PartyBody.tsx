@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { PlayerSnapshot } from "./types.ts";
 import { classAccent, roleKeyOf } from "./format.ts";
+import { EmptyState } from "./EmptyState.tsx";
 
 interface PartyBodyProps {
 	players: PlayerSnapshot[];
@@ -25,9 +26,10 @@ export function PartyBody({ players, generatedAt }: PartyBodyProps): React.React
 
 	if (sorted.length === 0) {
 		return (
-			<div className="flex items-center justify-center" style={{ padding: 56, color: "var(--sk-fg-2)", fontSize: 13 }}>
-				No party members tracked yet. Re-zone to pick up everyone visible.
-			</div>
+			<EmptyState
+				title="No party members tracked"
+				body="Other players in your party will appear here with their IP, weapon, bound abilities, and live equipment as soon as they're in render range. Re-zone if the list stays empty."
+			/>
 		);
 	}
 

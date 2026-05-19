@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { LootEntry, LooterTotals, PlayerSnapshot, Session } from "./types.ts";
 import { fmt, roleKeyOf } from "./format.ts";
 import { IPChip } from "./IPChip.tsx";
+import { EmptyState } from "./EmptyState.tsx";
 
 // Silver-pile pickups arrive on the wire as FixPoint copper (1 silver
 // = 10_000 copper) to mirror Albion's internal accounting. AODP item
@@ -181,10 +182,10 @@ function PerPlayerTab({
 }): React.ReactElement {
 	if (sorted.length === 0) {
 		return (
-			<Empty>
-				No loot yet this session. Kills and chest opens will populate
-				this once you start farming.
-			</Empty>
+			<EmptyState
+				title="No loot yet this session"
+				body="Every pickup by you, your party, and any visible same-guild farmers will roll up here with AODP-estimated value, top item, and a live activity dot. Kill a mob or open a chest to populate the view."
+			/>
 		);
 	}
 	const top = sorted[0];

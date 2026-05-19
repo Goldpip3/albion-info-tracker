@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ArchivedSession } from "./types.ts";
 import { fmt, fmtDuration } from "./format.ts";
+import { EmptyState } from "./EmptyState.tsx";
 
 interface SessionsBodyProps {
 	sessions: ArchivedSession[];
@@ -16,12 +17,10 @@ export function SessionsBody({ sessions, onDelete }: SessionsBodyProps): React.R
 
 	if (sessions.length === 0) {
 		return (
-			<div className="flex items-center justify-center" style={{ padding: 56, color: "var(--sk-fg-2)", fontSize: 13, textAlign: "center", lineHeight: 1.5 }}>
-				No archived sessions yet.<br/>
-				<span style={{ fontSize: 11, color: "var(--sk-fg-3)" }}>
-					Hit "New session" at the end of a run — it'll be saved here for review.
-				</span>
-			</div>
+			<EmptyState
+				title="No archived sessions yet"
+				body="Past runs land here once you hit New Session in the header. Each card shows the fame, silver, combat fame, and might earned plus the duration so you can compare runs day-over-day."
+			/>
 		);
 	}
 

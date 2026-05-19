@@ -141,6 +141,56 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 		sendCommand("setLootFilter", settings.includeGuildies ? "partyGuild" : "party");
 	}, [state, settings.includeGuildies, sendCommand]);
 
+	// Global hotkeys. Stay out of the way when the user is typing in
+	// an input or holding a modifier — those are browser / OS chords
+	// and we don't want to steal them.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.metaKey || e.ctrlKey || e.altKey) return;
+			const target = e.target as HTMLElement | null;
+			const tag = target?.tagName;
+			if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+			let dest: string | null = null;
+			switch (e.key.toLowerCase()) {
+				case "m": dest = "/"; break;
+				case "l": dest = "/loot"; break;
+				case "p": dest = "/party"; break;
+				case "s": dest = "/sessions"; break;
+				case "escape":
+					if (drillGuid) {
+						e.preventDefault();
+						setDrillGuid(null);
+					} else if (showSettings) {
+						e.preventDefault();
+						setShowSettings(false);
+					}
+					return;
+				case "d":
+				case "h":
+				case "t": {
+					const map: Record<string, keyof typeof settings.panes> = { d: "damage", h: "heal", t: "taken" };
+					const key = map[e.key.toLowerCase()];
+					const next = { ...settings.panes, [key]: !settings.panes[key] };
+					const stillOn = Object.values(next).some(Boolean);
+					if (stillOn) {
+						e.preventDefault();
+						update("panes", next);
+					}
+					return;
+				}
+				default:
+					return;
+			}
+			if (dest) {
+				e.preventDefault();
+				window.history.pushState({}, "", dest);
+				window.dispatchEvent(new PopStateEvent("popstate"));
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [drillGuid, showSettings, settings.panes, update]);
+
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
 		return Date.now() - lastMessageAt > 5000;
