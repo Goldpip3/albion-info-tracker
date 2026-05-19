@@ -34,3 +34,6 @@ export interface SnapshotEnvelope {
 export type Envelope = SnapshotEnvelope;
 
 export type ConnectionState = "disconnected" | "connecting" | "connected";
+
+// Display modes correspond to columns in the design.
+export type Mode = "damage" | "heal" | "taken" | "mechanics";

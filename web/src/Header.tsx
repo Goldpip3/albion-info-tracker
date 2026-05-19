@@ -1,0 +1,154 @@
+import type { ConnectionState, Snapshot, Mode } from "./types.ts";
+
+interface HeaderProps {
+	state: ConnectionState;
+	stale: boolean;
+	snapshot: Snapshot | null;
+	mode: Mode;
+	setMode: (m: Mode) => void;
+	onSettings: () => void;
+	onReset: () => void;
+}
+
+// Header renders the two stacked bars at the top of the meter:
+//   row 1: SKIRMISH logo · breadcrumb · agent status · controls
+//   row 2: combat state + fight info · mode tabs · party stats · composition
+//
+// Composition / fight info are placeholders until T3 introduces fight
+// lifecycle + role aggregation.
+export function Header({ state, stale, snapshot, mode, setMode, onSettings, onReset }: HeaderProps): React.ReactElement {
+	const localPlayer = snapshot?.players.find((p) => p.isLocal);
+	const localName = localPlayer?.name?.toLowerCase() ?? "—";
+
+	return (
+		<header className="border-b border-skirmish-line bg-skirmish-bg">
+			<div className="flex items-center gap-4 px-4 h-10 text-sm">
+				<div className="font-semibold tracking-[0.2em] text-skirmish-amber">
+					SKIRMISH
+				</div>
+				<div className="text-skirmish-muted text-xs tracking-wider uppercase truncate">
+					meter.skirmish.gg / <span className="text-skirmish-dim">{localName}</span>
+				</div>
+				<div className="ml-auto flex items-center gap-3">
+					<AgentPill state={state} stale={stale} />
+					<button
+						className="text-skirmish-muted hover:text-skirmish-text text-sm"
+						onClick={onSettings}
+						title="Settings"
+					>
+						⚙
+					</button>
+					<button
+						className="text-skirmish-muted hover:text-skirmish-text text-sm"
+						onClick={onReset}
+						title="Reset connection"
+					>
+						⟳
+					</button>
+				</div>
+			</div>
+
+			<div className="flex items-center gap-4 px-4 h-10 text-xs border-t border-skirmish-line/60">
+				<CombatBadge snapshot={snapshot} />
+				<div className="text-skirmish-muted tracking-wider uppercase truncate">
+					Fight — · — {/* T3: fight number + zone */}
+				</div>
+
+				<div className="ml-auto flex items-center gap-1">
+					<ModeTab current={mode} value="damage" onClick={setMode}>Damage</ModeTab>
+					<ModeTab current={mode} value="heal" onClick={setMode}>Healing</ModeTab>
+					<ModeTab current={mode} value="taken" onClick={setMode}>Taken</ModeTab>
+					<ModeTab current={mode} value="mechanics" onClick={setMode} disabled>
+						Mechanics
+					</ModeTab>
+				</div>
+
+				<div className="hidden md:flex items-center gap-4 pl-3 border-l border-skirmish-line/60">
+					<PartyStat label="Party DPS" value={partyDps(snapshot)} />
+					<PartyStat label="Top" value={topName(snapshot)} mono={false} />
+				</div>
+			</div>
+		</header>
+	);
+}
+
+function AgentPill({ state, stale }: { state: ConnectionState; stale: boolean }): React.ReactElement {
+	const isLive = state === "connected" && !stale;
+	const dot = isLive ? "bg-emerald-400" : state === "connecting" ? "bg-amber-400" : "bg-rose-500";
+	const label =
+		state === "connected" ? (stale ? "STALE" : "AGENT") : state === "connecting" ? "DIALING" : "OFFLINE";
+	return (
+		<span className="inline-flex items-center gap-1.5 text-[10px] tracking-[0.18em] uppercase text-skirmish-dim">
+			<span className={`w-1.5 h-1.5 rounded-full ${dot} ${isLive ? "animate-pulse" : ""}`} />
+			{label}
+		</span>
+	);
+}
+
+function CombatBadge({ snapshot }: { snapshot: Snapshot | null }): React.ReactElement {
+	const inCombat = (snapshot?.players ?? []).some((p) => p.currentDps > 0 || p.currentHps > 0);
+	// Mode-time-elapsed will arrive from the engine in T3.
+	const dot = inCombat ? "bg-rose-500" : "bg-skirmish-muted";
+	const label = inCombat ? "IN COMBAT" : "OUT OF COMBAT";
+	return (
+		<span className="inline-flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase">
+			<span className={`w-1.5 h-1.5 rounded-full ${dot} ${inCombat ? "animate-pulse" : ""}`} />
+			<span className={inCombat ? "text-rose-300" : "text-skirmish-muted"}>{label}</span>
+			<span className="tnum text-skirmish-dim">--:--</span>
+		</span>
+	);
+}
+
+function PartyStat({ label, value, mono = true }: { label: string; value: string; mono?: boolean }): React.ReactElement {
+	return (
+		<div className="flex flex-col items-end leading-none">
+			<span className="text-[9px] uppercase tracking-[0.15em] text-skirmish-muted">{label}</span>
+			<span className={`text-sm text-skirmish-text ${mono ? "tnum" : ""}`}>{value}</span>
+		</div>
+	);
+}
+
+function ModeTab({
+	current,
+	value,
+	onClick,
+	disabled,
+	children,
+}: {
+	current: Mode;
+	value: Mode;
+	onClick: (m: Mode) => void;
+	disabled?: boolean;
+	children: React.ReactNode;
+}): React.ReactElement {
+	const active = current === value;
+	return (
+		<button
+			disabled={disabled}
+			onClick={() => onClick(value)}
+			className={`px-2.5 py-0.5 text-[11px] tracking-[0.12em] uppercase rounded-sm transition ${
+				disabled
+					? "text-skirmish-muted/50 cursor-not-allowed"
+					: active
+					? "bg-skirmish-text text-skirmish-bg"
+					: "text-skirmish-dim hover:text-skirmish-text"
+			}`}
+		>
+			{children}
+		</button>
+	);
+}
+
+function partyDps(snapshot: Snapshot | null): string {
+	const total = (snapshot?.players ?? []).reduce((s, p) => s + p.currentDps, 0);
+	if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(2)}M`;
+	if (total >= 1000) return `${(total / 1000).toFixed(1)}K`;
+	return Math.round(total).toString();
+}
+
+function topName(snapshot: Snapshot | null): string {
+	const players = snapshot?.players ?? [];
+	if (players.length === 0) return "—";
+	const top = [...players].sort((a, b) => b.currentDamage - a.currentDamage)[0];
+	return top.name || "—";
+}

@@ -1,7 +1,30 @@
 @import "tailwindcss";
 
-/* Variable-width tabular figures so digit columns line up while still
-   allowing proportional letters in names. */
+/* Skirmish theme tokens. Inline @theme block becomes Tailwind utilities,
+   so a class like text-skirmish-amber works alongside the standard palette. */
+@theme {
+	--color-skirmish-bg: oklch(0.18 0.005 240);
+	--color-skirmish-bg2: oklch(0.22 0.005 240);
+	--color-skirmish-line: oklch(0.27 0.006 240);
+	--color-skirmish-text: oklch(0.93 0 0);
+	--color-skirmish-dim: oklch(0.62 0.005 240);
+	--color-skirmish-muted: oklch(0.45 0.005 240);
+
+	--color-skirmish-amber: oklch(0.79 0.16 78);
+	--color-skirmish-amber-dim: oklch(0.65 0.13 78);
+
+	--color-skirmish-heal: oklch(0.75 0.18 145);
+	--color-skirmish-taken: oklch(0.7 0.2 25);
+	--color-skirmish-buff: oklch(0.7 0.18 285);
+	--color-skirmish-cc: oklch(0.82 0.16 90);
+}
+
+body {
+	background: var(--color-skirmish-bg);
+	color: var(--color-skirmish-text);
+	font-feature-settings: "ss01", "cv11";
+}
+
 .tnum {
 	font-variant-numeric: tabular-nums;
 }
