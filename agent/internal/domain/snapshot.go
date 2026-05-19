@@ -39,6 +39,61 @@ func (e *Engine) topSpells(ent *Entity, n int) []SpellBreakdown {
 	return out
 }
 
+// sessionSpells is the session-level analogue of topSpells. Same shape;
+// reads from BySpellSession which never resets between fights.
+func (e *Engine) sessionSpells(ent *Entity, n int) []SpellBreakdown {
+	if len(ent.BySpellSession) == 0 {
+		return nil
+	}
+	out := make([]SpellBreakdown, 0, len(ent.BySpellSession))
+	for idx, s := range ent.BySpellSession {
+		var name string
+		if e.spells != nil {
+			name = e.spells.Name(idx)
+		}
+		out = append(out, SpellBreakdown{
+			Index:       idx,
+			Name:        name,
+			TotalDamage: s.TotalDamage,
+			MaxHit:      s.MaxHit,
+			Hits:        s.Hits,
+			Casts:       s.Casts,
+		})
+	}
+	// Order by cast count descending — this view is "what am I casting".
+	sort.Slice(out, func(i, j int) bool { return out[i].Casts > out[j].Casts })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// topAssists returns the top n debuff windows by damage-during, resolving
+// spell names where possible. Caller must hold store.mu.
+func (e *Engine) topAssists(ent *Entity, n int) []AssistBreakdown {
+	if len(ent.AssistsBySpell) == 0 {
+		return nil
+	}
+	out := make([]AssistBreakdown, 0, len(ent.AssistsBySpell))
+	for idx, a := range ent.AssistsBySpell {
+		var name string
+		if e.spells != nil {
+			name = e.spells.Name(idx)
+		}
+		out = append(out, AssistBreakdown{
+			Index:        idx,
+			Name:         name,
+			UptimeMs:     a.UptimeMs,
+			DamageDuring: a.DamageDuring,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DamageDuring > out[j].DamageDuring })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
 // topTargets returns the top n damage recipients for an entity,
 // resolving names against tracked entities. Unresolved targets render
 // as "#<objectId>". Caller must hold store.mu.
@@ -95,6 +150,11 @@ type PlayerSnapshot struct {
 	// descending. Only included when there's something to show.
 	Spells []SpellBreakdown `json:"spells,omitempty"`
 
+	// SessionSpells is the same shape as Spells but covers the whole
+	// session (doesn't reset between fights). Powers the
+	// "how many times have I cast X this session" view.
+	SessionSpells []SpellBreakdown `json:"sessionSpells,omitempty"`
+
 	// Targets — top recipients of damage from this player. Top 5,
 	// descending. Tanks focus the boss; cleavers spread across mobs.
 	Targets []TargetBreakdown `json:"targets,omitempty"`
@@ -103,6 +163,21 @@ type PlayerSnapshot struct {
 	// this entity (buffs + debuffs). Latest snapshot from the most
 	// recent ActiveSpellEffectsUpdate.
 	ActiveEffects []int `json:"activeEffects,omitempty"`
+
+	// Assists is the per-spell debuff-window attribution: how long this
+	// player's debuff was active on enemies and how much damage the
+	// party dealt during that window. Sorted by DamageDuring desc.
+	Assists []AssistBreakdown `json:"assists,omitempty"`
+}
+
+// AssistBreakdown is the "Level 2" contribution surfaced in the drill-in
+// row's right column: which of the player's spells made the biggest
+// difference, by uptime + damage that flowed under it.
+type AssistBreakdown struct {
+	Index        int    `json:"index"`
+	Name         string `json:"name,omitempty"`
+	UptimeMs     int64  `json:"uptimeMs"`
+	DamageDuring int64  `json:"damageDuring"`
 }
 
 // SpellBreakdown is one row of the drill-in screen's ability table.
@@ -241,8 +316,10 @@ func (e *Engine) Snapshot() Snapshot {
 			OverallTaken:  m.Overall.DamageTaken,
 
 			Spells:        e.topSpells(m, 10),
+			SessionSpells: e.sessionSpells(m, 20),
 			Targets:       e.topTargets(m, 5),
 			ActiveEffects: append([]int(nil), m.ActiveEffects...),
+			Assists:       e.topAssists(m, 10),
 		})
 		switch m.Role {
 		case "T":

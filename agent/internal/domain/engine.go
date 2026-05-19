@@ -64,6 +64,32 @@ type Engine struct {
 	// zoneName tracks the current Albion zone for the FightHeader subtitle.
 	zoneMu   sync.Mutex
 	zoneName string
+
+	// assistMu guards the debuff-window tracker + recent-casts buffer.
+	assistMu       sync.Mutex
+	activeWindows  map[int64]map[int]*debuffWindow // target → spell → window
+	recentCasts    []recentCast                    // ring of recent CastFinished events
+	recentCastsCap int
+}
+
+// debuffWindow is one open "this player's debuff is on this target right
+// now" interval. Damage that lands on the target while it's open accrues
+// to DamageDuring; closing the window adds Uptime + DamageDuring to the
+// caster's AssistsBySpell totals.
+type debuffWindow struct {
+	SpellIdx        int
+	CasterObjectId  int64
+	Started         time.Time
+	DamageDuring    int64
+}
+
+// recentCast remembers a recent CastFinished event so we can infer the
+// caster of a debuff that just appeared on a target. ActiveSpellEffectsUpdate
+// only tells us "this effect is on this target now" — never who cast it.
+type recentCast struct {
+	SpellIdx int
+	CasterId int64
+	At       time.Time
 }
 
 // Zone returns the current zone label.
@@ -87,10 +113,12 @@ const (
 func NewEngine() *Engine {
 	now := time.Now()
 	return &Engine{
-		store:   NewStore(),
-		now:     time.Now,
-		events:  newEventBuffer(),
-		session: SessionStats{Start: now},
+		store:          NewStore(),
+		now:            time.Now,
+		events:         newEventBuffer(),
+		session:        SessionStats{Start: now},
+		activeWindows:  make(map[int64]map[int]*debuffWindow),
+		recentCastsCap: 64,
 	}
 }
 
@@ -105,11 +133,18 @@ func (e *Engine) ResetSession() {
 		ent.Current.Reset()
 		ent.Overall.Reset()
 		ent.BySpell = nil
+		ent.BySpellSession = nil
 		ent.ByTarget = nil
 		ent.ActiveEffects = nil
+		ent.AssistsBySpell = nil
 		ent.Deaths = 0
 	}
 	e.store.mu.Unlock()
+
+	e.assistMu.Lock()
+	e.activeWindows = make(map[int64]map[int]*debuffWindow)
+	e.recentCasts = nil
+	e.assistMu.Unlock()
 
 	e.fightMu.Lock()
 	e.fightNumber = 0
@@ -383,8 +418,15 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 			e.store.mu.Lock()
 			recordDamage(&causerEnt.Current, &causerEnt.Overall, dmg, now)
 			recordSpell(causerEnt, int(spellIdx), dmg)
+			recordSpellSession(causerEnt, int(spellIdx), dmg)
 			recordTarget(causerEnt, affected, dmg)
 			e.store.mu.Unlock()
+		}
+		// Attribute the hit to any open debuff windows on the target.
+		if affected != 0 {
+			e.assistMu.Lock()
+			e.chargeWindowsLocked(affected, dmg)
+			e.assistMu.Unlock()
 		}
 		if affEnt != nil {
 			e.store.mu.Lock()
@@ -593,6 +635,9 @@ func recordTarget(ent *Entity, targetId int64, dmg int64) {
 // recordCast increments the cast count for a spell on an entity. Caller
 // must hold store.mu. The CastFinished event is the most reliable trigger
 // since it implies the cast actually completed (not interrupted).
+//
+// Bumps BOTH the per-fight bucket (BySpell) and the session-level bucket
+// (BySpellSession) so the drill-in can show both views.
 func recordCast(ent *Entity, spellIdx int) {
 	if ent.BySpell == nil {
 		ent.BySpell = make(map[int]*SpellTotals, 8)
@@ -603,6 +648,34 @@ func recordCast(ent *Entity, spellIdx int) {
 		ent.BySpell[spellIdx] = s
 	}
 	s.Casts++
+	if ent.BySpellSession == nil {
+		ent.BySpellSession = make(map[int]*SpellTotals, 8)
+	}
+	ss, ok := ent.BySpellSession[spellIdx]
+	if !ok {
+		ss = &SpellTotals{}
+		ent.BySpellSession[spellIdx] = ss
+	}
+	ss.Casts++
+}
+
+// recordSpellSession mirrors recordSpell but into the session-level map
+// (BySpellSession), which doesn't reset between fights — only on
+// ResetSession. Caller must hold store.mu.
+func recordSpellSession(ent *Entity, spellIdx int, dmg int64) {
+	if ent.BySpellSession == nil {
+		ent.BySpellSession = make(map[int]*SpellTotals, 8)
+	}
+	s, ok := ent.BySpellSession[spellIdx]
+	if !ok {
+		s = &SpellTotals{}
+		ent.BySpellSession[spellIdx] = s
+	}
+	s.TotalDamage += dmg
+	s.Hits++
+	if dmg > s.MaxHit {
+		s.MaxHit = dmg
+	}
 }
 
 // recordSpell increments the per-spell totals for an entity. Caller must
@@ -726,6 +799,9 @@ func (e *Engine) FightStatus(now time.Time) (number int, elapsed time.Duration, 
 // handleCastFinished bumps the cast counter for a spell on the caster's
 // entity. CastFinished fires once per completed cast (interrupts don't
 // fire). Param 0 = caster ObjectId, param 2 = spell index (per SAT).
+//
+// Also adds the cast to recentCasts so a debuff that appears within the
+// next ~2 seconds can be attributed back to this caster.
 func (e *Engine) handleCastFinished(p map[byte]any) {
 	caster, _ := paramLong(p, 0)
 	idx, _ := paramLong(p, 2)
@@ -739,19 +815,46 @@ func (e *Engine) handleCastFinished(p map[byte]any) {
 	e.store.mu.Lock()
 	recordCast(ent, int(idx))
 	e.store.mu.Unlock()
+	e.rememberCast(caster, int(idx), e.now())
+}
+
+// rememberCast appends a CastFinished event to the recent-casts ring buffer.
+func (e *Engine) rememberCast(casterId int64, spellIdx int, t time.Time) {
+	e.assistMu.Lock()
+	defer e.assistMu.Unlock()
+	e.recentCasts = append(e.recentCasts, recentCast{SpellIdx: spellIdx, CasterId: casterId, At: t})
+	if len(e.recentCasts) > e.recentCastsCap {
+		e.recentCasts = e.recentCasts[len(e.recentCasts)-e.recentCastsCap:]
+	}
+}
+
+// findRecentCaster returns the most recent CastFinished caster for a spell
+// index, within the window. 0 if nothing matches. Caller must hold assistMu.
+func (e *Engine) findRecentCasterLocked(spellIdx int, since time.Time) int64 {
+	for i := len(e.recentCasts) - 1; i >= 0; i-- {
+		c := e.recentCasts[i]
+		if c.At.Before(since) {
+			break
+		}
+		if c.SpellIdx == spellIdx {
+			return c.CasterId
+		}
+	}
+	return 0
 }
 
 // handleActiveSpellEffects records the set of active buff/debuff spell
 // indices on a target. Param 0 = ObjectId, param 1 = short[] of spell
-// indices currently active. Replaces the prior list — this is the full
-// active set at the time of the event.
+// indices currently active.
+//
+// On each event we diff the new set against the prior set:
+//   - spells newly appearing → open a debuff window, infer caster via
+//     recentCasts, start tracking damage that lands on this target.
+//   - spells newly missing → close the window, accrue uptime + windowed
+//     damage into the caster's AssistsBySpell totals.
 func (e *Engine) handleActiveSpellEffects(p map[byte]any) {
 	id, _ := paramLong(p, 0)
 	if id == 0 {
-		return
-	}
-	ent := e.store.ByObjectId(id)
-	if ent == nil {
 		return
 	}
 	raw, ok := p[1]
@@ -759,9 +862,93 @@ func (e *Engine) handleActiveSpellEffects(p map[byte]any) {
 		return
 	}
 	effects := readIntArray(raw)
+	now := e.now()
+
+	// Update the entity's published ActiveEffects (so the snapshot can
+	// show "what's on you right now") regardless of whether we have an
+	// entity for the target — buff display only renders for known ones.
+	if ent := e.store.ByObjectId(id); ent != nil {
+		e.store.mu.Lock()
+		ent.ActiveEffects = effects
+		e.store.mu.Unlock()
+	}
+
+	// Diff and update windows.
+	e.diffEffects(id, effects, now)
+}
+
+// diffEffects opens windows for newly-present effects and closes windows
+// for newly-absent effects, given the latest effect set.
+func (e *Engine) diffEffects(targetId int64, newEffects []int, now time.Time) {
+	newSet := make(map[int]struct{}, len(newEffects))
+	for _, s := range newEffects {
+		newSet[s] = struct{}{}
+	}
+
+	e.assistMu.Lock()
+	defer e.assistMu.Unlock()
+	windows := e.activeWindows[targetId]
+	if windows == nil {
+		windows = make(map[int]*debuffWindow)
+		e.activeWindows[targetId] = windows
+	}
+
+	// Close windows that are no longer in the active set.
+	for spellIdx, w := range windows {
+		if _, still := newSet[spellIdx]; !still {
+			e.closeWindowLocked(w, now)
+			delete(windows, spellIdx)
+		}
+	}
+
+	// Open windows for newly-active effects.
+	for spellIdx := range newSet {
+		if _, already := windows[spellIdx]; already {
+			continue
+		}
+		caster := e.findRecentCasterLocked(spellIdx, now.Add(-2*time.Second))
+		windows[spellIdx] = &debuffWindow{
+			SpellIdx:       spellIdx,
+			CasterObjectId: caster, // 0 if we couldn't attribute
+			Started:        now,
+		}
+	}
+}
+
+// closeWindowLocked finalises a debuff window, accumulating uptime + windowed
+// damage into the caster's AssistsBySpell. assistMu must be held.
+func (e *Engine) closeWindowLocked(w *debuffWindow, now time.Time) {
+	if w == nil || w.CasterObjectId == 0 {
+		return
+	}
+	ent := e.store.ByObjectId(w.CasterObjectId)
+	if ent == nil {
+		return
+	}
 	e.store.mu.Lock()
-	ent.ActiveEffects = effects
+	if ent.AssistsBySpell == nil {
+		ent.AssistsBySpell = make(map[int]*AssistTotals, 8)
+	}
+	a, ok := ent.AssistsBySpell[w.SpellIdx]
+	if !ok {
+		a = &AssistTotals{}
+		ent.AssistsBySpell[w.SpellIdx] = a
+	}
+	a.UptimeMs += now.Sub(w.Started).Milliseconds()
+	a.DamageDuring += w.DamageDuring
 	e.store.mu.Unlock()
+}
+
+// chargeWindowsLocked attributes a damage hit on targetId to all currently
+// open debuff windows on that target. assistMu must be held by the caller.
+func (e *Engine) chargeWindowsLocked(targetId int64, dmg int64) {
+	windows := e.activeWindows[targetId]
+	if windows == nil {
+		return
+	}
+	for _, w := range windows {
+		w.DamageDuring += dmg
+	}
 }
 
 // readIntArray flattens a Protocol18 numeric array into []int.

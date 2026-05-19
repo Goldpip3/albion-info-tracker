@@ -25,8 +25,17 @@ export interface PlayerSnapshot {
 	overheal?: number;
 
 	spells?: SpellBreakdown[];
+	sessionSpells?: SpellBreakdown[];
 	targets?: TargetBreakdown[];
 	activeEffects?: number[];
+	assists?: AssistBreakdown[];
+}
+
+export interface AssistBreakdown {
+	index: number;
+	name?: string;
+	uptimeMs: number;
+	damageDuring: number;
 }
 
 export interface SpellBreakdown {

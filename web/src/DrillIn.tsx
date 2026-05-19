@@ -1,19 +1,26 @@
-import type { PlayerSnapshot, SpellBreakdown } from "./types.ts";
+import { useState } from "react";
+import type { AssistBreakdown, PlayerSnapshot, SpellBreakdown, TargetBreakdown } from "./types.ts";
 import { ClassChip } from "./ClassChip.tsx";
-import { fmt, fmtRate, prettySpell, roleKeyOf } from "./format.ts";
+import { classAccent, fmt, fmtRate, prettySpell, roleKeyOf } from "./format.ts";
 
 interface DrillInProps {
 	player: PlayerSnapshot;
 	onClose: () => void;
 }
 
-// Per-player drill-in. Matches details.jsx's PlayerDrillIn from the design:
-// header with class chip, name + role line, big stats, tab row, then a
-// table of abilities with damage-bar fills.
+type DrillTab = "fight" | "session" | "targets" | "assists";
+
+// Per-player drill-in. Tabs let you flip between:
+//   - Fight     — spells used in the current fight (resets between pulls)
+//   - Session   — spells cast since the last "New session" (cast count
+//                 column matters here: "how many ult casts did I get off")
+//   - Targets   — top recipients of this player's damage
+//   - Assists   — debuff windows this player kept up + damage that flowed
+//                 under them ("Level 2" attribution)
 export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
-	const spells = player.spells ?? [];
-	const max = spells[0]?.totalDamage ?? 0;
+	const [tab, setTab] = useState<DrillTab>("fight");
 	const roleKey = roleKeyOf(player.role);
+	const accent = classAccent(player.classCode, roleKey);
 
 	return (
 		<div
@@ -31,26 +38,27 @@ export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
 				}}
 				onClick={(e) => e.stopPropagation()}
 			>
-				<DrillHeader player={player} roleKey={roleKey} onClose={onClose} />
-				<DrillTabs />
-				<DrillColumnHeader />
-				<DrillRows spells={spells} max={max} />
+				<DrillHeader player={player} roleKey={roleKey} accent={accent} onClose={onClose} />
+				<DrillTabs tab={tab} setTab={setTab} player={player} />
+				{tab === "fight"   && <SpellTable spells={player.spells ?? []} emptyText="No abilities recorded in the current fight yet." accent={accent} />}
+				{tab === "session" && <SpellTable spells={player.sessionSpells ?? []} emptyText="No spells cast yet this session." accent={accent} showCasts />}
+				{tab === "targets" && <TargetTable targets={player.targets ?? []} accent={accent} />}
+				{tab === "assists" && <AssistTable assists={player.assists ?? []} accent={accent} />}
 			</div>
 		</div>
 	);
 }
 
 function DrillHeader({
-	player,
-	roleKey,
-	onClose,
+	player, roleKey, accent, onClose,
 }: {
 	player: PlayerSnapshot;
 	roleKey: ReturnType<typeof roleKeyOf>;
+	accent: string;
 	onClose: () => void;
 }): React.ReactElement {
 	const totalHits = (player.spells ?? []).reduce((s, x) => s + x.hits, 0);
-	const maxHit = (player.spells ?? []).reduce((m, s) => Math.max(m, s.maxHit), 0);
+	const totalCasts = (player.sessionSpells ?? []).reduce((s, x) => s + (x.casts ?? 0), 0);
 
 	return (
 		<div
@@ -77,20 +85,11 @@ function DrillHeader({
 				</button>
 				<ClassChip code={player.classCode || "—"} roleKey={roleKey} size={28} />
 				<div>
-					<div
-						style={{
-							fontSize: 16,
-							fontWeight: 600,
-							color: player.isLocal ? "var(--sk-local)" : "var(--sk-fg-0)",
-						}}
-					>
+					<div style={{ fontSize: 16, fontWeight: 600, color: "var(--sk-fg-0)" }}>
 						{player.name || "(unknown)"}
 					</div>
 					{player.roleLabel && (
-						<div
-							className="sk-upper"
-							style={{ color: `var(--sk-role-${roleKey})`, fontSize: 9.5 }}
-						>
+						<div className="sk-upper" style={{ color: accent, fontSize: 9.5 }}>
 							{player.roleLabel}
 						</div>
 					)}
@@ -100,7 +99,7 @@ function DrillHeader({
 				<Stat label="Damage" value={fmt(player.currentDamage)} accent="var(--sk-damage)" />
 				<Stat label="DPS"    value={fmtRate(player.currentDps)} />
 				<Stat label="Hits"   value={totalHits.toString()} />
-				<Stat label="Max"    value={fmt(maxHit)} />
+				<Stat label="Casts"  value={totalCasts.toString()} />
 			</div>
 		</div>
 	);
@@ -117,125 +116,286 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
 	);
 }
 
-function DrillTabs(): React.ReactElement {
-	const tabs = ["Abilities", "Targets", "Taken", "Healing received", "Timeline"];
+function DrillTabs({ tab, setTab, player }: { tab: DrillTab; setTab: (t: DrillTab) => void; player: PlayerSnapshot }): React.ReactElement {
+	const items: Array<{ id: DrillTab; label: string; badge?: string }> = [
+		{ id: "fight",   label: "Fight",   badge: (player.spells ?? []).length.toString() },
+		{ id: "session", label: "Session", badge: (player.sessionSpells ?? []).length.toString() },
+		{ id: "targets", label: "Targets", badge: (player.targets ?? []).length.toString() },
+		{ id: "assists", label: "Assists", badge: (player.assists ?? []).length.toString() },
+	];
 	return (
 		<div
 			className="flex"
 			style={{ padding: "0 16px", borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-1)" }}
 		>
-			{tabs.map((t, i) => (
-				<span
-					key={t}
-					style={{
-						padding: "10px 12px",
-						fontSize: 11.5,
-						color: i === 0 ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
-						fontWeight: i === 0 ? 600 : 400,
-						borderBottom: i === 0 ? "2px solid var(--sk-damage)" : "2px solid transparent",
-						cursor: i === 0 ? "default" : "not-allowed",
-						opacity: i === 0 ? 1 : 0.6,
-					}}
-					title={i === 0 ? "" : "Coming soon"}
-				>
-					{t}
-				</span>
-			))}
-		</div>
-	);
-}
-
-function DrillColumnHeader(): React.ReactElement {
-	return (
-		<div
-			className="grid items-center"
-			style={{
-				gridTemplateColumns: "1fr 70px 70px 70px",
-				gap: 12,
-				padding: "10px 18px",
-				fontSize: 10,
-				color: "var(--sk-fg-3)",
-				textTransform: "uppercase",
-				letterSpacing: "0.08em",
-				borderBottom: "1px solid var(--sk-line)",
-			}}
-		>
-			<span>Ability</span>
-			<span style={{ textAlign: "right" }}>Total</span>
-			<span style={{ textAlign: "right" }}>Hits</span>
-			<span style={{ textAlign: "right" }}>Max hit</span>
-		</div>
-	);
-}
-
-function DrillRows({ spells, max }: { spells: SpellBreakdown[]; max: number }): React.ReactElement {
-	if (spells.length === 0) {
-		return (
-			<div
-				className="flex-1 flex items-center justify-center"
-				style={{ padding: 48, color: "var(--sk-fg-2)", fontSize: 13 }}
-			>
-				No abilities recorded in the current fight yet.
-			</div>
-		);
-	}
-	return (
-		<div className="flex-1 overflow-auto">
-			{spells.map((s) => {
-				const pct = max > 0 ? (s.totalDamage / max) * 100 : 0;
+			{items.map((it) => {
+				const active = it.id === tab;
 				return (
-					<div
-						key={s.index}
-						className="grid items-center"
+					<button
+						key={it.id}
+						onClick={() => setTab(it.id)}
 						style={{
-							gridTemplateColumns: "1fr 70px 70px 70px",
-							gap: 12,
-							padding: "8px 18px",
-							background: "var(--sk-bg-1)",
-							borderBottom: "1px solid var(--sk-line)",
-							height: 36,
+							padding: "10px 12px",
+							fontSize: 11.5,
+							color: active ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
+							fontWeight: active ? 600 : 400,
+							borderBottom: active ? "2px solid var(--sk-damage)" : "2px solid transparent",
+							borderTop: "0",
+							borderLeft: "0",
+							borderRight: "0",
+							background: "transparent",
+							cursor: "pointer",
+							display: "inline-flex",
+							alignItems: "center",
+							gap: 6,
 						}}
 					>
-						<div className="relative flex items-center" style={{ height: 22 }}>
-							<div
-								style={{
-									position: "absolute",
-									inset: 0,
-									border: "1px solid var(--sk-line)",
-									borderRadius: 2,
-								}}
-							/>
-							<div
-								style={{
-									position: "absolute",
-									top: 0,
-									bottom: 0,
-									left: 0,
-									width: `${pct}%`,
-									background: "var(--sk-damage-tint)",
-									border: "1px solid var(--sk-damage)",
-									borderRadius: 2,
-								}}
-							/>
+						{it.label}
+						{it.badge !== undefined && it.badge !== "0" && (
 							<span
-								className="relative truncate"
-								style={{ marginLeft: 8, zIndex: 1, fontSize: 12, fontWeight: 500, color: "var(--sk-fg-0)" }}
+								className="sk-mono"
+								style={{ fontSize: 9, color: "var(--sk-fg-3)", padding: "1px 5px", border: "1px solid var(--sk-line)", borderRadius: 99 }}
 							>
-								{prettySpell(s.name) || `#${s.index}`}
+								{it.badge}
 							</span>
-						</div>
-						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: "var(--sk-damage)" }}>
-							{fmt(s.totalDamage)}
-						</span>
-						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>
-							{s.hits}
-						</span>
-						<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>
-							{fmt(s.maxHit)}
-						</span>
-					</div>
+						)}
+					</button>
 				);
 			})}
 		</div>
+	);
+}
+
+function SpellTable({
+	spells, emptyText, accent, showCasts,
+}: {
+	spells: SpellBreakdown[];
+	emptyText: string;
+	accent: string;
+	showCasts?: boolean;
+}): React.ReactElement {
+	if (spells.length === 0) {
+		return (
+			<div className="flex-1 flex items-center justify-center" style={{ padding: 48, color: "var(--sk-fg-2)", fontSize: 13 }}>
+				{emptyText}
+			</div>
+		);
+	}
+	const cols = showCasts
+		? "1fr 60px 60px 60px 60px"
+		: "1fr 70px 70px 70px";
+	const max = spells.reduce((m, s) => Math.max(m, s.totalDamage), 0);
+	return (
+		<>
+			<div
+				className="grid items-center"
+				style={{
+					gridTemplateColumns: cols,
+					gap: 12,
+					padding: "10px 18px",
+					fontSize: 10,
+					color: "var(--sk-fg-3)",
+					textTransform: "uppercase",
+					letterSpacing: "0.08em",
+					borderBottom: "1px solid var(--sk-line)",
+				}}
+			>
+				<span>Ability</span>
+				<span style={{ textAlign: "right" }}>Total</span>
+				<span style={{ textAlign: "right" }}>Hits</span>
+				{showCasts && <span style={{ textAlign: "right" }}>Casts</span>}
+				<span style={{ textAlign: "right" }}>Max hit</span>
+			</div>
+			<div className="flex-1 overflow-auto">
+				{spells.map((s) => {
+					const pct = max > 0 ? (s.totalDamage / max) * 100 : 0;
+					return (
+						<div
+							key={s.index}
+							className="grid items-center"
+							style={{
+								gridTemplateColumns: cols,
+								gap: 12,
+								padding: "8px 18px",
+								background: "var(--sk-bg-1)",
+								borderBottom: "1px solid var(--sk-line)",
+								height: 36,
+							}}
+						>
+							<div className="relative flex items-center" style={{ height: 22 }}>
+								<div style={{ position: "absolute", inset: 0, border: "1px solid var(--sk-line)", borderRadius: 2 }} />
+								<div
+									style={{
+										position: "absolute", top: 0, bottom: 0, left: 0,
+										width: `${pct}%`,
+										background: `color-mix(in oklab, ${accent} 16%, transparent)`,
+										border: `1px solid ${accent}`,
+										borderRadius: 2,
+									}}
+								/>
+								<span className="relative truncate" style={{ marginLeft: 8, zIndex: 1, fontSize: 12, fontWeight: 500, color: "var(--sk-fg-0)" }}>
+									{prettySpell(s.name) || `#${s.index}`}
+								</span>
+							</div>
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: accent }}>
+								{fmt(s.totalDamage)}
+							</span>
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>{s.hits}</span>
+							{showCasts && (
+								<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>{s.casts ?? 0}</span>
+							)}
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>{fmt(s.maxHit)}</span>
+						</div>
+					);
+				})}
+			</div>
+		</>
+	);
+}
+
+function TargetTable({ targets, accent }: { targets: TargetBreakdown[]; accent: string }): React.ReactElement {
+	if (targets.length === 0) {
+		return (
+			<div className="flex-1 flex items-center justify-center" style={{ padding: 48, color: "var(--sk-fg-2)", fontSize: 13 }}>
+				No targets recorded — once you hit something this will populate.
+			</div>
+		);
+	}
+	const max = targets[0].damage;
+	return (
+		<>
+			<div
+				className="grid items-center"
+				style={{
+					gridTemplateColumns: "1fr 100px",
+					gap: 12,
+					padding: "10px 18px",
+					fontSize: 10,
+					color: "var(--sk-fg-3)",
+					textTransform: "uppercase",
+					letterSpacing: "0.08em",
+					borderBottom: "1px solid var(--sk-line)",
+				}}
+			>
+				<span>Target</span>
+				<span style={{ textAlign: "right" }}>Damage</span>
+			</div>
+			<div className="flex-1 overflow-auto">
+				{targets.map((t) => {
+					const pct = max > 0 ? (t.damage / max) * 100 : 0;
+					return (
+						<div
+							key={t.objectId}
+							className="grid items-center"
+							style={{
+								gridTemplateColumns: "1fr 100px",
+								gap: 12,
+								padding: "8px 18px",
+								background: "var(--sk-bg-1)",
+								borderBottom: "1px solid var(--sk-line)",
+								height: 36,
+							}}
+						>
+							<div className="relative flex items-center" style={{ height: 22 }}>
+								<div style={{ position: "absolute", inset: 0, border: "1px solid var(--sk-line)", borderRadius: 2 }} />
+								<div
+									style={{
+										position: "absolute", top: 0, bottom: 0, left: 0,
+										width: `${pct}%`,
+										background: `color-mix(in oklab, ${accent} 16%, transparent)`,
+										border: `1px solid ${accent}`,
+										borderRadius: 2,
+									}}
+								/>
+								<span className="relative truncate" style={{ marginLeft: 8, zIndex: 1, fontSize: 12, fontWeight: 500, color: "var(--sk-fg-0)" }}>
+									{t.name || `#${t.objectId}`}
+								</span>
+							</div>
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: accent }}>
+								{fmt(t.damage)}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+		</>
+	);
+}
+
+function AssistTable({ assists, accent }: { assists: AssistBreakdown[]; accent: string }): React.ReactElement {
+	if (assists.length === 0) {
+		return (
+			<div className="flex-1 flex items-center justify-center" style={{ padding: "32px 48px", color: "var(--sk-fg-2)", fontSize: 13, textAlign: "center", lineHeight: 1.5 }}>
+				No assist windows recorded.<br/>
+				<span style={{ fontSize: 11, color: "var(--sk-fg-3)" }}>
+					Land a debuff (Frazzle, Sunder, Cursed Beam, etc.) on a target —
+					damage the party deals during its uptime will accrue here.
+				</span>
+			</div>
+		);
+	}
+	const max = assists[0].damageDuring;
+	return (
+		<>
+			<div
+				className="grid items-center"
+				style={{
+					gridTemplateColumns: "1fr 80px 100px",
+					gap: 12,
+					padding: "10px 18px",
+					fontSize: 10,
+					color: "var(--sk-fg-3)",
+					textTransform: "uppercase",
+					letterSpacing: "0.08em",
+					borderBottom: "1px solid var(--sk-line)",
+				}}
+			>
+				<span>Debuff</span>
+				<span style={{ textAlign: "right" }} title="How long the debuff was up">Uptime</span>
+				<span style={{ textAlign: "right" }} title="Damage the party dealt to targets while the debuff was up">Dmg under</span>
+			</div>
+			<div className="flex-1 overflow-auto">
+				{assists.map((a) => {
+					const pct = max > 0 ? (a.damageDuring / max) * 100 : 0;
+					const secs = a.uptimeMs / 1000;
+					return (
+						<div
+							key={a.index}
+							className="grid items-center"
+							style={{
+								gridTemplateColumns: "1fr 80px 100px",
+								gap: 12,
+								padding: "8px 18px",
+								background: "var(--sk-bg-1)",
+								borderBottom: "1px solid var(--sk-line)",
+								height: 36,
+							}}
+						>
+							<div className="relative flex items-center" style={{ height: 22 }}>
+								<div style={{ position: "absolute", inset: 0, border: "1px solid var(--sk-line)", borderRadius: 2 }} />
+								<div
+									style={{
+										position: "absolute", top: 0, bottom: 0, left: 0,
+										width: `${pct}%`,
+										background: `color-mix(in oklab, ${accent} 16%, transparent)`,
+										border: `1px solid ${accent}`,
+										borderRadius: 2,
+									}}
+								/>
+								<span className="relative truncate" style={{ marginLeft: 8, zIndex: 1, fontSize: 12, fontWeight: 500, color: "var(--sk-fg-0)" }}>
+									{prettySpell(a.name) || `#${a.index}`}
+								</span>
+							</div>
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-1)" }}>
+								{secs >= 60 ? `${Math.floor(secs / 60)}m ${Math.round(secs % 60)}s` : `${secs.toFixed(1)}s`}
+							</span>
+							<span className="sk-mono" style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: accent }}>
+								{fmt(a.damageDuring)}
+							</span>
+						</div>
+					);
+				})}
+			</div>
+		</>
 	);
 }

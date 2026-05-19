@@ -36,9 +36,15 @@ type Entity struct {
 	Current CombatStats
 	Overall CombatStats
 
-	// BySpell aggregates damage per spell index for the drill-in view.
-	// Key is the CausingSpellIndex from HealthUpdate (param 7).
+	// BySpell aggregates damage per spell index for the current fight.
+	// Resets between fights so the drill-in shows "what's being used right
+	// now". Key is CausingSpellIndex from HealthUpdate (param 7).
 	BySpell map[int]*SpellTotals
+
+	// BySpellSession aggregates damage + casts per spell across the WHOLE
+	// session. Doesn't reset between fights — only on ResetSession. Powers
+	// the "spells cast this session" report.
+	BySpellSession map[int]*SpellTotals
 
 	// ByTarget aggregates damage dealt to each affected entity. Key is the
 	// target's ObjectId. Used in the drill-in to show "who did this player
@@ -49,7 +55,20 @@ type Entity struct {
 	// entity. Refreshed on ActiveSpellEffectsUpdate. May be nil.
 	ActiveEffects []int
 
+	// AssistsBySpell tracks "while this player's debuff was up on a target,
+	// how much total damage hit that target." Key is the spell index this
+	// player cast. Sums across all (target, window) tuples for the session.
+	AssistsBySpell map[int]*AssistTotals
+
 	LastSeen time.Time
+}
+
+// AssistTotals is the "Level 2" debuff-window contribution: how long this
+// player's debuff sat on targets (uptime) and how much damage the party
+// dealt during that uptime. Doesn't claim *causation* — just attribution.
+type AssistTotals struct {
+	UptimeMs     int64
+	DamageDuring int64
 }
 
 // SpellTotals is the per-(player, spell) breakdown shown on the drill-in
