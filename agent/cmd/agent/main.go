@@ -11,15 +11,22 @@ import (
 	"time"
 
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/capture"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/domain"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/push"
 )
 
-const version = "0.0.3"
+const version = "0.0.4"
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("albion agent v%s starting", version)
+
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -32,6 +39,24 @@ func main() {
 	})
 
 	go renderLoop(ctx, engine)
+
+	// Push to remote backend if configured. Runs concurrently with capture.
+	if cfg.PushURL != "" {
+		client := &push.Client{
+			URL:          cfg.PushURL,
+			Token:        cfg.PushToken,
+			AgentVersion: version,
+			Snapshot:     engine.Snapshot,
+		}
+		log.Printf("push: connecting to %s", cfg.PushURL)
+		go func() {
+			if err := client.Run(ctx); err != nil && err != context.Canceled {
+				log.Printf("push: stopped: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("push: no PushURL configured — running in stdout-only mode")
+	}
 
 	if err := capture.Run(ctx, sink); err != nil && err != context.Canceled {
 		log.Fatalf("capture: %v", err)
