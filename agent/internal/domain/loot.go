@@ -49,6 +49,10 @@ type LooterTotals struct {
 	UnitsTotal      int       `json:"unitsTotal"`
 	SilverPicked    int64     `json:"silverPicked"`
 	SilverValueLoot int64     `json:"silverValueLoot"`
+	// MobSilver is the subset of this looter's silver that came from mob
+	// kills. Only populated for the local row (from the session's
+	// authoritative MobSilverTotal); party/guild rows leave it zero.
+	MobSilver       int64     `json:"mobSilver,omitempty"`
 	TopItemName     string    `json:"topItemName,omitempty"`
 	TopItemValue    int64     `json:"topItemValue,omitempty"`
 	// RecentItemName is the display name of the most-recent non-silver
@@ -234,6 +238,28 @@ func (e *Engine) LooterTotalsList() []LooterTotals {
 			t.TopItemName = nm
 		}
 	}
+
+	// Local player's silver is authoritative from the running session
+	// total, not the loot ring buffer: SilverTotal climbs forever while
+	// lootLog caps at 500 entries (a long farm would undercount). It
+	// also captures TakeSilver chest/dungeon silver that never produces
+	// an OtherGrabbedLoot row. Override (not add) the local row, and
+	// surface the mob-only subtotal for the Loot-tab breakout.
+	if local := e.store.localGuidEntity(); local != nil && local.Name != "" {
+		e.sessionMu.Lock()
+		silverTotal, mobSilver := e.session.SilverTotal, e.session.MobSilverTotal
+		e.sessionMu.Unlock()
+		if silverTotal > 0 || mobSilver > 0 {
+			t, ok := byName[local.Name]
+			if !ok {
+				t = &LooterTotals{Name: local.Name, IsLocal: true, Source: "local"}
+				byName[local.Name] = t
+			}
+			t.SilverPicked = silverTotal
+			t.MobSilver = mobSilver
+		}
+	}
+
 	out := make([]LooterTotals, 0, len(byName))
 	for _, t := range byName {
 		out = append(out, *t)

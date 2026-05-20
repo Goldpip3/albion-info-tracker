@@ -81,6 +81,7 @@ export interface Session {
 	elapsedMs: number;
 	fameTotal: number;
 	silverTotal: number; // FixPoint internal, divide by 10_000 in UI
+	mobSilverTotal?: number; // subset of silverTotal from mob kills (FixPoint)
 	respecTotal: number; // FixPoint internal, divide by 10_000 in UI
 	mightTotal: number;  // FixPoint internal, divide by 10_000 in UI
 	deathsTotal: number;
@@ -146,6 +147,7 @@ export interface LooterTotals {
 	pickups: number;          // number of OtherGrabbedLoot events
 	unitsTotal: number;       // sum of stack quantities for items (not silver piles)
 	silverPicked: number;     // direct silver picked off corpses / chests
+	mobSilver?: number;       // subset of silverPicked from mob kills (local row only, FixPoint)
 	silverValueLoot: number;  // AODP-estimated market value of looted items
 	topItemName?: string;     // display name of highest-priced single drop
 	topItemValue?: number;    // silver value of that top item

@@ -10,6 +10,7 @@ type SessionStats struct {
 	Start         time.Time
 	FameTotal     int64 // raw fame points (TotalPlayerFame delta sum)
 	SilverTotal   int64 // raw silver units (10_000 = 1 silver per SAT's FixPoint)
+	MobSilverTotal int64 // subset of SilverTotal credited from mob kills (FixPoint)
 	RespecTotal   int64 // raw respec credits (FixPoint internal)
 	MightTotal    int64 // raw might (FixPoint internal; 10_000 = 1 might)
 	DeathsTotal   int   // total deaths recorded across all entities

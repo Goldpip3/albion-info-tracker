@@ -404,6 +404,7 @@ type Session struct {
 	ElapsedMs   int64     `json:"elapsedMs"`
 	FameTotal   int64     `json:"fameTotal"`
 	SilverTotal int64     `json:"silverTotal"`
+	MobSilverTotal int64  `json:"mobSilverTotal,omitempty"`
 	RespecTotal int64     `json:"respecTotal"`
 	MightTotal  int64     `json:"mightTotal"`
 	DeathsTotal int       `json:"deathsTotal"`
@@ -522,6 +523,7 @@ func (e *Engine) Snapshot() Snapshot {
 		ElapsedMs:   int64(e.session.ElapsedSeconds(now) * 1000),
 		FameTotal:   e.session.FameTotal,
 		SilverTotal: e.session.SilverTotal,
+		MobSilverTotal: e.session.MobSilverTotal,
 		RespecTotal: e.session.RespecTotal,
 		MightTotal:  e.session.MightTotal,
 		DeathsTotal: e.session.DeathsTotal,

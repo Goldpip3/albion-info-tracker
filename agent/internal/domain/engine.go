@@ -599,7 +599,7 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventActiveSpellEffectsUpdate:
 		e.handleActiveSpellEffects(ev.Parameters)
 	case gamecodes.EventOtherGrabbedLoot:
-		dbg("OtherGrabbedLoot %v", ev.Parameters)
+		dbg("OtherGrabbedLoot %v %s", ev.Parameters, e.localIdStr())
 		e.handleOtherGrabbedLoot(ev.Parameters)
 	case gamecodes.EventNewMob:
 		e.handleNewMob(ev.Parameters)
@@ -640,13 +640,35 @@ func (e *Engine) onEvent(ev photon.EventData) {
 		dbg("MightAndFavor %v", ev.Parameters)
 		e.handleMightAndFavor(ev.Parameters)
 	case gamecodes.EventTakeSilver:
-		dbg("TakeSilver %v", ev.Parameters)
+		dbg("TakeSilver %v %s", ev.Parameters, e.localIdStr())
 		e.handleTakeSilver(ev.Parameters)
-		// UpdateMoney is intentionally NOT tracked — it fires on every
-		// wallet sync (deposits, purchases, etc.) and would double-count
-		// alongside TakeSilver. SAT also uses TakeSilver as the
-		// canonical "silver gained" source.
+		// UpdateMoney is intentionally NOT credited (it fires on every
+		// wallet sync — deposits, purchases — and would double-count).
+		// The cases below are DIAGNOSTIC ONLY (verbose mode): they log
+		// the silver-adjacent events we currently ignore so a single
+		// kill→loot capture reveals which one actually carries
+		// open-world mob silver. None of them credit yet — wire the
+		// confirmed carrier into creditSilver once identified.
+	case gamecodes.EventUpdateMoney:
+		dbg("UpdateMoney %v %s", ev.Parameters, e.localIdStr())
+	case gamecodes.EventRemoveSilver:
+		dbg("RemoveSilver %v %s", ev.Parameters, e.localIdStr())
+	case gamecodes.EventNewSilverObject:
+		dbg("NewSilverObject %v %s", ev.Parameters, e.localIdStr())
+	case gamecodes.EventPartySilverGained:
+		dbg("PartySilverGained %v %s", ev.Parameters, e.localIdStr())
 	}
+}
+
+// localIdStr renders the local player's ObjectId + name for verbose
+// silver diagnostics, so a param-0 / param-2 mismatch against the
+// event's ids is visible at a glance.
+func (e *Engine) localIdStr() string {
+	local := e.store.localGuidEntity()
+	if local == nil {
+		return "local=unknown"
+	}
+	return fmt.Sprintf("local ObjId=%d Name=%q", local.ObjectId, local.Name)
 }
 
 func (e *Engine) onRequest(photon.OperationRequest) {}
@@ -1000,16 +1022,37 @@ func (e *Engine) handleUpdateFame(p map[byte]any) {
 	e.sessionMu.Unlock()
 }
 
+// creditSilver folds a silver gain into the session total, and into the
+// mob-only subtotal when isMob. Single funnel so every silver path —
+// TakeSilver, looted piles, and (once confirmed) the open-world mob
+// carrier — accumulates consistently. amount is FixPoint (10_000 = 1
+// silver). Caller must NOT hold sessionMu.
+func (e *Engine) creditSilver(amount int64, isMob bool) {
+	if amount <= 0 {
+		return
+	}
+	e.sessionMu.Lock()
+	e.session.SilverTotal += amount
+	if isMob {
+		e.session.MobSilverTotal += amount
+	}
+	e.sessionMu.Unlock()
+}
+
 // handleTakeSilver folds a silver-pickup event into the session total.
 // Param 3 = YieldPreTax (FixPoint), param 5 = GuildTax, param 6 = ClusterTax.
 // Net silver banked = YieldPreTax - GuildTax (cluster tax is the cluster's
 // share, taken from the pre-tax yield before guild tax — SAT does
 // YieldAfterTax = YieldPreTax - GuildTax and that's what they bank).
 //
-// Only credits silver when the looter is the local player. ObjectId on
-// param 0 identifies the looter — match against our local entity.
+// Credits the local player whether they're the looter (param 0) or the
+// target (param 2) — SAT matches either. Mob classification is
+// best-effort: if a non-local id involved is a known mob (in mobNames),
+// tag it as mob silver. Refined once the true open-world carrier is
+// confirmed from a verbose capture.
 func (e *Engine) handleTakeSilver(p map[byte]any) {
 	objectId, _ := paramLong(p, 0)
+	target, _ := paramLong(p, 2)
 	yieldPre, ok := paramLong(p, 3)
 	if !ok || yieldPre <= 0 {
 		return
@@ -1019,15 +1062,21 @@ func (e *Engine) handleTakeSilver(p map[byte]any) {
 	if yieldAfter <= 0 {
 		return
 	}
-	// Only count silver into the LOCAL player's session totals. Party
-	// silver shows up in the loot panel via OtherGrabbedLoot.
 	local := e.store.localGuidEntity()
-	if local == nil || objectId == 0 || local.ObjectId != objectId {
+	if local == nil || local.ObjectId == 0 {
 		return
 	}
-	e.sessionMu.Lock()
-	e.session.SilverTotal += yieldAfter
-	e.sessionMu.Unlock()
+	if objectId != local.ObjectId && target != local.ObjectId {
+		return
+	}
+	isMob := false
+	for _, id := range []int64{objectId, target} {
+		if id != 0 && id != local.ObjectId && e.MobName(id) != "" {
+			isMob = true
+			break
+		}
+	}
+	e.creditSilver(yieldAfter, isMob)
 }
 
 // handleUpdateReSpec adds the gained respec credits delta to the session
@@ -1610,12 +1659,12 @@ func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
 	// silver tracker. TakeSilver is the canonical source for chest /
 	// dungeon yields, but mob-loot silver piles on the open world ship
 	// only OtherGrabbedLoot — without this credit the header reads 0
-	// across long farming runs. Same FixPoint scale as TakeSilver, so
-	// the UI's existing divide-by-10_000 keeps the number honest.
+	// across long farming runs. Classify as mob silver when the raw
+	// source key names a mob (@MOB_…); funnels through creditSilver so
+	// the mob subtotal stays consistent with TakeSilver.
 	if entry.IsSilver && entry.LooterIsLocal {
-		e.sessionMu.Lock()
-		e.session.SilverTotal += int64(qty)
-		e.sessionMu.Unlock()
+		isMob := strings.Contains(strings.ToUpper(lootedFrom), "MOB")
+		e.creditSilver(int64(qty), isMob)
 	}
 	e.noteLoot(entry)
 }

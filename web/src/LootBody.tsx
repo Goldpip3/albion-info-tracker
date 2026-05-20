@@ -614,36 +614,25 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 function LooterSubline({ l }: { l: LooterTotals }): React.ReactElement {
-	// Three-way fallback so the row never reads as a bare em-dash:
-	//   1. Priced top item → "top: <name> · <value>"
-	//   2. Item-but-unpriced fall-back via RecentItemName
-	//   3. Only silver pickups → "silver only · <amount>"
+	// Three-way base description, plus a mob-silver breakout appended
+	// when present (local row only): "… · mob: 84K".
+	const mob = (l.mobSilver ?? 0) > 0
+		? <span className="sk-mono" style={{ color: "var(--sk-card-silver, #d4af37)" }}>{" · mob: " + fmt(toSilver(l.mobSilver ?? 0))}</span>
+		: null;
+
+	let base: React.ReactNode;
 	if (l.topItemName && (l.topItemValue ?? 0) > 0) {
-		return (
-			<>
-				top: <span style={{ color: "var(--sk-fg-2)" }}>{l.topItemName}</span>
-				{" · "}
-				<span className="sk-mono">{fmt(l.topItemValue ?? 0)}</span>
-			</>
-		);
+		base = <>top: <span style={{ color: "var(--sk-fg-2)" }}>{l.topItemName}</span>{" · "}<span className="sk-mono">{fmt(l.topItemValue ?? 0)}</span></>;
+	} else if (l.onlySilver) {
+		base = <>silver only · <span className="sk-mono">{fmt(toSilver(l.silverPicked))}</span></>;
+	} else if (l.recentItemName) {
+		base = <>recent: <span style={{ color: "var(--sk-fg-2)" }}>{l.recentItemName}</span>{" "}<span className="sk-mono" style={{ color: "var(--sk-fg-3)" }}>(unpriced)</span></>;
+	} else if (mob) {
+		base = <span style={{ color: "var(--sk-fg-3)" }}>silver from kills</span>;
+	} else {
+		base = <span style={{ color: "var(--sk-fg-3)" }}>no pickups yet</span>;
 	}
-	if (l.onlySilver) {
-		return (
-			<>
-				silver only · <span className="sk-mono">{fmt(toSilver(l.silverPicked))} K</span>
-			</>
-		);
-	}
-	if (l.recentItemName) {
-		return (
-			<>
-				recent: <span style={{ color: "var(--sk-fg-2)" }}>{l.recentItemName}</span>
-				{" "}
-				<span className="sk-mono" style={{ color: "var(--sk-fg-3)" }}>(unpriced)</span>
-			</>
-		);
-	}
-	return <span style={{ color: "var(--sk-fg-3)" }}>no pickups yet</span>;
+	return <>{base}{mob}</>;
 }
 
 // SourceBadge colors why a non-local row is on screen. "party" is
