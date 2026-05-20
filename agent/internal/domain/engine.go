@@ -1716,17 +1716,13 @@ func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
 	if local := e.store.localGuidEntity(); local != nil && local.Name == looter {
 		entry.LooterIsLocal = true
 	}
-	// Credit silver-pile pickups by the local player into the session
-	// silver tracker. TakeSilver is the canonical source for chest /
-	// dungeon yields, but mob-loot silver piles on the open world ship
-	// only OtherGrabbedLoot — without this credit the header reads 0
-	// across long farming runs. Classify as mob silver when the raw
-	// source key names a mob (@MOB_…); funnels through creditSilver so
-	// the mob subtotal stays consistent with TakeSilver.
-	if entry.IsSilver && entry.LooterIsLocal {
-		isMob := strings.Contains(strings.ToUpper(lootedFrom), "MOB")
-		e.creditSilver(int64(qty), isMob)
-	}
+	// NOTE: do NOT credit local silver here. Every silver pickup fires
+	// BOTH OtherGrabbedLoot and TakeSilver (confirmed in capture: same
+	// amount, same source object on both). Silver is credited solely
+	// from handleTakeSilver now that local-player attribution works via
+	// the UpdateMoney hint — crediting here too would double-count the
+	// local player's silver. The entry is still logged so the per-looter
+	// loot panel can show party/guild silver piles.
 	e.noteLoot(entry)
 }
 
