@@ -25,6 +25,23 @@ export function fmtDuration(sec: number): string {
 	return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// rankBy returns a comparator that ranks players by a metric descending
+// with userGuid as a stable tiebreak. The Go agent rebuilds the player
+// list from a randomized map each 250ms tick, so without the tiebreak
+// that random order leaks through Array.sort whenever the leaders tie
+// (everyone at 0 out of combat, healers/tanks tied at 0 damage, equal
+// totals) and the displayed "top"/"carried by" name flickers. Route
+// every player ranking through this so no sort site can forget it.
+export function rankBy<T extends { userGuid: string }>(
+	selector: (p: T) => number,
+): (a: T, b: T) => number {
+	return (a, b) => {
+		const d = (selector(b) || 0) - (selector(a) || 0);
+		if (d !== 0) return d;
+		return a.userGuid.localeCompare(b.userGuid);
+	};
+}
+
 // roleKey maps the agent's T/H/R/M/S/C/? letter to the design's lowercase
 // role token used to look up CSS role colors (var(--sk-role-tank), etc.).
 export type RoleKey = "tank" | "healer" | "rdps" | "mdps" | "support" | "control" | "unknown";

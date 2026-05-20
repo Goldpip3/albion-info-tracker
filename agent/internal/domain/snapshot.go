@@ -594,5 +594,14 @@ func (e *Engine) Snapshot() Snapshot {
 		}
 		out.Composition.Total++
 	}
+	// Deterministic player order at the source. members comes from a Go
+	// map (randomized iteration), so without this the array arrives in a
+	// different order every tick — and any client sort that omits a
+	// tiebreak (the "Top" / "Carried by" leaders, when tied) would let
+	// that randomness flicker the displayed name. A stable guid order
+	// here means JS's stable sort preserves it on ties everywhere.
+	sort.Slice(out.Players, func(i, j int) bool {
+		return out.Players[i].UserGuid < out.Players[j].UserGuid
+	})
 	return out
 }

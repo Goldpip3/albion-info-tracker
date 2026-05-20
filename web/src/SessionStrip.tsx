@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Snapshot } from "./types.ts";
-import { classAccent, fmtDuration, roleKeyOf } from "./format.ts";
+import { classAccent, fmtDuration, rankBy, roleKeyOf } from "./format.ts";
 
 interface SessionStripProps {
 	snapshot: Snapshot | null;
@@ -39,7 +39,7 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 	const carrier = useMemo(() => {
 		const players = snapshot?.players ?? [];
 		if (players.length === 0) return null;
-		return [...players].sort((a, b) => (b.overallDamage ?? 0) - (a.overallDamage ?? 0))[0];
+		return [...players].sort(rankBy((p) => p.overallDamage ?? 0))[0];
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [snapshot?.generatedAt]);
 

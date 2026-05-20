@@ -4,7 +4,7 @@ import type { Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
 import { DEFAULT_SUB_METRIC, SUB_METRICS_BY_MODE } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
 import { IPChip } from "./IPChip.tsx";
-import { classAccent, fmt, fmtRate, roleKeyOf, type RoleKey } from "./format.ts";
+import { classAccent, fmt, fmtRate, rankBy, roleKeyOf, type RoleKey } from "./format.ts";
 
 interface MeterTableProps {
 	snapshot: Snapshot | null;
@@ -49,11 +49,7 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 	// useMemo on (generatedAt, activeSub, pinLocal) — sort + reduce skips
 	// on tooltips opening/closing or unrelated state changes.
 	const { sorted, max, partyTotal } = useMemo(() => {
-		const arr = [...players].sort((a, b) => {
-			const d = primaryFor(b).cur - primaryFor(a).cur;
-			if (d !== 0) return d;
-			return a.userGuid < b.userGuid ? -1 : a.userGuid > b.userGuid ? 1 : 0;
-		});
+		const arr = [...players].sort(rankBy((p) => primaryFor(p).cur));
 		return {
 			sorted: arr,
 			max: arr[0] ? primaryFor(arr[0]).cur : 0,

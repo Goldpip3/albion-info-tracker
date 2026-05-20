@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { PlayerSnapshot } from "./types.ts";
-import { classAccent, roleKeyOf } from "./format.ts";
+import { classAccent, rankBy, roleKeyOf } from "./format.ts";
 import { EmptyState } from "./EmptyState.tsx";
 
 interface PartyBodyProps {
@@ -14,13 +14,7 @@ interface PartyBodyProps {
 // iteration shuffles party rows on every snapshot tick.
 export function PartyBody({ players, generatedAt }: PartyBodyProps): React.ReactElement {
 	const sorted = useMemo(() => {
-		const arr = [...players];
-		arr.sort((a, b) => {
-			const ipDiff = (b.itemPower ?? 0) - (a.itemPower ?? 0);
-			if (ipDiff !== 0) return ipDiff;
-			return a.userGuid.localeCompare(b.userGuid);
-		});
-		return arr;
+		return [...players].sort(rankBy((p) => p.itemPower ?? 0));
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [generatedAt, players.length]);
 

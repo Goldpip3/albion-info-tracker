@@ -2,7 +2,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import type { ConnectionState, Snapshot } from "./types.ts";
 import type { MeterScope, PaneSet } from "./useSettings.ts";
-import { fmtDuration, fmtRate } from "./format.ts";
+import { fmtDuration, fmtRate, rankBy } from "./format.ts";
 
 interface HeaderProps {
 	state: ConnectionState;
@@ -282,7 +282,7 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 
 	const players = snapshot?.players ?? [];
 	const partyDps = players.reduce((s, p) => s + (p.currentDps ?? 0), 0);
-	const top = [...players].sort((a, b) => (b.currentDamage ?? 0) - (a.currentDamage ?? 0))[0];
+	const top = [...players].sort(rankBy((p) => p.currentDamage ?? 0))[0];
 
 	return (
 		<div
