@@ -344,3 +344,6 @@ ASALocalRun/
 # Cloudflare wrangler CLI cache (account id, deploy state) — regenerated
 # on demand, never belongs in the repo. Matches agent/web/worker.
 .wrangler/
+
+# Agent verbose diagnostic log (written when launched with --verbose).
+agent-verbose.log

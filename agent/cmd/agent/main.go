@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -39,6 +40,19 @@ const (
 func main() {
 	log.SetFlags(0)
 	printBanner()
+
+	// Verbose mode (--verbose / -v / env): flip the domain debug logger
+	// AND tee all log output to agent-verbose.log next to the exe, so a
+	// diagnostic capture can be read back from the file without
+	// copy-pasting an elevated console window.
+	if hasFlag("--verbose") || hasFlag("-v") || os.Getenv("ALBION_AGENT_VERBOSE") != "" {
+		domain.SetVerbose(true)
+		if path, err := setupVerboseLog(); err != nil {
+			log.Printf("  verbose log file: %v", err)
+		} else {
+			fmt.Printf("  Verbose logging on -> %s\n", path)
+		}
+	}
 
 	openBrowser := hasFlag("--open-browser") || hasFlag("-b") || os.Getenv("ALBION_AGENT_OPEN_BROWSER") != ""
 
@@ -200,6 +214,24 @@ func hasFlag(name string) bool {
 		}
 	}
 	return false
+}
+
+// setupVerboseLog tees all log output to agent-verbose.log beside the
+// exe (truncated each launch) while keeping it on stderr. Lets a
+// diagnostic capture be read back from the file even when the agent
+// runs in an elevated console we can't scrape.
+func setupVerboseLog() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(filepath.Dir(exe), "agent-verbose.log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return "", err
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	return path, nil
 }
 
 // openInBrowser tries to open url in the user's default browser. Returns

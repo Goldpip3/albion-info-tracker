@@ -7,10 +7,19 @@
 #
 # Run it after Claude pushes agent changes:
 #   - double-click "Restart GDA Agent.cmd", or
-#   - from a shell:  pwsh -ExecutionPolicy Bypass -File restart-agent.ps1
+#   - double-click "Restart GDA Agent (Verbose).cmd" for a diagnostic
+#     capture (writes agent-verbose.log next to agent.exe), or
+#   - from a shell:  pwsh -ExecutionPolicy Bypass -File restart-agent.ps1 [-Trace]
 #
-# You get one UAC prompt (the elevated relaunch). Web-only fixes don't
-# need this at all - just hard-refresh the browser.
+# The relaunch always passes --open-browser, so the meter opens on its
+# own. You get one UAC prompt (the elevated relaunch). Web-only fixes
+# don't need this at all - just hard-refresh the browser.
+
+param(
+    # -Trace turns on verbose logging; the agent tees every event line to
+    # agent-verbose.log next to the exe so a capture can be read back.
+    [switch]$Trace
+)
 
 $ErrorActionPreference = "Stop"
 $agentDir = Join-Path $PSScriptRoot "agent"
@@ -43,8 +52,14 @@ try {
 }
 Write-Host "  build OK." -ForegroundColor Green
 
-# 3. Relaunch elevated (triggers a single UAC prompt).
+# 3. Relaunch elevated (triggers a single UAC prompt). Always opens the
+#    meter; adds --verbose for a diagnostic capture.
+$launchArgs = @("--open-browser")
+if ($Trace) {
+    $launchArgs += "--verbose"
+    Write-Host "  TRACE on - events will be written to agent\agent-verbose.log" -ForegroundColor Yellow
+}
 Write-Host "  relaunching elevated (approve the UAC prompt)..."
-Start-Process -FilePath $exe -WorkingDirectory $agentDir -Verb RunAs
+Start-Process -FilePath $exe -WorkingDirectory $agentDir -Verb RunAs -ArgumentList $launchArgs
 
-Write-Host "Done - agent is restarting. Hard-refresh the meter if needed." -ForegroundColor Green
+Write-Host "Done - agent is restarting and the meter will open." -ForegroundColor Green

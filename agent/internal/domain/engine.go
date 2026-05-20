@@ -19,6 +19,12 @@ import (
 // enable; useful for figuring out why party detection isn't kicking in.
 var verbose = os.Getenv("ALBION_AGENT_VERBOSE") != ""
 
+// SetVerbose flips verbose logging at runtime. The package-level var is
+// captured from the env at init, so a --verbose CLI flag (parsed in
+// main, after init) needs this setter to take effect. dbg reads the var
+// per-call, so flipping it before events flow is enough.
+func SetVerbose(v bool) { verbose = v }
+
 func dbg(format string, args ...any) {
 	if verbose {
 		log.Printf(format, args...)
