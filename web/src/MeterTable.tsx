@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
-import { DEFAULT_SUB_METRIC, SUB_METRICS_BY_MODE } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
 import { IPChip } from "./IPChip.tsx";
 import { classAccent, fmt, fmtRate, rankBy, roleKeyOf, type RoleKey } from "./format.ts";
@@ -10,44 +9,35 @@ interface MeterTableProps {
 	snapshot: Snapshot | null;
 	mode: Mode;
 	settings: Settings;
-	// sub picks which field drives sort + bar value within the mode.
-	// e.g. mode="damage" + sub="damageDps" sorts by DPS; "damageTotal"
-	// sorts by overall (session) damage. Defaults via DEFAULT_SUB_METRIC.
-	sub?: SubMetric;
+	// sub locks this table to one metric+scope. The pane wrapper owns
+	// which sub to show, so the same metric can render twice (Current
+	// next to Session) as independent panes.
+	sub: SubMetric;
 	onDrillIn: (p: PlayerSnapshot) => void;
 }
 
 export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTableProps): React.ReactElement {
 	const players = snapshot?.players ?? [];
 	const [hovered, setHovered] = useState<PlayerSnapshot | null>(null);
-	const defaultSub = mode === "mechanics" ? "damageCurrent" : DEFAULT_SUB_METRIC[mode as Exclude<Mode, "mechanics">];
-	const [internalSub, setInternalSub] = useState<SubMetric>(defaultSub);
-	const activeSub: SubMetric = sub ?? internalSub;
 
-	// primaryFor returns { cur, ovr, rate } for a player. `cur` is the
-	// number that drives the bar fill + sort; `ovr` is the secondary
-	// "session" line shown after the bar value; `rate` is the right-
-	// column DPS/HPS (null = no rate column).
-	const primaryFor = (p: PlayerSnapshot): { cur: number; ovr: number; rate: number | null } => {
-		switch (activeSub) {
-			case "damageCurrent": return { cur: p.currentDamage, ovr: p.overallDamage, rate: p.currentDps };
-			case "damageTotal":   return { cur: p.overallDamage, ovr: p.currentDamage, rate: p.overallDps };
-			case "healCurrent":   return { cur: p.currentHeal,   ovr: p.overallHeal,   rate: p.currentHps };
-			case "healTotal":     return { cur: p.overallHeal,   ovr: p.currentHeal,   rate: p.overallHps };
-			case "takenCurrent":  return { cur: p.currentTaken,  ovr: p.overallTaken,  rate: null };
-			case "takenTotal":    return { cur: p.overallTaken,  ovr: p.currentTaken,  rate: null };
+	// primaryFor returns { cur, rate } for a player. `cur` drives the bar
+	// fill + sort; `rate` is the right-column DPS/HPS (null = no rate).
+	// Each pane shows ONE number now — the Current-vs-Session comparison
+	// is done by opening two panes, not a dual number per row.
+	const primaryFor = (p: PlayerSnapshot): { cur: number; rate: number | null } => {
+		switch (sub) {
+			case "damageCurrent": return { cur: p.currentDamage, rate: p.currentDps };
+			case "damageTotal":   return { cur: p.overallDamage, rate: p.overallDps };
+			case "healCurrent":   return { cur: p.currentHeal,   rate: p.currentHps };
+			case "healTotal":     return { cur: p.overallHeal,   rate: p.overallHps };
+			case "takenCurrent":  return { cur: p.currentTaken,  rate: null };
+			case "takenTotal":    return { cur: p.overallTaken,  rate: null };
 		}
 	};
 
-	// Sort by the active metric, tie-breaking on userGuid so rows don't
-	// shuffle each tick when several players share the same value (very
-	// common out-of-combat where everyone's at 0). The agent rebuilds the
-	// player list from a Go map each snapshot and map iteration order is
-	// randomized, so without an explicit tie-break the input order leaks
-	// through stable sort and players visibly swap places.
-	//
-	// useMemo on (generatedAt, activeSub, pinLocal) — sort + reduce skips
-	// on tooltips opening/closing or unrelated state changes.
+	// Sort by the metric, tie-breaking on userGuid so rows don't shuffle
+	// each tick when several players tie (common out of combat). Memoised
+	// on (generatedAt, sub, count) so unrelated re-renders skip the sort.
 	const { sorted, max, partyTotal } = useMemo(() => {
 		const arr = [...players].sort(rankBy((p) => primaryFor(p).cur));
 		return {
@@ -56,73 +46,17 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 			partyTotal: arr.reduce((s, p) => s + primaryFor(p).cur, 0),
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [snapshot?.generatedAt, activeSub, players.length]);
+	}, [snapshot?.generatedAt, sub, players.length]);
 
 	if (sorted.length === 0) {
-		return (
-			<EmptyState />
-		);
+		return <EmptyState />;
 	}
 
-	const headerLabel: Record<SubMetric, string> = {
-		damageCurrent: "Damage · Current / Session",
-		damageTotal:   "Damage · Session / Current",
-		healCurrent:   "Healing · Current / Session",
-		healTotal:     "Healing · Session / Current",
-		takenCurrent:  "Damage Taken · Current / Session",
-		takenTotal:    "Damage Taken · Session / Current",
-	};
-	const rateHeader: Record<SubMetric, string> = {
-		damageCurrent: "DPS",
-		damageTotal:   "DPS",
-		healCurrent:   "HPS",
-		healTotal:     "HPS",
-		takenCurrent:  "",
-		takenTotal:    "",
-	};
-
-	const subOptions = mode === "mechanics" ? [] : SUB_METRICS_BY_MODE[mode];
+	const metricLabel = mode === "heal" ? "Healing" : mode === "taken" ? "Damage Taken" : "Damage";
+	const rateLabel = mode === "heal" ? "HPS" : mode === "damage" ? "DPS" : "";
 
 	return (
 		<div className="relative h-full flex flex-col">
-			{/* Sub-metric selector row — WoW Details style. */}
-			{subOptions.length > 0 && (
-				<div
-					className="flex items-center"
-					style={{
-						gap: 4,
-						padding: "8px 14px",
-						background: "var(--sk-bg-inset)",
-						borderBottom: "1px solid var(--sk-line-soft)",
-					}}
-				>
-					{subOptions.map((opt) => {
-						const active = activeSub === opt.id;
-						return (
-							<button
-								key={opt.id}
-								onClick={() => setInternalSub(opt.id)}
-								className="sk-upper"
-								style={{
-									appearance: "none",
-									border: active ? "1px solid var(--sk-line-2)" : "1px solid transparent",
-									background: active ? "var(--sk-bg-3)" : "transparent",
-									color: active ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
-									padding: "3px 9px",
-									borderRadius: 4,
-									cursor: "pointer",
-									fontSize: 10,
-									fontWeight: 600,
-									letterSpacing: "0.08em",
-									transition: "all 160ms var(--sk-ease)",
-								}}
-							>
-								{opt.label}
-							</button>
-						);
-					})}
-				</div>
-			)}
 			{/* Column header */}
 			<div
 				className="grid items-center"
@@ -141,8 +75,8 @@ export function MeterTable({ snapshot, mode, settings, sub, onDrillIn }: MeterTa
 			>
 				<span style={{ textAlign: "right", paddingRight: 4 }}>#</span>
 				<span>Player</span>
-				<span>{headerLabel[activeSub]}</span>
-				<span style={{ textAlign: "right" }}>{rateHeader[activeSub]}</span>
+				<span>{metricLabel}</span>
+				<span style={{ textAlign: "right" }}>{rateLabel}</span>
 			</div>
 
 			{/* Rows */}
@@ -174,7 +108,7 @@ interface PlayerRowProps {
 	mode: Mode;
 	max: number;
 	partyTotal: number;
-	primary: { cur: number; ovr: number; rate: number | null };
+	primary: { cur: number; rate: number | null };
 	settings: Settings;
 	onHover: (p: PlayerSnapshot | null) => void;
 	onDrillIn: (p: PlayerSnapshot) => void;
@@ -314,9 +248,6 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 					</span>
 					<span className="sk-mono" style={{ fontSize: 11.5, color: "var(--sk-fg-2)" }}>
 						({sharePct(primary.cur, partyTotal)}%)
-					</span>
-					<span className="sk-mono" style={{ fontSize: 11.5, color: "var(--sk-fg-1)" }}>
-						↳ {fmt(primary.ovr)} session
 					</span>
 				</div>
 			</div>

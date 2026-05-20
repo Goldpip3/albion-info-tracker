@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { SubMetric } from "./types.ts";
 
 // Settings is the persisted UI configuration. Stored in localStorage so a
 // refresh keeps it. Nothing here goes to the server.
@@ -22,14 +23,12 @@ export interface Settings {
 
 export type MeterScope = "party" | "partyGuild" | "everyone";
 
-// PaneSet picks which metric tables show side-by-side. WoW Details-style —
-// click a header tab to add/remove that metric as a pane. At least one
-// must stay on; the UI blocks turning off the last one.
-export interface PaneSet {
-	damage: boolean;
-	heal: boolean;
-	taken: boolean;
-}
+// PaneSet picks which tables show side-by-side, keyed by sub-metric so
+// the SAME metric can appear twice — e.g. "Damage · Current" next to
+// "Damage · Session" — letting the user watch the current-fight leader
+// and the session leader at once. At least one must stay on; the UI
+// blocks turning off the last one.
+export type PaneSet = Record<SubMetric, boolean>;
 
 // Accent options match the design canvas's Theme accent row (cyan = local
 // default). When changed, the App-level effect overwrites --sk-local on
@@ -58,7 +57,14 @@ const DEFAULT: Settings = {
 		healing: true,
 	},
 	showActivityLog: false,
-	panes: { damage: true, heal: false, taken: false },
+	panes: {
+		damageCurrent: true,
+		damageTotal:   false,
+		healCurrent:   false,
+		healTotal:     false,
+		takenCurrent:  false,
+		takenTotal:    false,
+	},
 };
 
 // Storage key carries a generation tag. Bumping it (e.g. v1 → v2) forces

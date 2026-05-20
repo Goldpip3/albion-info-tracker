@@ -14,8 +14,63 @@ import { SessionsBody } from "./SessionsBody.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { tabsFor, type TabId } from "./tabs.ts";
 import { isDemoMode, useDemoSnapshot } from "./demo.ts";
-import { accentOklch, useSettings } from "./useSettings.ts";
-import type { FightArchive, Mode, PlayerSnapshot, Snapshot } from "./types.ts";
+import { accentOklch, useSettings, type Settings } from "./useSettings.ts";
+import type { FightArchive, Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
+
+// PANES is the fixed catalog of meter panes — one per (metric, scope).
+// Listing Current and Session adjacent lets the user open both for a
+// metric and watch the current-fight leader beside the session leader.
+const PANES: Array<{ sub: SubMetric; mode: Exclude<Mode, "mechanics">; label: string; tone: string }> = [
+	{ sub: "damageCurrent", mode: "damage", label: "Damage · Current", tone: "var(--sk-damage)" },
+	{ sub: "damageTotal",   mode: "damage", label: "Damage · Session", tone: "var(--sk-damage)" },
+	{ sub: "healCurrent",   mode: "heal",   label: "Healing · Current", tone: "var(--sk-heal)" },
+	{ sub: "healTotal",     mode: "heal",   label: "Healing · Session", tone: "var(--sk-heal)" },
+	{ sub: "takenCurrent",  mode: "taken",  label: "Tank · Current",    tone: "var(--sk-taken)" },
+	{ sub: "takenTotal",    mode: "taken",  label: "Tank · Session",    tone: "var(--sk-taken)" },
+];
+
+// MeterPanes renders every enabled pane side-by-side. Each pane is a
+// MeterTable locked to one SubMetric, with a colored header bar naming
+// it — so two panes of the same metric (Current / Session) read clearly.
+function MeterPanes({ meterSnapshot, settings, onDrillIn }: {
+	meterSnapshot: Snapshot | null;
+	settings: Settings;
+	onDrillIn: (p: PlayerSnapshot) => void;
+}): React.ReactElement {
+	const active = PANES.filter((p) => settings.panes[p.sub]);
+	if (active.length === 0) active.push(PANES[0]); // defensive: never blank
+	return (
+		<div className="flex-1 overflow-hidden">
+			<div className="grid h-full" style={{ gridTemplateColumns: `repeat(${active.length}, minmax(0, 1fr))` }}>
+				{active.map((p, i) => (
+					<div
+						key={p.sub}
+						className="flex flex-col overflow-hidden"
+						style={{ borderRight: i < active.length - 1 ? "1px solid var(--sk-line)" : "none" }}
+					>
+						<div
+							className="sk-upper flex items-center"
+							style={{
+								padding: "8px 14px",
+								borderBottom: "1px solid var(--sk-line)",
+								color: p.tone,
+								fontWeight: 600,
+								background: "var(--sk-bg-1)",
+								gap: 8,
+							}}
+						>
+							<span style={{ width: 6, height: 6, borderRadius: 99, background: p.tone }} />
+							{p.label}
+						</div>
+						<div className="flex-1 overflow-auto">
+							<MeterTable snapshot={meterSnapshot} mode={p.mode} sub={p.sub} settings={settings} onDrillIn={onDrillIn} />
+						</div>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
 
 function useStored(key: string, initial: string): [string, (v: string) => void] {
 	const [v, setV] = useState<string>(() => {
@@ -167,11 +222,11 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 				case "d":
 				case "h":
 				case "t": {
-					const map: Record<string, keyof typeof settings.panes> = { d: "damage", h: "heal", t: "taken" };
+					// Toggle the Current pane of each metric (the primary one).
+					const map: Record<string, SubMetric> = { d: "damageCurrent", h: "healCurrent", t: "takenCurrent" };
 					const key = map[e.key.toLowerCase()];
 					const next = { ...settings.panes, [key]: !settings.panes[key] };
-					const stillOn = Object.values(next).some(Boolean);
-					if (stillOn) {
+					if (Object.values(next).some(Boolean)) {
 						e.preventDefault();
 						update("panes", next);
 					}
@@ -198,16 +253,6 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 	if (!configured) {
 		return <SetupScreen url={url} token={token} setUrl={setUrl} setToken={setToken} />;
 	}
-
-	// Active panes derived from the multi-select settings.panes. Order
-	// matters for column layout: damage left, heal middle, taken right.
-	const ALL_PANES: Array<{ key: keyof typeof settings.panes; mode: Mode; label: string; tone: string }> = [
-		{ key: "damage", mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
-		{ key: "heal",   mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
-		{ key: "taken",  mode: "taken",  label: "Tank",    tone: "var(--sk-taken)" },
-	];
-	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
-	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]); // defensive
 
 	// When the user picks a past fight from the history dropdown, swap the
 	// snapshot the meter renders. The session strip + agent pill always
@@ -277,56 +322,11 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					/>
 				)}
 				{tab === "meter" && (
-					<div className="flex-1 overflow-hidden">
-						{activePanes.length === 1 ? (
-							<div className="h-full overflow-auto">
-								<MeterTable
-									snapshot={meterSnapshot}
-									mode={activePanes[0].mode}
-									settings={settings}
-									onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
-								/>
-							</div>
-						) : (
-							<div
-								className="grid h-full"
-								style={{
-									gridTemplateColumns: `repeat(${activePanes.length}, minmax(0, 1fr))`,
-								}}
-							>
-								{activePanes.map((p, i) => (
-									<div
-										key={p.mode}
-										className="flex flex-col overflow-hidden"
-										style={{ borderRight: i < activePanes.length - 1 ? "1px solid var(--sk-line)" : "none" }}
-									>
-										<div
-											className="sk-upper flex items-center"
-											style={{
-												padding: "8px 14px",
-												borderBottom: "1px solid var(--sk-line)",
-												color: p.tone,
-												fontWeight: 600,
-												background: "var(--sk-bg-1)",
-												gap: 8,
-											}}
-										>
-											<span style={{ width: 6, height: 6, borderRadius: 99, background: p.tone }} />
-											{p.label}
-										</div>
-										<div className="flex-1 overflow-auto">
-											<MeterTable
-												snapshot={meterSnapshot}
-												mode={p.mode}
-												settings={settings}
-												onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
-											/>
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
+					<MeterPanes
+						meterSnapshot={meterSnapshot}
+						settings={settings}
+						onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+					/>
 				)}
 				{error && (
 					<div
@@ -374,13 +374,6 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 		document.documentElement.style.setProperty("--sk-local-tint", tint);
 	}, [settings.accent]);
 
-	const ALL_PANES: Array<{ key: keyof typeof settings.panes; mode: Mode; label: string; tone: string }> = [
-		{ key: "damage", mode: "damage", label: "Damage",  tone: "var(--sk-damage)" },
-		{ key: "heal",   mode: "heal",   label: "Healing", tone: "var(--sk-heal)" },
-		{ key: "taken",  mode: "taken",  label: "Tank",    tone: "var(--sk-taken)" },
-	];
-	const activePanes = ALL_PANES.filter((p) => settings.panes[p.key]);
-	if (activePanes.length === 0) activePanes.push(ALL_PANES[0]);
 
 	return (
 		<div className="min-h-dvh flex flex-col" style={{ background: "var(--sk-bg-0)", color: "var(--sk-fg-0)" }}>
@@ -428,54 +421,11 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 					<SessionsBody sessions={snapshot?.sessions ?? []} onDelete={() => {/* demo no-op */}} />
 				)}
 				{tab === "meter" && (
-					<div className="flex-1 overflow-hidden">
-						{activePanes.length === 1 ? (
-							<div className="h-full overflow-auto">
-								<MeterTable
-									snapshot={snapshot}
-									mode={activePanes[0].mode}
-									settings={settings}
-									onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
-								/>
-							</div>
-						) : (
-							<div
-								className="grid h-full"
-								style={{ gridTemplateColumns: `repeat(${activePanes.length}, minmax(0, 1fr))` }}
-							>
-								{activePanes.map((p, i) => (
-									<div
-										key={p.mode}
-										className="flex flex-col overflow-hidden"
-										style={{ borderRight: i < activePanes.length - 1 ? "1px solid var(--sk-line)" : "none" }}
-									>
-										<div
-											className="sk-upper flex items-center"
-											style={{
-												padding: "8px 14px",
-												borderBottom: "1px solid var(--sk-line)",
-												color: p.tone,
-												fontWeight: 600,
-												background: "var(--sk-bg-1)",
-												gap: 8,
-											}}
-										>
-											<span style={{ width: 6, height: 6, borderRadius: 99, background: p.tone }} />
-											{p.label}
-										</div>
-										<div className="flex-1 overflow-auto">
-											<MeterTable
-												snapshot={snapshot}
-												mode={p.mode}
-												settings={settings}
-												onDrillIn={(pp: PlayerSnapshot) => setDrillGuid(pp.userGuid)}
-											/>
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
+					<MeterPanes
+						meterSnapshot={snapshot}
+						settings={settings}
+						onDrillIn={(p: PlayerSnapshot) => setDrillGuid(p.userGuid)}
+					/>
 				)}
 				{settings.showActivityLog && <ActivityLog snapshot={snapshot} />}
 			</main>

@@ -245,36 +245,19 @@ export type ConnectionState = "disconnected" | "connecting" | "connected";
 // Display modes correspond to columns in the design.
 export type Mode = "damage" | "heal" | "taken" | "mechanics";
 
-// SubMetric narrows what value drives the sort + bar within a Mode.
-// Each pane shows two chips: Current (this-fight bucket) and Total
-// (session-wide bucket). DPS / HPS are still rendered in the rate
-// column on every row; they're just no longer sortable sub-metrics
-// because nobody ranks parties by instantaneous rate.
+// SubMetric is mode + scope in one key. Each meter pane is locked to
+// one SubMetric, so the same metric can appear twice side-by-side
+// (Current next to Session). DPS / HPS still render in the rate column
+// of every row; they're not separate sub-metrics because nobody ranks
+// a party by instantaneous rate.
 export type SubMetric =
 	| "damageCurrent" | "damageTotal"
 	| "healCurrent"   | "healTotal"
 	| "takenCurrent"  | "takenTotal";
 
-// SubMetricsByMode tells the UI which sub-metric chips to show per mode,
-// and which one is the default. Keep in sync with `primaryForSub` in
-// MeterTable.tsx.
-export const SUB_METRICS_BY_MODE: Record<Exclude<Mode, "mechanics">, Array<{ id: SubMetric; label: string }>> = {
-	damage: [
-		{ id: "damageCurrent", label: "Current" },
-		{ id: "damageTotal",   label: "Total" },
-	],
-	heal: [
-		{ id: "healCurrent", label: "Current" },
-		{ id: "healTotal",   label: "Total" },
-	],
-	taken: [
-		{ id: "takenCurrent", label: "Current" },
-		{ id: "takenTotal",   label: "Total" },
-	],
-};
-
-export const DEFAULT_SUB_METRIC: Record<Exclude<Mode, "mechanics">, SubMetric> = {
-	damage: "damageCurrent",
-	heal: "healCurrent",
-	taken: "takenCurrent",
-};
+// modeOfSub maps a SubMetric back to its base Mode (for accent / labels).
+export function modeOfSub(s: SubMetric): Exclude<Mode, "mechanics"> {
+	if (s.startsWith("heal")) return "heal";
+	if (s.startsWith("taken")) return "taken";
+	return "damage";
+}

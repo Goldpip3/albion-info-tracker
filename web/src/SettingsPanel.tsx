@@ -1,5 +1,6 @@
 import type { AccentColor, BarStyle, Density, MeterScope, Settings } from "./useSettings.ts";
 import { accentOklch } from "./useSettings.ts";
+import type { SubMetric } from "./types.ts";
 
 interface SettingsPanelProps {
 	settings: Settings;
@@ -16,6 +17,14 @@ const ACCENT_OPTIONS: AccentColor[] = ["cyan", "violet", "amber", "lime", "rose"
 const DENSITY_OPTIONS: Array<[Density, string]> = [[28, "Compact"], [34, "Regular"], [40, "Comfy"]];
 const BAR_STYLE_OPTIONS: Array<[BarStyle, string]> = [["outline", "Outline"], ["tint", "Tint"], ["solid", "Solid"]];
 const SCOPE_OPTIONS: Array<[MeterScope, string]> = [["party", "Party"], ["partyGuild", "+ Guild"], ["everyone", "Everyone"]];
+const PANE_OPTIONS: Array<[SubMetric, string]> = [
+	["damageCurrent", "Damage · Current"],
+	["damageTotal",   "Damage · Session"],
+	["healCurrent",   "Healing · Current"],
+	["healTotal",     "Healing · Session"],
+	["takenCurrent",  "Tank · Current"],
+	["takenTotal",    "Tank · Session"],
+];
 
 export function SettingsPanel({ settings, update, reset, onClose, sendCommand }: SettingsPanelProps): React.ReactElement {
 	return (
@@ -118,9 +127,9 @@ export function SettingsPanel({ settings, update, reset, onClose, sendCommand }:
 					</Group>
 
 					<Group title="Layout">
-						<Setting label="Active panes" sub="Pick which metric tables show side-by-side. Tabs in the header do the same.">
+						<Setting label="Active panes" sub="Pick which tables show side-by-side. Open a metric's Current and Session to compare current-fight vs session leaders.">
 							<div className="flex flex-wrap" style={{ gap: 6 }}>
-								{(["damage", "heal", "taken"] as const).map((k) => {
+								{PANE_OPTIONS.map(([k, label]) => {
 									const on = settings.panes[k];
 									const others = Object.entries(settings.panes).filter(([key, v]) => key !== k && v).length;
 									const wouldRemoveLast = on && others === 0;
@@ -147,7 +156,7 @@ export function SettingsPanel({ settings, update, reset, onClose, sendCommand }:
 											}}
 											title={wouldRemoveLast ? "At least one pane must stay on" : ""}
 										>
-											{k.charAt(0).toUpperCase() + k.slice(1)}
+											{label}
 										</button>
 									);
 								})}

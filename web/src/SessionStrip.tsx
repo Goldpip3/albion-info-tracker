@@ -25,10 +25,15 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 	// (10_000 internal = 1 real). Confirmed against SAT's UpdateFameEvent /
 	// UpdateMoneyEvent / UpdateReSpecPointsEvent / MightAndFavorReceivedEvent
 	// sources. Divide before formatting.
-	const fame   = (s?.fameTotal   ?? 0) / 10_000;
-	const silver = (s?.silverTotal ?? 0) / 10_000;
-	const respec = (s?.respecTotal ?? 0) / 10_000;
-	const might  = (s?.mightTotal  ?? 0) / 10_000;
+	// Floor (not round) the copper→unit conversion so this matches the
+	// loot panel's toSilver exactly — otherwise the meter's toFixed(0)
+	// rounds 651.5→652 while the loot panel floors to 651, the reported
+	// off-by-one. Flooring is also strictly correct (no fractional
+	// currency).
+	const fame   = Math.floor((s?.fameTotal   ?? 0) / 10_000);
+	const silver = Math.floor((s?.silverTotal ?? 0) / 10_000);
+	const respec = Math.floor((s?.respecTotal ?? 0) / 10_000);
+	const might  = Math.floor((s?.mightTotal  ?? 0) / 10_000);
 
 	const liveValues = { fame, silver, respec, might };
 	const sparks = useSparkBuffers(liveValues, startedAt);
@@ -230,13 +235,17 @@ interface SparkSet {
 	might: number[];
 }
 
-const SPARK_LENGTH = 22;
+const SPARK_LENGTH = 30;
+const SAMPLE_MS = 2000;            // sample cadence — matches footer "spark 2s"
+const EMA_ALPHA = 0.25;            // ~10s smoothing time constant
 
-// useSparkBuffers samples each metric once per second and stores the
-// PER-SECOND GAIN (current - previous), not the cumulative total. That
-// way the sparkline pulses with activity instead of climbing monotonic-
-// ally — out-of-combat samples sit near zero, kills spike, and you can
-// read the line as "how hard am I farming right now."
+// useSparkBuffers samples each metric every 2s and plots a SMOOTHED
+// PACE — an exponential moving average of the per-second gain — rather
+// than the raw per-sample delta. Raw deltas spike on a kill then drop
+// to zero between kills, which read as a jittery "pulling and stopping"
+// line. The EMA rises and decays gently, so the curve reads as "how
+// hard am I farming right now" without the jitter. It's purely a
+// display smoothing; the headline totals are untouched.
 //
 // Resets when startedAt changes (the agent fired ResetSession).
 function useSparkBuffers(values: Record<keyof SparkSet, number>, startedAt: string): SparkSet {
@@ -244,32 +253,37 @@ function useSparkBuffers(values: Record<keyof SparkSet, number>, startedAt: stri
 	const valuesRef = useRef(values);
 	valuesRef.current = values;
 	const prevRef = useRef<Record<keyof SparkSet, number>>({ fame: 0, silver: 0, respec: 0, might: 0 });
+	const emaRef = useRef<Record<keyof SparkSet, number>>({ fame: 0, silver: 0, respec: 0, might: 0 });
 	const baselineRef = useRef<boolean>(false);
 
 	useEffect(() => {
 		setState(emptySparks());
 		prevRef.current = { fame: 0, silver: 0, respec: 0, might: 0 };
+		emaRef.current = { fame: 0, silver: 0, respec: 0, might: 0 };
 		baselineRef.current = false;
 	}, [startedAt]);
 
 	useEffect(() => {
+		const intervalSec = SAMPLE_MS / 1000;
+		const step = (key: keyof SparkSet, cur: number): number => {
+			const gain = baselineRef.current ? Math.max(0, cur - prevRef.current[key]) : 0;
+			const rate = gain / intervalSec; // per-second
+			const ema = EMA_ALPHA * rate + (1 - EMA_ALPHA) * emaRef.current[key];
+			emaRef.current[key] = ema;
+			return ema;
+		};
 		const t = setInterval(() => {
 			const cur = valuesRef.current;
-			const prev = prevRef.current;
-			// First tick after a reset just seeds the baseline; emit 0
-			// so we don't spike from "0 → 95K fame" in one frame.
-			const delta: Record<keyof SparkSet, number> = baselineRef.current
-				? {
-					fame:   Math.max(0, cur.fame   - prev.fame),
-					silver: Math.max(0, cur.silver - prev.silver),
-					respec: Math.max(0, cur.respec - prev.respec),
-					might:  Math.max(0, cur.might  - prev.might),
-				}
-				: { fame: 0, silver: 0, respec: 0, might: 0 };
+			const sample: Record<keyof SparkSet, number> = {
+				fame:   step("fame", cur.fame),
+				silver: step("silver", cur.silver),
+				respec: step("respec", cur.respec),
+				might:  step("might", cur.might),
+			};
 			prevRef.current = cur;
 			baselineRef.current = true;
-			setState((s) => pushSample(s, delta));
-		}, 2000); // 2s sample — matches the footer's "spark 2s" label.
+			setState((s) => pushSample(s, sample));
+		}, SAMPLE_MS);
 		return () => clearInterval(t);
 	}, []);
 

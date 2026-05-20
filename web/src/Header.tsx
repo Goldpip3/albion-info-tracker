@@ -1,6 +1,6 @@
 import React from "react";
 import { createPortal } from "react-dom";
-import type { ConnectionState, Snapshot } from "./types.ts";
+import type { ConnectionState, Snapshot, SubMetric } from "./types.ts";
 import type { MeterScope, PaneSet } from "./useSettings.ts";
 import { fmtDuration, fmtRate, rankBy } from "./format.ts";
 
@@ -262,11 +262,15 @@ interface FightHeaderProps {
 	setViewingFight: (n: number | null) => void;
 }
 
-const TABS: Array<{ id: keyof PaneSet; label: string }> = [
-	{ id: "damage", label: "Damage" },
-	{ id: "heal",   label: "Healing" },
-	{ id: "taken",  label: "Tank" },
+// Each metric exposes a Current and a Session pane toggle. Opening both
+// renders the metric twice side-by-side (current-fight leader beside the
+// session leader).
+const PANE_GROUPS: Array<{ label: string; cur: SubMetric; ses: SubMetric }> = [
+	{ label: "Damage",  cur: "damageCurrent", ses: "damageTotal" },
+	{ label: "Healing", cur: "healCurrent",   ses: "healTotal" },
+	{ label: "Tank",    cur: "takenCurrent",  ses: "takenTotal" },
 ];
+const PANE_KEYS: SubMetric[] = ["damageCurrent", "damageTotal", "healCurrent", "healTotal", "takenCurrent", "takenTotal"];
 
 function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFight }: FightHeaderProps): React.ReactElement {
 	const liveInCombat = snapshot?.fight?.inCombat ?? false;
@@ -355,67 +359,46 @@ function FightHeader({ snapshot, panes, togglePane, viewingFight, setViewingFigh
 				)}
 			</div>
 
-			<div
-				className="flex items-center"
-				style={{
-					gap: 2,
-					background: "var(--sk-bg-2)",
-					padding: 3,
-					borderRadius: 6,
-					border: "1px solid var(--sk-line)",
-				}}
-				title="Click to add/remove this metric as a pane. At least one must stay on."
-			>
-				{TABS.map((t) => {
-					const active = panes[t.id];
-					const onCount = (panes.damage ? 1 : 0) + (panes.heal ? 1 : 0) + (panes.taken ? 1 : 0);
-					const wouldRemoveLast = active && onCount === 1;
+			<div className="flex items-center" style={{ gap: 10 }} title="Open Current and/or Session panes per metric. At least one must stay on.">
+				{PANE_GROUPS.map((g) => {
+					const onCount = PANE_KEYS.filter((k) => panes[k]).length;
 					return (
-						<button
-							key={String(t.id)}
-							onClick={() => !wouldRemoveLast && togglePane(t.id)}
-							style={{
-								appearance: "none",
-								border: 0,
-								cursor: wouldRemoveLast ? "not-allowed" : "pointer",
-								padding: "5px 11px",
-								borderRadius: 4,
-								background: active ? "var(--sk-bg-3)" : "transparent",
-								color: active ? "var(--sk-fg-0)" : "var(--sk-fg-1)",
-								fontFamily: "var(--sk-font-sans)",
-								fontSize: 11.5,
-								fontWeight: 500,
-								letterSpacing: "0.02em",
-								boxShadow: active ? "inset 0 0 0 1px var(--sk-line-2)" : "none",
-								transition: "all 160ms var(--sk-ease)",
-								opacity: wouldRemoveLast ? 0.85 : 1,
-							}}
-							title={active ? (wouldRemoveLast ? "At least one pane must stay on" : "Click to hide this pane") : "Click to show this pane"}
-						>
-							{t.label}
-						</button>
+						<div key={g.label} className="flex items-center" style={{ gap: 5 }}>
+							<span className="sk-upper" style={{ fontSize: 9, color: "var(--sk-fg-3)", letterSpacing: "0.08em" }}>{g.label}</span>
+							<div className="flex items-center" style={{ gap: 1, background: "var(--sk-bg-2)", padding: 2, borderRadius: 5, border: "1px solid var(--sk-line)" }}>
+								{([["Cur", g.cur], ["Ses", g.ses]] as const).map(([lbl, sub]) => {
+									const active = panes[sub];
+									const wouldRemoveLast = active && onCount === 1;
+									return (
+										<button
+											key={sub}
+											onClick={() => !wouldRemoveLast && togglePane(sub)}
+											className="sk-upper"
+											style={{
+												appearance: "none",
+												border: 0,
+												cursor: wouldRemoveLast ? "not-allowed" : "pointer",
+												padding: "3px 8px",
+												borderRadius: 3,
+												background: active ? "var(--sk-bg-3)" : "transparent",
+												color: active ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
+												fontSize: 9.5,
+												fontWeight: 600,
+												letterSpacing: "0.06em",
+												boxShadow: active ? "inset 0 0 0 1px var(--sk-line-2)" : "none",
+												transition: "all 160ms var(--sk-ease)",
+												opacity: wouldRemoveLast ? 0.7 : 1,
+											}}
+											title={active ? (wouldRemoveLast ? "At least one pane must stay on" : "Hide this pane") : "Show this pane"}
+										>
+											{lbl}
+										</button>
+									);
+								})}
+							</div>
+						</div>
 					);
 				})}
-				<button
-					disabled
-					style={{
-						appearance: "none",
-						border: 0,
-						cursor: "not-allowed",
-						padding: "5px 11px",
-						borderRadius: 4,
-						background: "transparent",
-						color: "var(--sk-fg-3)",
-						fontFamily: "var(--sk-font-sans)",
-						fontSize: 11.5,
-						fontWeight: 500,
-						letterSpacing: "0.02em",
-					}}
-					title="Mechanics breakdown — coming soon"
-				>
-					Mechanics
-					<span style={{ marginLeft: 5, fontSize: 9, color: "var(--sk-fg-3)" }}>soon</span>
-				</button>
 			</div>
 
 			<div className="flex items-center ml-auto" style={{ gap: 18 }}>
