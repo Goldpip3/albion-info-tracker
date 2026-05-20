@@ -131,15 +131,14 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 		document.documentElement.style.setProperty("--sk-local-tint", tint);
 	}, [settings.accent]);
 
-	// Sync the agent's loot filter scope whenever the connection
-	// opens or the user flips the "Include guildies" toggle. Without
-	// this, a returning user with the toggle off would still see
-	// guild members in the meter / loot view until they toggled
-	// again, because the agent boots into the partyGuild default.
+	// Sync the agent's meter scope whenever the connection opens or
+	// the user changes the scope control. Without this, a returning
+	// user whose saved scope differs from the agent's partyGuild
+	// default would see the wrong set until they re-picked the scope.
 	useEffect(() => {
 		if (state !== "connected") return;
-		sendCommand("setLootFilter", settings.includeGuildies ? "partyGuild" : "party");
-	}, [state, settings.includeGuildies, sendCommand]);
+		sendCommand("setLootFilter", settings.meterScope);
+	}, [state, settings.meterScope, sendCommand]);
 
 	// Global hotkeys. Stay out of the way when the user is typing in
 	// an input or holding a modifier — those are browser / OS chords

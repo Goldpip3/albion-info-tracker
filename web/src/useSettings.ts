@@ -10,15 +10,17 @@ export interface Settings {
 	columns: ColumnVisibility;
 	showActivityLog: boolean;
 	panes: PaneSet;
-	// includeGuildies controls whether the meter + loot views fall
-	// back to same-guild players when party detection only sees the
-	// local user. true (default) keeps the current "show my guild
-	// friends" behaviour; false restricts to confirmed party + the
-	// alwaysIncludeNames allowlist. The toggle also dispatches a
-	// `setLootFilter` command so the agent applies the same scope
-	// server-side.
-	includeGuildies: boolean;
+	// meterScope sets who shows in the meter + loot + archived fights:
+	//   "party"      — confirmed party members + alwaysIncludeNames only
+	//   "partyGuild" — + same-guild players (default; dungeons w/ guild)
+	//   "everyone"   — every entity with combat activity (ZvZ / open world)
+	// Changing it dispatches a `setLootFilter` command so the agent
+	// applies the same scope server-side (including when archiving
+	// fights, so past-fight playback matches the live view).
+	meterScope: MeterScope;
 }
+
+export type MeterScope = "party" | "partyGuild" | "everyone";
 
 // PaneSet picks which metric tables show side-by-side. WoW Details-style —
 // click a header tab to add/remove that metric as a pane. At least one
@@ -48,7 +50,7 @@ const DEFAULT: Settings = {
 	density: 40,
 	barStyle: "outline",
 	groupByRole: false,
-	includeGuildies: true,
+	meterScope: "partyGuild",
 	columns: {
 		dps: true,
 		hps: false,

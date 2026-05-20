@@ -96,7 +96,7 @@ func (e *Engine) noteLoot(entry LootEntry) {
 // looting in render range. ALBION_AGENT_SHOW_ALL bypasses the filter.
 func (e *Engine) LootLog() []LootEntry {
 	var allowed map[string]struct{}
-	if !showAll {
+	if !showAll && e.LootFilterMode() != "everyone" {
 		allowed = e.allowedLooters()
 	}
 

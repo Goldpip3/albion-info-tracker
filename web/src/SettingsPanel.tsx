@@ -1,4 +1,4 @@
-import type { AccentColor, BarStyle, Density, Settings } from "./useSettings.ts";
+import type { AccentColor, BarStyle, Density, MeterScope, Settings } from "./useSettings.ts";
 import { accentOklch } from "./useSettings.ts";
 
 interface SettingsPanelProps {
@@ -15,6 +15,7 @@ interface SettingsPanelProps {
 const ACCENT_OPTIONS: AccentColor[] = ["cyan", "violet", "amber", "lime", "rose"];
 const DENSITY_OPTIONS: Array<[Density, string]> = [[28, "Compact"], [34, "Regular"], [40, "Comfy"]];
 const BAR_STYLE_OPTIONS: Array<[BarStyle, string]> = [["outline", "Outline"], ["tint", "Tint"], ["solid", "Solid"]];
+const SCOPE_OPTIONS: Array<[MeterScope, string]> = [["party", "Party"], ["partyGuild", "+ Guild"], ["everyone", "Everyone"]];
 
 export function SettingsPanel({ settings, update, reset, onClose, sendCommand }: SettingsPanelProps): React.ReactElement {
 	return (
@@ -168,17 +169,15 @@ export function SettingsPanel({ settings, update, reset, onClose, sendCommand }:
 
 					<Group title="Visibility">
 						<Setting
-							label="Include guildies"
-							sub="Show same-guild players in the meter + loot view, not just your active party. Friends from agent.json's alwaysIncludeNames always show regardless."
+							label="Meter scope"
+							sub="Who appears in the meter, loot, and past-fight views. Party = your group only (tight dungeons). + Guild = also same-guild farmers. Everyone = all combatants (ZvZ). Friends in agent.json always show."
 						>
-							<Toggle
-								on={settings.includeGuildies}
-								onClick={() => {
-									const next = !settings.includeGuildies;
-									update("includeGuildies", next);
-									if (sendCommand) {
-										sendCommand("setLootFilter", next ? "partyGuild" : "party");
-									}
+							<Segment
+								options={SCOPE_OPTIONS}
+								current={settings.meterScope}
+								onChange={(v) => {
+									update("meterScope", v);
+									if (sendCommand) sendCommand("setLootFilter", v);
 								}}
 							/>
 						</Setting>

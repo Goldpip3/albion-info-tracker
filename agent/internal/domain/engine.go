@@ -304,12 +304,14 @@ func (e *Engine) HandleCommand(action, arg string) {
 			e.markDirty()
 		}
 	case "setLootFilter":
-		// arg is "partyGuild" (default, broadest visibility) or "party"
-		// (drop guild branch). Anything else falls back to the default
-		// so a buggy client doesn't strand the agent in a bad state.
+		// arg is the meter scope: "party" (confirmed party + allowlist),
+		// "partyGuild" (default; + same-guild), or "everyone" (all
+		// activity, for ZvZ). Anything else falls back to the default so
+		// a buggy client can't strand the agent in a bad state.
 		mode := "partyGuild"
-		if arg == "party" {
-			mode = "party"
+		switch arg {
+		case "party", "everyone":
+			mode = arg
 		}
 		e.filterModeMu.Lock()
 		e.lootFilter = mode
@@ -1124,8 +1126,11 @@ func (e *Engine) touchCombat(now time.Time) {
 	e.lastDamageAt = now
 }
 
-// archiveCurrentFight snapshots every entity's Current stats into a
-// FightArchive and appends it to fightHistory. Caller must hold fightMu.
+// archiveCurrentFight snapshots the in-scope entities' Current stats
+// into a FightArchive and appends it to fightHistory. Caller must hold
+// fightMu. Uses the same scopedMembers() set as the live snapshot so a
+// past fight shows exactly the players the live meter showed during it
+// — a dungeon run archives only the party, a ZvZ archives everyone.
 // Skips entities with zero activity to keep archives lean.
 func (e *Engine) archiveCurrentFight(endedAt time.Time) {
 	arch := FightArchive{
@@ -1134,8 +1139,9 @@ func (e *Engine) archiveCurrentFight(endedAt time.Time) {
 		EndedAt:    endedAt,
 		DurationMs: endedAt.Sub(e.fightStart).Milliseconds(),
 	}
+	members := e.scopedMembers()
 	e.store.mu.RLock()
-	for _, ent := range e.store.byGuid {
+	for _, ent := range members {
 		if ent.Current.DamageDealt == 0 && ent.Current.HealDone == 0 && ent.Current.DamageTaken == 0 {
 			continue
 		}

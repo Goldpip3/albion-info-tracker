@@ -446,44 +446,58 @@ type Snapshot struct {
 // When the local player is guildless the guild filter has nothing to
 // pivot on, so we hold the line at strict party-only — better than
 // flooding the meter with strangers.
-func (e *Engine) Snapshot() Snapshot {
-	var members []*Entity
-	if showAll {
-		members = e.store.AllWithActivity()
-	} else {
-		members = e.store.PartyMembers()
-		if len(members) <= 1 {
-			local := e.store.localGuidEntity()
-			includeGuild := e.LootFilterMode() != "party"
-			if local != nil && local.Guild != "" && includeGuild {
-				all := e.store.AllWithActivity()
-				filtered := make([]*Entity, 0, len(all))
-				for _, ent := range all {
-					if ent.IsLocal || ent.Guild == local.Guild || e.AlwaysIncludes(ent.Name) {
-						filtered = append(filtered, ent)
-					}
-				}
-				if len(filtered) > len(members) {
-					members = filtered
-				}
-			} else {
-				// Either local has no guild to pivot on, or the user
-				// asked to drop the guild branch via the "Include
-				// guildies" toggle. Still honour the explicit name
-				// allowlist so non-guild friends always show.
-				all := e.store.AllWithActivity()
-				filtered := make([]*Entity, 0, len(all))
-				for _, ent := range all {
-					if ent.IsLocal || e.AlwaysIncludes(ent.Name) {
-						filtered = append(filtered, ent)
-					}
-				}
-				if len(filtered) > len(members) {
-					members = filtered
-				}
-			}
+// scopedMembers returns the entities the meter should display under the
+// current scope. Shared by Snapshot (live view) and archiveCurrentFight
+// (past fights) so the two never disagree — picking a past fight from
+// the dropdown shows the same set of players the live meter showed at
+// the time. Acquires store locks internally via PartyMembers /
+// AllWithActivity, so the caller MUST NOT hold store.mu.
+//
+// Scope values (from the Settings → Meter scope control, plumbed via
+// the setLootFilter command):
+//   - "everyone"    every entity with combat activity (ZvZ / open world)
+//   - "partyGuild"  party + same-guild + allowlist (default; dungeons
+//                   with guildies)
+//   - "party"       confirmed party + allowlist only (tight dungeon runs)
+//
+// ALBION_AGENT_SHOW_ALL still forces "everyone" regardless of the
+// scope setting — the power-user escape hatch.
+func (e *Engine) scopedMembers() []*Entity {
+	mode := e.LootFilterMode()
+	if showAll || mode == "everyone" {
+		return e.store.AllWithActivity()
+	}
+
+	members := e.store.PartyMembers()
+	if len(members) > 1 {
+		// Party detection succeeded — trust it, drop random players.
+		return members
+	}
+
+	// Party detection only knows the local player. Fall back to
+	// activity, filtered by the scope: same-guild for "partyGuild",
+	// allowlist-only for "party". Guildless locals can't pivot on
+	// guild, so they collapse to allowlist-only too.
+	local := e.store.localGuidEntity()
+	includeGuild := mode == "partyGuild" && local != nil && local.Guild != ""
+	all := e.store.AllWithActivity()
+	filtered := make([]*Entity, 0, len(all))
+	for _, ent := range all {
+		switch {
+		case ent.IsLocal, e.AlwaysIncludes(ent.Name):
+			filtered = append(filtered, ent)
+		case includeGuild && ent.Guild == local.Guild:
+			filtered = append(filtered, ent)
 		}
 	}
+	if len(filtered) > len(members) {
+		return filtered
+	}
+	return members
+}
+
+func (e *Engine) Snapshot() Snapshot {
+	members := e.scopedMembers()
 	now := e.now()
 	fightN, elapsed, inCombat := e.FightStatus(now)
 	e.sessionMu.Lock()
