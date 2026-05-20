@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Snapshot } from "./types.ts";
+import { classAccent, fmtDuration, roleKeyOf } from "./format.ts";
 
 interface SessionStripProps {
 	snapshot: Snapshot | null;
 }
 
-// SessionStrip renders the design's "FarmStrip": a full-bleed grid of
-// large mono cards across the top of the meter. Each card shows the
-// session total, per-hour rate, and a sparkline trend pulled from a
-// client-side ring buffer that records the last ~22 ticks of values.
-//
-// All five metrics live in the Go agent's RAM; closing the agent clears
-// them, so the sparkline buffer is the only thing held in the browser
-// and it resets when "New session" fires (session.startedAt changes).
+const SERIF = "'Fraunces', Georgia, 'Times New Roman', serif";
+
+// SessionStrip renders the design's C3 "Farm hero": an editorial 1+3
+// layout where Fame leads as a giant mono number on the left and the
+// three secondary stats (Silver / Combat Fame / Might) stack on the
+// right, each with its own sparkline. Mirrors the Skirmish C3
+// production candidate. All four metrics live in the Go agent's RAM;
+// the per-second sparkline buffer is held in the browser and resets on
+// New Session (session.startedAt changes).
 export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElement {
 	const s = snapshot?.session;
 	const startedAt = s?.startedAt ?? "";
@@ -30,37 +32,136 @@ export function SessionStrip({ snapshot }: SessionStripProps): React.ReactElemen
 
 	const liveValues = { fame, silver, respec, might };
 	const sparks = useSparkBuffers(liveValues, startedAt);
+	const live = (snapshot?.fight?.inCombat) ?? false;
+
+	// The "carried by" credit goes to the top damage dealer this session.
+	// Memoised on generatedAt so it doesn't re-sort every render.
+	const carrier = useMemo(() => {
+		const players = snapshot?.players ?? [];
+		if (players.length === 0) return null;
+		return [...players].sort((a, b) => (b.overallDamage ?? 0) - (a.overallDamage ?? 0))[0];
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [snapshot?.generatedAt]);
 
 	// Literal hex so the SVG sparkline gradient stop-color resolves
 	// reliably (Chrome/Firefox quirks with var() inside <stop>).
-	const cards: CardSpec[] = [
-		{ key: "fame",   label: "Fame",        value: kFormat(fame),   rate: ratePerHour(fame   / hours), spark: sparks.fame,   accent: "#c08cff", glyph: "★" },
-		{ key: "silver", label: "Silver",      value: kFormat(silver), rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "#d0d4dc", glyph: "◇" },
-		{ key: "respec", label: "Combat Fame", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "#ffd770", glyph: "⚔" },
-		{ key: "might",  label: "Might",       value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "#ff6464", glyph: "✦" },
+	const lead: StatSpec = { label: "Fame", value: kFormat(fame), rate: ratePerHour(fame / hours), spark: sparks.fame, accent: "#c08cff", glyph: "★" };
+	const rest: StatSpec[] = [
+		{ label: "Silver",      value: kFormat(silver), rate: ratePerHour(silver / hours), spark: sparks.silver, accent: "#d0d4dc", glyph: "◇" },
+		{ label: "Combat Fame", value: kFormat(respec), rate: ratePerHour(respec / hours), spark: sparks.respec, accent: "#ffd770", glyph: "⚔" },
+		{ label: "Might",       value: kFormat(might),  rate: ratePerHour(might  / hours), spark: sparks.might,  accent: "#ff6464", glyph: "✦" },
 	];
 
-	const live = (snapshot?.fight?.inCombat) ?? false;
+	const carrierAccent = carrier ? classAccent(carrier.classCode, roleKeyOf(carrier.role)) : "var(--sk-fg-2)";
 
 	return (
-		<div
+		<section
 			style={{
-				display: "grid",
-				gridTemplateColumns: "repeat(4, 1fr)",
-				gap: 1,
-				background: "var(--sk-line)",
+				padding: "20px 28px 18px",
 				borderBottom: "1px solid var(--sk-line)",
+				background: "var(--sk-bg-1)",
 			}}
 		>
-			{cards.map(({ key, ...rest }) => (
-				<FarmCard key={key} {...rest} live={live} />
-			))}
-		</div>
+			{/* Section head — 01 · FARM + "carried by" credit */}
+			<div className="flex items-baseline justify-between" style={{ marginBottom: 14, gap: 16, flexWrap: "wrap" }}>
+				<div className="flex items-baseline" style={{ gap: 12 }}>
+					<span className="sk-index" style={{ color: "var(--sk-damage-soft)", fontWeight: 700 }}>01</span>
+					<span className="sk-mono" style={{ fontSize: 13, fontWeight: 700, color: "var(--sk-fg-0)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+						Farm
+					</span>
+					<span style={{ fontSize: 11.5, color: "var(--sk-fg-2)" }}>
+						· {fmtDuration(elapsedSec)} session
+					</span>
+				</div>
+				{carrier && (
+					<span style={{ fontSize: 12, color: "var(--sk-fg-1)" }}>
+						Carried by{" "}
+						<span style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: 20, color: "var(--sk-fg-0)" }}>
+							{carrier.name || "—"}
+						</span>
+						{carrier.roleLabel && (
+							<span className="sk-mono" style={{ marginLeft: 8, color: carrierAccent, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", fontSize: 10.5 }}>
+								· {carrier.roleLabel}
+							</span>
+						)}
+					</span>
+				)}
+			</div>
+
+			{/* 1 + 3 editorial grid */}
+			<div
+				style={{
+					display: "grid",
+					gridTemplateColumns: "minmax(0, 1.5fr) minmax(0, 1fr)",
+					gap: 36,
+					alignItems: "stretch",
+				}}
+			>
+				{/* LEAD — Fame */}
+				<div className="flex flex-col" style={{ gap: 10, minWidth: 0 }}>
+					<div className="flex items-center" style={{ gap: 11 }}>
+						<StatGlyph glyph={lead.glyph} accent={lead.accent} size={34} />
+						<span className="sk-upper" style={{ color: "var(--sk-fg-0)", fontSize: 11.5, letterSpacing: "0.16em", fontWeight: 700 }}>{lead.label}</span>
+					</div>
+					<div className="flex items-end" style={{ gap: 20, minWidth: 0 }}>
+						<span style={{
+							fontFamily: "var(--sk-font-mono)",
+							fontVariantNumeric: "tabular-nums",
+							fontWeight: 500,
+							color: "var(--sk-fg-0)",
+							fontSize: "clamp(64px, 8.5vw, 128px)",
+							lineHeight: 0.82,
+							letterSpacing: "-0.05em",
+						}}>{lead.value}</span>
+						<div className="flex flex-col" style={{ gap: 3, paddingBottom: 10 }}>
+							<span className="sk-mono" style={{ fontSize: 18, color: lead.accent, fontWeight: 500 }}>{lead.rate}</span>
+							<span className="sk-upper" style={{ fontSize: 9, color: "var(--sk-fg-3)" }}>session pace</span>
+						</div>
+					</div>
+					<div style={{ marginTop: 4 }}>
+						<Sparkline data={lead.spark} color={lead.accent} live={live} w={320} h={52} />
+					</div>
+				</div>
+
+				{/* SECONDARY — Silver / Combat Fame / Might */}
+				<div className="flex flex-col" style={{ borderLeft: "1px solid var(--sk-line)", paddingLeft: 28, minWidth: 0 }}>
+					{rest.map((stat, i) => (
+						<div
+							key={stat.label}
+							className="grid items-center"
+							style={{
+								gridTemplateColumns: "26px minmax(0, 1fr) 96px",
+								gap: 13,
+								padding: "14px 0",
+								borderBottom: i < rest.length - 1 ? "1px solid var(--sk-line-soft)" : "none",
+							}}
+						>
+							<StatGlyph glyph={stat.glyph} accent={stat.accent} size={24} />
+							<div style={{ minWidth: 0 }}>
+								<span style={{
+									fontFamily: "var(--sk-font-mono)",
+									fontVariantNumeric: "tabular-nums",
+									fontWeight: 500,
+									color: "var(--sk-fg-0)",
+									fontSize: 34,
+									lineHeight: 0.95,
+									letterSpacing: "-0.04em",
+								}}>{stat.value}</span>
+								<div className="flex items-baseline" style={{ gap: 8, marginTop: 3 }}>
+									<span className="sk-upper" style={{ fontSize: 9.5, color: "var(--sk-fg-1)", letterSpacing: "0.14em", fontWeight: 700 }}>{stat.label}</span>
+									<span className="sk-mono" style={{ fontSize: 11, color: stat.accent, fontWeight: 600 }}>{stat.rate}</span>
+								</div>
+							</div>
+							<Sparkline data={stat.spark} color={stat.accent} live={live} w={96} h={26} />
+						</div>
+					))}
+				</div>
+			</div>
+		</section>
 	);
 }
 
-interface CardSpec {
-	key: string;
+interface StatSpec {
 	label: string;
 	value: string;
 	rate: string;
@@ -69,64 +170,22 @@ interface CardSpec {
 	glyph: string;
 }
 
-function FarmCard({ label, accent, value, rate, spark, glyph, live }: Omit<CardSpec, "key"> & { live: boolean }): React.ReactElement {
+function StatGlyph({ glyph, accent, size }: { glyph: string; accent: string; size: number }): React.ReactElement {
 	return (
-		<div
+		<span
 			style={{
-				background: "var(--sk-bg-1)",
-				padding: "14px 18px 12px",
-				display: "flex",
-				flexDirection: "column",
-				gap: 6,
-				position: "relative",
-				overflow: "hidden",
-				minHeight: 96,
+				width: size, height: size, borderRadius: Math.round(size * 0.22),
+				display: "inline-flex", alignItems: "center", justifyContent: "center",
+				flexShrink: 0,
+				background: `color-mix(in oklab, ${accent} 18%, var(--sk-bg-2))`,
+				border: `1px solid color-mix(in oklab, ${accent} 45%, var(--sk-line))`,
+				color: accent, fontSize: Math.round(size * 0.5), fontWeight: 700, lineHeight: 1,
 			}}
-		>
-			<div className="flex items-center justify-between" style={{ marginBottom: 2 }}>
-				<div className="flex items-center" style={{ gap: 7 }}>
-					<span
-						style={{
-							width: 18, height: 18, borderRadius: 4,
-							display: "inline-flex", alignItems: "center", justifyContent: "center",
-							background: `color-mix(in oklab, ${accent} 18%, var(--sk-bg-2))`,
-							border: `1px solid color-mix(in oklab, ${accent} 45%, var(--sk-line))`,
-							color: accent, fontSize: 11, fontWeight: 700, lineHeight: 1,
-						}}
-					>{glyph}</span>
-					<span className="sk-upper" style={{
-						color: "var(--sk-fg-1)", fontSize: 10.5, letterSpacing: "0.12em", fontWeight: 600,
-					}}>{label}</span>
-				</div>
-				<Sparkline data={spark} color={accent} live={live} />
-			</div>
-			<span style={{
-				fontFamily: "var(--sk-font-mono)",
-				fontVariantNumeric: "tabular-nums",
-				fontWeight: 500,
-				color: "var(--sk-fg-0)",
-				fontSize: 30,
-				lineHeight: 1,
-				letterSpacing: "-0.03em",
-			}}>{value}</span>
-			<div className="flex items-baseline" style={{ gap: 8 }}>
-				<span className="sk-mono" style={{ color: accent, fontSize: 12, fontWeight: 600, letterSpacing: "0.02em" }}>
-					{rate}
-				</span>
-				<span className="sk-upper" style={{ color: "var(--sk-fg-3)", fontSize: 9 }}>session pace</span>
-			</div>
-			<div style={{
-				position: "absolute", left: 0, right: 0, bottom: 0,
-				height: 2,
-				background: `linear-gradient(90deg, ${accent} 0%, color-mix(in oklab, ${accent} 0%, transparent) 80%)`,
-				opacity: live ? 0.9 : 0.35,
-			}}/>
-		</div>
+		>{glyph}</span>
 	);
 }
 
-function Sparkline({ data, color, live }: { data: number[]; color: string; live: boolean }): React.ReactElement {
-	const w = 64, h = 18;
+function Sparkline({ data, color, live, w = 64, h = 18 }: { data: number[]; color: string; live: boolean; w?: number; h?: number }): React.ReactElement {
 	if (!data || data.length === 0) {
 		return <div style={{ width: w, height: h }} />;
 	}
