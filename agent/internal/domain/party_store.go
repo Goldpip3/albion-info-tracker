@@ -36,10 +36,11 @@ type partyFile struct {
 	Members []PartyRef `json:"members"`
 }
 
-// partyFreshness bounds how long a persisted roster is trusted. Three
-// hours comfortably covers "rebuilt the binary mid-session" without
-// resurrecting yesterday's group.
-const partyFreshness = 3 * time.Hour
+// partyFreshness bounds how long a persisted roster is trusted. Kept
+// short (30 min) so a quick rebuild-and-relaunch restores your group,
+// but coming back later solo doesn't resurrect an old roster. The
+// manual "Clear party" control wipes it immediately regardless.
+const partyFreshness = 30 * time.Minute
 
 // PartyStore reads/writes the single party.json file. Thread-safe.
 type PartyStore struct {

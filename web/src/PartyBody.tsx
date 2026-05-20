@@ -26,10 +26,42 @@ export function PartyBody({ players, generatedAt, visiblePlayers = [], sendComma
 	const canEdit = !!sendCommand;
 	const onRemove = (guid: string): void => { sendCommand?.("removePartyMember", guid); };
 	const onAdd = (guid: string): void => { sendCommand?.("addPartyMember", guid); };
+	const onClear = (): void => {
+		if (window.confirm("Clear the whole party roster? Use this if you're solo but a stale group is showing.")) {
+			sendCommand?.("clearParty");
+		}
+	};
 
 	const addList = (
 		<AddInRange players={visiblePlayers} onAdd={canEdit ? onAdd : undefined} />
 	);
+
+	// Header bar with a Clear-party action — the escape hatch for a
+	// stale roster restored from disk while you're actually solo.
+	const bar = (canEdit && sorted.length > 0) ? (
+		<div
+			className="flex items-center justify-between"
+			style={{ padding: "8px 16px", borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-inset)" }}
+		>
+			<span className="sk-upper" style={{ fontSize: 10, color: "var(--sk-fg-3)", letterSpacing: "0.1em", fontWeight: 700 }}>
+				{sorted.length} in party
+			</span>
+			<button
+				onClick={onClear}
+				className="sk-upper"
+				style={{
+					appearance: "none",
+					border: "1px solid color-mix(in oklab, var(--sk-err) 45%, var(--sk-line))",
+					background: "color-mix(in oklab, var(--sk-err) 10%, var(--sk-bg-2))",
+					color: "var(--sk-err)",
+					padding: "3px 10px", borderRadius: 4, cursor: "pointer",
+					fontSize: 9.5, fontWeight: 700, letterSpacing: "0.08em",
+				}}
+			>
+				Clear party
+			</button>
+		</div>
+	) : null;
 
 	if (sorted.length === 0) {
 		return (
@@ -45,6 +77,7 @@ export function PartyBody({ players, generatedAt, visiblePlayers = [], sendComma
 
 	return (
 		<div style={{ overflowY: "auto", flex: 1 }}>
+			{bar}
 			{sorted.map((p) => (
 				<PartyRow key={p.userGuid} p={p} onRemove={canEdit ? onRemove : undefined} />
 			))}

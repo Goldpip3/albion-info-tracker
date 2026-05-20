@@ -115,6 +115,20 @@ type Engine struct {
 	lootMu  sync.Mutex
 	lootLog []LootEntry
 
+	// localObjIdHint is the local player's ObjectId learned from
+	// UpdateMoney — a self-only wallet event the server sends only to
+	// the local client. Lets silver attribution work when the agent
+	// started mid-zone and never saw a Join response bind the local
+	// Guid (which is exactly when mob silver was being dropped).
+	localObjIdHint atomic.Int64
+
+	// silverDrops is a bounded set of silver-object ids seen via
+	// NewSilverObject (silver that spawned on the ground from a kill /
+	// the world). A TakeSilver whose source object is in this set is a
+	// drop, not a chest deposit — drives the mob-silver breakout.
+	silverDropsMu sync.Mutex
+	silverDrops   map[int64]struct{}
+
 	// prices is the AODP price client. Optional — nil = no value
 	// estimation, items still record with Quantity but SilverValue=0.
 	prices *aodp.Client
@@ -314,6 +328,14 @@ func (e *Engine) HandleCommand(action, arg string) {
 			_ = e.sessions.Delete(arg)
 			e.markDirty()
 		}
+	case "clearParty":
+		// Manual "I'm solo now" — wipe the roster and the persisted
+		// file so a stale group (e.g. restored from disk) stops showing.
+		e.store.ResetParty()
+		if e.party != nil {
+			_ = e.party.Clear()
+		}
+		e.markDirty()
 	case "addPartyMember":
 		// Manual roster add from the web — covers mixed-guild parties
 		// the agent never saw form. arg is the player's guid string.
@@ -648,19 +670,17 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventTakeSilver:
 		dbg("TakeSilver %v %s", ev.Parameters, e.localIdStr())
 		e.handleTakeSilver(ev.Parameters)
-		// UpdateMoney is intentionally NOT credited (it fires on every
-		// wallet sync — deposits, purchases — and would double-count).
-		// The cases below are DIAGNOSTIC ONLY (verbose mode): they log
-		// the silver-adjacent events we currently ignore so a single
-		// kill→loot capture reveals which one actually carries
-		// open-world mob silver. None of them credit yet — wire the
-		// confirmed carrier into creditSilver once identified.
 	case gamecodes.EventUpdateMoney:
+		// Not a silver source (it's the whole wallet, incl. deposits /
+		// sales). Used only to learn the local player's ObjectId so
+		// TakeSilver can attribute loot even with no Join this session.
 		dbg("UpdateMoney %v %s", ev.Parameters, e.localIdStr())
-	case gamecodes.EventRemoveSilver:
-		dbg("RemoveSilver %v %s", ev.Parameters, e.localIdStr())
+		e.handleUpdateMoney(ev.Parameters)
 	case gamecodes.EventNewSilverObject:
 		dbg("NewSilverObject %v %s", ev.Parameters, e.localIdStr())
+		e.handleNewSilverObject(ev.Parameters)
+	case gamecodes.EventRemoveSilver:
+		dbg("RemoveSilver %v %s", ev.Parameters, e.localIdStr())
 	case gamecodes.EventPartySilverGained:
 		dbg("PartySilverGained %v %s", ev.Parameters, e.localIdStr())
 	}
@@ -1045,20 +1065,60 @@ func (e *Engine) creditSilver(amount int64, isMob bool) {
 	e.sessionMu.Unlock()
 }
 
+// handleUpdateMoney records the local player's ObjectId from a wallet
+// update. UpdateMoney is sent only to the local client about its own
+// currency, so its param 0 is reliably the local player's ObjectId —
+// even when no Join response has fired this session. We do NOT credit
+// silver from here (it includes deposits / sales / purchases); it's
+// purely the identity hint that lets handleTakeSilver attribute loot.
+func (e *Engine) handleUpdateMoney(p map[byte]any) {
+	if objId, ok := paramLong(p, 0); ok && objId != 0 {
+		e.localObjIdHint.Store(objId)
+	}
+}
+
+// handleNewSilverObject remembers silver that spawned on the ground (a
+// kill / world drop) so handleTakeSilver can distinguish it from chest
+// or deposit silver for the mob-silver breakout. Param 0 is the silver
+// object's id. The set is bounded so a long session can't grow it
+// without limit.
+func (e *Engine) handleNewSilverObject(p map[byte]any) {
+	objId, ok := paramLong(p, 0)
+	if !ok || objId == 0 {
+		return
+	}
+	e.silverDropsMu.Lock()
+	if e.silverDrops == nil || len(e.silverDrops) > 4096 {
+		e.silverDrops = make(map[int64]struct{}, 256)
+	}
+	e.silverDrops[objId] = struct{}{}
+	e.silverDropsMu.Unlock()
+}
+
+func (e *Engine) isSilverDrop(objId int64) bool {
+	if objId == 0 {
+		return false
+	}
+	e.silverDropsMu.Lock()
+	defer e.silverDropsMu.Unlock()
+	_, ok := e.silverDrops[objId]
+	return ok
+}
+
 // handleTakeSilver folds a silver-pickup event into the session total.
-// Param 3 = YieldPreTax (FixPoint), param 5 = GuildTax, param 6 = ClusterTax.
-// Net silver banked = YieldPreTax - GuildTax (cluster tax is the cluster's
-// share, taken from the pre-tax yield before guild tax — SAT does
-// YieldAfterTax = YieldPreTax - GuildTax and that's what they bank).
+// Param 0 = looter ObjectId, param 2 = silver-object id, param 3 =
+// YieldPreTax (FixPoint), param 5 = GuildTax. Net banked = YieldPreTax
+// - GuildTax (SAT's YieldAfterTax).
 //
-// Credits the local player whether they're the looter (param 0) or the
-// target (param 2) — SAT matches either. Mob classification is
-// best-effort: if a non-local id involved is a known mob (in mobNames),
-// tag it as mob silver. Refined once the true open-world carrier is
-// confirmed from a verbose capture.
+// Credits only when the looter (param 0) is the local player. The local
+// ObjectId comes from the bound entity if a Join set it, else from the
+// UpdateMoney hint — so this works even when the agent started mid-zone
+// and never saw a Join (the case where mob silver silently vanished).
+// Silver whose source object spawned on the ground (seen via
+// NewSilverObject) is tagged as a mob/world drop for the breakout.
 func (e *Engine) handleTakeSilver(p map[byte]any) {
-	objectId, _ := paramLong(p, 0)
-	target, _ := paramLong(p, 2)
+	looter, _ := paramLong(p, 0)
+	silverObj, _ := paramLong(p, 2)
 	yieldPre, ok := paramLong(p, 3)
 	if !ok || yieldPre <= 0 {
 		return
@@ -1068,21 +1128,16 @@ func (e *Engine) handleTakeSilver(p map[byte]any) {
 	if yieldAfter <= 0 {
 		return
 	}
-	local := e.store.localGuidEntity()
-	if local == nil || local.ObjectId == 0 {
+	localId := int64(0)
+	if local := e.store.localGuidEntity(); local != nil && local.ObjectId != 0 {
+		localId = local.ObjectId
+	} else {
+		localId = e.localObjIdHint.Load()
+	}
+	if localId == 0 || looter != localId {
 		return
 	}
-	if objectId != local.ObjectId && target != local.ObjectId {
-		return
-	}
-	isMob := false
-	for _, id := range []int64{objectId, target} {
-		if id != 0 && id != local.ObjectId && e.MobName(id) != "" {
-			isMob = true
-			break
-		}
-	}
-	e.creditSilver(yieldAfter, isMob)
+	e.creditSilver(yieldAfter, e.isSilverDrop(silverObj))
 }
 
 // handleUpdateReSpec adds the gained respec credits delta to the session
