@@ -583,6 +583,8 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	switch gamecodes.Event(code) {
 	case gamecodes.EventHealthUpdate:
 		e.handleHealthUpdate(ev.Parameters)
+	case gamecodes.EventHealthUpdates:
+		e.handleHealthUpdates(ev.Parameters)
 	case gamecodes.EventNewCharacter:
 		dbg("NewCharacter %v", ev.Parameters)
 		e.handleNewCharacter(ev.Parameters)
@@ -786,16 +788,55 @@ func joinSpaces(parts []string) string {
 	return out
 }
 
+// handleHealthUpdate processes the SINGULAR variant (EventCode 6): one
+// scalar hit. Auto-attacks mostly arrive here. Most ability / multi-
+// source damage arrives BATCHED as EventCode 7 (handleHealthUpdates).
 func (e *Engine) handleHealthUpdate(p map[byte]any) {
 	affected, _ := paramLong(p, 0)
 	change, _ := paramDouble(p, 2)
+	newHP, _ := paramDouble(p, 3)
 	causer, _ := paramLong(p, 6)
 	spellIdx, _ := paramLong(p, 7)
+	e.applyHealthChange(affected, causer, change, newHP, spellIdx, e.now())
+}
+
+// handleHealthUpdates processes the BATCHED variant (EventCode 7): a
+// single affected target plus parallel per-hit arrays of health change,
+// new HP, causer, and spell index. Albion batches most ability and
+// multi-source damage here; the singular handler mostly sees auto-
+// attacks. The agent previously had no case for code 7, so all batched
+// hits were dropped — the meter under-counted to near auto-attack-only
+// totals. Mirrors SAT's HealthUpdatesEvent array layout.
+func (e *Engine) handleHealthUpdates(p map[byte]any) {
+	affected, _ := paramLong(p, 0)
+	changes := paramDoubleArray(p, 2)
+	newHPs := paramDoubleArray(p, 3)
+	causers := paramLongArray(p, 6)
+	spells := paramLongArray(p, 7)
+	n := len(changes)
+	for _, l := range []int{len(newHPs), len(causers), len(spells)} {
+		if l > n {
+			n = l
+		}
+	}
+	if n == 0 {
+		return
+	}
+	dbg("HealthUpdates n=%d affected=%d", n, affected)
+	now := e.now()
+	for i := 0; i < n; i++ {
+		e.applyHealthChange(affected, atLong(causers, i), atDouble(changes, i),
+			atDouble(newHPs, i), atLong(spells, i), now)
+	}
+}
+
+// applyHealthChange folds one decoded hit into combat state. Shared by
+// both the singular (EventCode 6) and batched (EventCode 7) handlers so
+// they accumulate identically. change < 0 is damage, > 0 is heal.
+func (e *Engine) applyHealthChange(affected, causer int64, change, newHP float64, spellIdx int64, now time.Time) {
 	if causer == 0 {
 		return
 	}
-
-	now := e.now()
 
 	causerEnt := e.store.ByObjectId(causer)
 	affEnt := e.store.ByObjectId(affected)
@@ -848,11 +889,11 @@ func (e *Engine) handleHealthUpdate(p map[byte]any) {
 		if heal <= 0 {
 			return
 		}
-		newHP := int64(0)
-		if v, ok := paramDouble(p, 3); ok {
-			newHP = int64(v + 0.5)
+		newHPi := int64(0)
+		if newHP > 0 {
+			newHPi = int64(newHP + 0.5)
 		}
-		effective, overheal := splitOverheal(affEnt, heal, newHP)
+		effective, overheal := splitOverheal(affEnt, heal, newHPi)
 		if causerEnt != nil {
 			e.store.mu.Lock()
 			recordHeal(&causerEnt.Current, &causerEnt.Overall, effective, overheal, now)
