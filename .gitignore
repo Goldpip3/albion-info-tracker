@@ -340,3 +340,7 @@ ASALocalRun/
 
 # Local-only scratch extracts (design handoffs, etc.)
 /.tmp-design/
+
+# Cloudflare wrangler CLI cache (account id, deploy state) — regenerated
+# on demand, never belongs in the repo. Matches agent/web/worker.
+.wrangler/
