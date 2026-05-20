@@ -1,7 +1,7 @@
 import React from "react";
 import { createPortal } from "react-dom";
 import type { ConnectionState, Snapshot } from "./types.ts";
-import type { PaneSet } from "./useSettings.ts";
+import type { MeterScope, PaneSet } from "./useSettings.ts";
 import { fmtDuration, fmtRate } from "./format.ts";
 
 interface HeaderProps {
@@ -17,6 +17,8 @@ interface HeaderProps {
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
+	meterScope: MeterScope;
+	onScopeChange: (s: MeterScope) => void;
 }
 
 // Header = TitleBar (dynamic per-user name + agent status + controls)
@@ -26,14 +28,10 @@ export function Header({
 	state, stale, snapshot, panes, togglePane,
 	viewingFight, setViewingFight,
 	onSettings, onNewSession, onReset, onToggleLog, showLog,
+	meterScope, onScopeChange,
 }: HeaderProps): React.ReactElement {
 	const localPlayer = snapshot?.players.find((p) => p.isLocal);
 	const localName = localPlayer?.name;
-
-	const docTitle = localName ? `${localName}'s Data Analytics` : "Combat Analytics";
-	if (typeof document !== "undefined" && document.title !== docTitle) {
-		document.title = docTitle;
-	}
 
 	return (
 		<div>
@@ -46,6 +44,8 @@ export function Header({
 				onReset={onReset}
 				onToggleLog={onToggleLog}
 				showLog={showLog}
+				meterScope={meterScope}
+				onScopeChange={onScopeChange}
 			/>
 			<FightHeader
 				snapshot={snapshot}
@@ -67,10 +67,13 @@ interface TitleBarProps {
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
+	meterScope: MeterScope;
+	onScopeChange: (s: MeterScope) => void;
 }
 
 function TitleBar({
 	localName, state, stale, onSettings, onNewSession, onReset, onToggleLog, showLog,
+	meterScope, onScopeChange,
 }: TitleBarProps): React.ReactElement {
 	const breadcrumb = localName ? `meter / ${localName.toLowerCase()}` : "meter / (waiting)";
 	return (
@@ -121,6 +124,7 @@ function TitleBar({
 				</span>
 			</div>
 			<div className="flex items-center" style={{ gap: 14 }}>
+				<ScopeSegment scope={meterScope} onChange={onScopeChange} />
 				<AgentPill state={state} stale={stale} />
 				<button
 					onClick={onNewSession}
@@ -145,6 +149,60 @@ function TitleBar({
 				<IconBtn onClick={onSettings} title="Settings">⋯</IconBtn>
 				<IconBtn onClick={onReset} title="Disconnect">⟲</IconBtn>
 			</div>
+		</div>
+	);
+}
+
+// ScopeSegment is the dashboard-level meter scope switch — the same
+// setting as Settings → Visibility → Meter scope, surfaced here so the
+// user can flip between dungeon (Party) and ZvZ (Everyone) framing
+// without opening Settings. Both controls write the same setting, so
+// they stay in sync.
+const SCOPE_SEGMENTS: Array<{ id: MeterScope; label: string; title: string }> = [
+	{ id: "party",      label: "Party",  title: "Show only your confirmed party (+ agent.json friends)" },
+	{ id: "partyGuild", label: "Guild",  title: "Party + same-guild farmers" },
+	{ id: "everyone",   label: "All",    title: "Every combatant in range — use for ZvZ" },
+];
+
+function ScopeSegment({ scope, onChange }: { scope: MeterScope; onChange: (s: MeterScope) => void }): React.ReactElement {
+	return (
+		<div
+			className="inline-flex items-center"
+			style={{
+				padding: 2,
+				gap: 1,
+				background: "var(--sk-bg-2)",
+				border: "1px solid var(--sk-line)",
+				borderRadius: 5,
+			}}
+			title="Meter scope — who appears in the meter, loot, and past fights"
+		>
+			{SCOPE_SEGMENTS.map((s) => {
+				const active = scope === s.id;
+				return (
+					<button
+						key={s.id}
+						onClick={() => onChange(s.id)}
+						title={s.title}
+						className="sk-upper"
+						style={{
+							appearance: "none",
+							border: 0,
+							padding: "3px 8px",
+							borderRadius: 3,
+							fontSize: 9.5,
+							fontWeight: 600,
+							letterSpacing: "0.06em",
+							cursor: "pointer",
+							color: active ? "var(--sk-fg-0)" : "var(--sk-fg-2)",
+							background: active ? "var(--sk-bg-3)" : "transparent",
+							boxShadow: active ? "inset 0 0 0 1px var(--sk-line-2)" : "none",
+						}}
+					>
+						{s.label}
+					</button>
+				);
+			})}
 		</div>
 	);
 }

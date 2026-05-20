@@ -243,6 +243,11 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 				}}
 				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
 				showLog={settings.showActivityLog}
+				meterScope={settings.meterScope}
+				onScopeChange={(s) => {
+					update("meterScope", s);
+					sendCommand("setLootFilter", s);
+				}}
 			/>
 			<TabBar tabs={tabsFor(snapshot, token)} active={tab} />
 			{tab === "meter" && <SessionStrip snapshot={snapshot} />}
@@ -391,6 +396,8 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 				onReset={() => {/* demo no-op */}}
 				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
 				showLog={settings.showActivityLog}
+				meterScope={settings.meterScope}
+				onScopeChange={(s) => update("meterScope", s)}
 			/>
 			<TabBar tabs={tabsFor(snapshot, "")} active={tab} />
 			{tab === "meter" && <SessionStrip snapshot={snapshot} />}
