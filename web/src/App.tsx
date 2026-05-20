@@ -263,7 +263,12 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					/>
 				)}
 				{tab === "party" && (
-					<PartyBody players={snapshot?.players ?? []} generatedAt={snapshot?.generatedAt} />
+					<PartyBody
+						players={snapshot?.players ?? []}
+						generatedAt={snapshot?.generatedAt}
+						visiblePlayers={snapshot?.visiblePlayers ?? []}
+						sendCommand={sendCommand}
+					/>
 				)}
 				{tab === "sessions" && (
 					<SessionsBody
@@ -413,7 +418,11 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 					/>
 				)}
 				{tab === "party" && (
-					<PartyBody players={snapshot?.players ?? []} generatedAt={snapshot?.generatedAt} />
+					<PartyBody
+						players={snapshot?.players ?? []}
+						generatedAt={snapshot?.generatedAt}
+						visiblePlayers={snapshot?.visiblePlayers ?? []}
+					/>
 				)}
 				{tab === "sessions" && (
 					<SessionsBody sessions={snapshot?.sessions ?? []} onDelete={() => {/* demo no-op */}} />

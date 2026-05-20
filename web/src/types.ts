@@ -110,6 +110,19 @@ export interface Snapshot {
 	dungeon?: DungeonRun;         // Active run-scoped scope (when inside a dungeon)
 	loot?: LootEntry[];           // Loot ring buffer (most recent first)
 	looterTotals?: LooterTotals[];// Per-looter rollup
+	visiblePlayers?: VisiblePlayer[]; // Tracked players not in party — "add to party" candidates
+}
+
+// VisiblePlayer is an "add to party" candidate: a tracked, named player
+// the agent sees but who isn't in the party. Surfaced in the Party panel
+// so mixed-guild parties the agent never saw form can be built by hand.
+export interface VisiblePlayer {
+	userGuid: string;
+	name: string;
+	itemPower?: number;
+	classCode?: string;
+	role?: string;
+	roleLabel?: string;
 }
 
 export interface LootEntry {

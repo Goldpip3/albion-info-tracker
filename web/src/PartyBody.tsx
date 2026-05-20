@@ -1,42 +1,125 @@
 import { useMemo } from "react";
-import type { PlayerSnapshot } from "./types.ts";
+import type { PlayerSnapshot, VisiblePlayer } from "./types.ts";
 import { classAccent, rankBy, roleKeyOf } from "./format.ts";
 import { EmptyState } from "./EmptyState.tsx";
 
 interface PartyBodyProps {
 	players: PlayerSnapshot[];
 	generatedAt?: string;
+	visiblePlayers?: VisiblePlayer[];
+	sendCommand?: (action: string, arg?: string) => boolean;
 }
 
-// PartyBody is the shared body used by both the legacy PartyPanel
-// modal and the dedicated /party page. Rows are sorted by IP desc with
-// userGuid as a stable tiebreak — without this, Go's randomised map
-// iteration shuffles party rows on every snapshot tick.
-export function PartyBody({ players, generatedAt }: PartyBodyProps): React.ReactElement {
+// PartyBody is the shared body for the Party view. Rows are sorted by
+// IP desc with userGuid as a stable tiebreak (Go's randomised map
+// iteration would otherwise shuffle rows each tick). Below the roster
+// it lists tracked-but-unpartied players as one-tap "add to party"
+// candidates — the deterministic fix for mixed-guild parties the agent
+// never saw form. Adds/removes route through the agent command channel
+// and persist to disk, so they survive an agent restart.
+export function PartyBody({ players, generatedAt, visiblePlayers = [], sendCommand }: PartyBodyProps): React.ReactElement {
 	const sorted = useMemo(() => {
 		return [...players].sort(rankBy((p) => p.itemPower ?? 0));
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [generatedAt, players.length]);
 
+	const canEdit = !!sendCommand;
+	const onRemove = (guid: string): void => { sendCommand?.("removePartyMember", guid); };
+	const onAdd = (guid: string): void => { sendCommand?.("addPartyMember", guid); };
+
+	const addList = (
+		<AddInRange players={visiblePlayers} onAdd={canEdit ? onAdd : undefined} />
+	);
+
 	if (sorted.length === 0) {
 		return (
-			<EmptyState
-				title="No party members tracked"
-				body="Other players in your party will appear here with their IP, weapon, bound abilities, and live equipment as soon as they're in render range. Re-zone if the list stays empty."
-			/>
+			<div style={{ overflowY: "auto", flex: 1 }}>
+				<EmptyState
+					title="No party members tracked"
+					body="Albion only announces party members at the moment they join — if the agent started after you grouped, add your teammates by hand below. They'll persist across restarts."
+				/>
+				{addList}
+			</div>
 		);
 	}
 
 	return (
 		<div style={{ overflowY: "auto", flex: 1 }}>
 			{sorted.map((p) => (
-				<PartyRow key={p.userGuid} p={p} />
+				<PartyRow key={p.userGuid} p={p} onRemove={canEdit ? onRemove : undefined} />
 			))}
+			{addList}
 		</div>
 	);
 }
 
-function PartyRow({ p }: { p: PlayerSnapshot }): React.ReactElement {
+// AddInRange lists tracked players who aren't in the party as one-tap
+// add candidates. Hidden entirely when there's nothing to add.
+function AddInRange({ players, onAdd }: { players: VisiblePlayer[]; onAdd?: (guid: string) => void }): React.ReactElement | null {
+	if (players.length === 0) return null;
+	return (
+		<div style={{ borderTop: "1px solid var(--sk-line-2)" }}>
+			<div
+				className="sk-upper"
+				style={{
+					padding: "10px 16px 8px",
+					fontSize: 10, color: "var(--sk-fg-3)", letterSpacing: "0.1em", fontWeight: 700,
+					background: "var(--sk-bg-inset)",
+				}}
+			>
+				Add players in range · {players.length}
+			</div>
+			{players.map((v) => {
+				const role = roleKeyOf(v.role);
+				const accent = classAccent(v.classCode, role);
+				return (
+					<div
+						key={v.userGuid}
+						className="flex items-center"
+						style={{ gap: 12, padding: "9px 16px", borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-1)" }}
+					>
+						<span
+							style={{
+								minWidth: 40, padding: "3px 8px", borderRadius: 4, textAlign: "center",
+								border: `1px solid color-mix(in oklab, ${accent} 55%, var(--sk-line-2))`,
+								background: `color-mix(in oklab, ${accent} 12%, var(--sk-bg-2))`,
+								color: accent, fontFamily: "var(--sk-font-mono)", fontWeight: 700, fontSize: 12,
+								fontVariantNumeric: "tabular-nums",
+							}}
+							title={v.itemPower ? `IP ${v.itemPower}` : "IP unknown"}
+						>
+							{v.itemPower && v.itemPower > 0 ? v.itemPower : "—"}
+						</span>
+						<div className="flex flex-col" style={{ minWidth: 0, flex: 1, gap: 1 }}>
+							<span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--sk-fg-0)" }}>{v.name}</span>
+							{v.roleLabel && (
+								<span className="sk-upper" style={{ fontSize: 9, color: accent, fontWeight: 700 }}>{v.roleLabel}</span>
+							)}
+						</div>
+						{onAdd && (
+							<button
+								onClick={() => onAdd(v.userGuid)}
+								className="sk-upper"
+								style={{
+									appearance: "none",
+									border: "1px solid color-mix(in oklab, var(--sk-ok) 45%, var(--sk-line))",
+									background: "color-mix(in oklab, var(--sk-ok) 12%, var(--sk-bg-2))",
+									color: "var(--sk-ok)",
+									padding: "4px 12px", borderRadius: 4, cursor: "pointer",
+									fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+								}}
+							>
+								+ Add
+							</button>
+						)}
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
+function PartyRow({ p, onRemove }: { p: PlayerSnapshot; onRemove?: (guid: string) => void }): React.ReactElement {
 	const role = roleKeyOf(p.role);
 	const accent = classAccent(p.classCode, role);
 	return (
@@ -80,6 +163,24 @@ function PartyRow({ p }: { p: PlayerSnapshot }): React.ReactElement {
 						<span className="sk-upper" style={{ fontSize: 10, color: accent, fontWeight: 600 }}>
 							{p.roleLabel}
 						</span>
+					)}
+					{onRemove && !p.isLocal && (
+						<button
+							onClick={() => onRemove(p.userGuid)}
+							title="Remove from party"
+							className="sk-upper"
+							style={{
+								marginLeft: "auto",
+								appearance: "none",
+								border: "1px solid var(--sk-line)",
+								background: "var(--sk-bg-2)",
+								color: "var(--sk-fg-3)",
+								padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+								fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+							}}
+						>
+							Remove
+						</button>
 					)}
 				</div>
 				{p.activeSpellSlots && p.activeSpellSlots.length > 0 && (

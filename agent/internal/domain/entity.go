@@ -361,3 +361,32 @@ func (s *Store) PartyMembers() []*Entity {
 	}
 	return out
 }
+
+// PartyRefs returns the guid+name of every IsInParty entity. Used to
+// persist the roster to disk so it survives an agent restart.
+func (s *Store) PartyRefs() []PartyRef {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]PartyRef, 0)
+	for g, e := range s.byGuid {
+		if e.IsInParty && !g.IsZero() {
+			out = append(out, PartyRef{Guid: g.String(), Name: e.Name})
+		}
+	}
+	return out
+}
+
+// AllPlayers returns every tracked entity that has a name — the pool of
+// "add to party" candidates the web surfaces. Excludes the local
+// player and current party members at the snapshot layer, not here.
+func (s *Store) AllPlayers() []*Entity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Entity, 0)
+	for _, e := range s.byGuid {
+		if e.Name != "" {
+			out = append(out, e)
+		}
+	}
+	return out
+}

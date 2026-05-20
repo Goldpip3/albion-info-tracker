@@ -69,6 +69,13 @@ func main() {
 		engine.SetSessionsStore(store)
 		fmt.Printf("  Sessions on disk: %s\n", store.Dir())
 	}
+	if pstore, err := domain.NewPartyStore(); err != nil {
+		log.Printf("  party store: %v", err)
+	} else {
+		engine.SetPartyStore(pstore)
+		fmt.Printf("  Party roster on disk: %s\n", pstore.Path())
+		engine.RestoreParty()
+	}
 	priceClient := aodp.New()
 	priceClient.Start(ctx)
 	engine.SetPriceClient(priceClient)

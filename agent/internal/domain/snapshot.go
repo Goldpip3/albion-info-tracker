@@ -409,6 +409,19 @@ type Session struct {
 	DeathsTotal int       `json:"deathsTotal"`
 }
 
+// VisiblePlayer is a lightweight "add to party" candidate — a tracked
+// player who isn't currently in the party. The web renders these so the
+// user can manually add teammates the agent never saw join (mixed-guild
+// parties, agent started after grouping).
+type VisiblePlayer struct {
+	UserGuid  string `json:"userGuid"`
+	Name      string `json:"name"`
+	ItemPower int    `json:"itemPower,omitempty"`
+	ClassCode string `json:"classCode,omitempty"`
+	Role      string `json:"role,omitempty"`
+	RoleLabel string `json:"roleLabel,omitempty"`
+}
+
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
 	GeneratedAt time.Time         `json:"generatedAt"`
@@ -423,6 +436,9 @@ type Snapshot struct {
 	Dungeon     *DungeonRun       `json:"dungeon,omitempty"`
 	Loot        []LootEntry       `json:"loot,omitempty"`
 	LooterTotals []LooterTotals   `json:"looterTotals,omitempty"`
+	// VisiblePlayers are tracked, named players not currently in the
+	// party — the manual "add to party" candidates for the Party panel.
+	VisiblePlayers []VisiblePlayer `json:"visiblePlayers,omitempty"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
@@ -594,6 +610,36 @@ func (e *Engine) Snapshot() Snapshot {
 		}
 		out.Composition.Total++
 	}
+
+	// Add-to-party candidates: every tracked named player who isn't
+	// already displayed (not in members) and isn't the local player.
+	// The web surfaces these so a mixed-guild party the agent never saw
+	// form can be assembled by hand. Bounded by zone presence.
+	shown := make(map[string]struct{}, len(out.Players))
+	for _, pl := range out.Players {
+		shown[pl.UserGuid] = struct{}{}
+	}
+	for _, ent := range e.store.AllPlayers() {
+		if ent.IsLocal || ent.UserGuid.IsZero() {
+			continue
+		}
+		gid := ent.UserGuid.String()
+		if _, ok := shown[gid]; ok {
+			continue
+		}
+		out.VisiblePlayers = append(out.VisiblePlayers, VisiblePlayer{
+			UserGuid:  gid,
+			Name:      ent.Name,
+			ItemPower: ent.ItemPower,
+			ClassCode: ent.ClassCode,
+			Role:      ent.Role,
+			RoleLabel: ent.RoleLabel,
+		})
+	}
+	sort.Slice(out.VisiblePlayers, func(i, j int) bool {
+		return out.VisiblePlayers[i].Name < out.VisiblePlayers[j].Name
+	})
+
 	// Deterministic player order at the source. members comes from a Go
 	// map (randomized iteration), so without this the array arrives in a
 	// different order every tick — and any client sort that omits a

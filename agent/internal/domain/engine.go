@@ -90,6 +90,11 @@ type Engine struct {
 	// when nil the agent skips persistence and resets just clear RAM.
 	sessions *SessionsStore
 
+	// party persists the confirmed party roster across agent restarts.
+	// Optional — when nil the roster lives only in RAM (the old
+	// behaviour) and a restart loses it.
+	party *PartyStore
+
 	// zones is the append-only log of zone visits, capped at zoneLogCap.
 	// Updated from handleJoinResponse via noteZoneEntry.
 	zonesMu sync.Mutex
@@ -303,6 +308,20 @@ func (e *Engine) HandleCommand(action, arg string) {
 			_ = e.sessions.Delete(arg)
 			e.markDirty()
 		}
+	case "addPartyMember":
+		// Manual roster add from the web — covers mixed-guild parties
+		// the agent never saw form. arg is the player's guid string.
+		if g, err := ParseGuid(arg); err == nil && !g.IsZero() {
+			e.store.MarkInParty(g, true)
+			e.persistParty()
+			e.markDirty()
+		}
+	case "removePartyMember":
+		if g, err := ParseGuid(arg); err == nil && !g.IsZero() {
+			e.store.MarkInParty(g, false)
+			e.persistParty()
+			e.markDirty()
+		}
 	case "setLootFilter":
 		// arg is the meter scope: "party" (confirmed party + allowlist),
 		// "partyGuild" (default; + same-guild), or "everyone" (all
@@ -413,6 +432,53 @@ func (e *Engine) MobName(objectId int64) string {
 // store before zeroing counters. Optional — the agent runs fine without.
 func (e *Engine) SetSessionsStore(s *SessionsStore) {
 	e.sessions = s
+}
+
+// SetPartyStore wires the disk-backed party roster. When set, confirmed
+// party membership is persisted on every change and restored on boot.
+func (e *Engine) SetPartyStore(s *PartyStore) {
+	e.party = s
+}
+
+// persistParty writes the current roster to disk. No-op when no store
+// is wired. Cheap — a single small JSON file.
+func (e *Engine) persistParty() {
+	if e.party == nil {
+		return
+	}
+	if err := e.party.Save(e.store.PartyRefs()); err != nil {
+		log.Printf("  party persist: %v", err)
+	}
+}
+
+// RestoreParty rehydrates the roster from disk on startup. Each ref
+// becomes a named, IsInParty entity with ObjectId=0; it rebinds to
+// live combat on the next NewCharacter exactly like a PartyJoined
+// member. Stale rosters (older than partyFreshness) are ignored by the
+// store's Load.
+func (e *Engine) RestoreParty() {
+	if e.party == nil {
+		return
+	}
+	refs, err := e.party.Load()
+	if err != nil {
+		log.Printf("  party restore: %v", err)
+		return
+	}
+	n := 0
+	for _, ref := range refs {
+		g, err := ParseGuid(ref.Guid)
+		if err != nil || g.IsZero() {
+			continue
+		}
+		e.store.UpsertByGuid(g, 0, ref.Name, "")
+		e.store.MarkInParty(g, true)
+		n++
+	}
+	if n > 0 {
+		e.markDirty()
+		log.Printf("  party restore: %d member(s) from disk", n)
+	}
 }
 
 // SetPriceClient wires the AODP price client for loot value estimation.
@@ -547,6 +613,9 @@ func (e *Engine) onEvent(ev photon.EventData) {
 	case gamecodes.EventPartyDisbanded:
 		dbg("PartyDisbanded")
 		e.store.ResetParty()
+		if e.party != nil {
+			_ = e.party.Clear()
+		}
 	case gamecodes.EventMountStart:
 		dbg("MountStart %v", ev.Parameters)
 		e.handleMountStart(ev.Parameters)
@@ -1842,6 +1911,7 @@ func (e *Engine) handlePartyJoined(p map[byte]any) {
 		e.store.UpsertByGuid(guids[i], 0, names[i], "")
 		e.store.MarkInParty(guids[i], true)
 	}
+	e.persistParty()
 }
 
 func (e *Engine) handlePartyPlayerJoined(p map[byte]any) {
@@ -1852,6 +1922,7 @@ func (e *Engine) handlePartyPlayerJoined(p map[byte]any) {
 	}
 	e.store.UpsertByGuid(guid, 0, name, "")
 	e.store.MarkInParty(guid, true)
+	e.persistParty()
 }
 
 func (e *Engine) handlePartyPlayerLeft(p map[byte]any) {
@@ -1860,6 +1931,7 @@ func (e *Engine) handlePartyPlayerLeft(p map[byte]any) {
 		return
 	}
 	e.store.MarkInParty(guid, false)
+	e.persistParty()
 }
 
 func (e *Engine) handleMountStart(p map[byte]any) {
