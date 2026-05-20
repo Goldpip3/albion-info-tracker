@@ -125,10 +125,92 @@ func main() {
 		log.Print("push: no PushURL configured — running in stdout-only mode")
 	}
 
-	if err := capture.Run(ctx, sink); err != nil && err != context.Canceled {
-		fatal("capture", err)
-	}
+	superviseCapture(ctx, sink, &packetsSeen)
 	fmt.Println("\nStopped.")
+}
+
+// superviseCapture runs capture.Run and self-heals when it stalls. The
+// Windows raw socket binds to the interfaces present at open time and
+// then blocks in Recvfrom; if the active adapter changes (VPN toggle,
+// Wi-Fi reconnect) or the machine sleeps, packets quietly stop and never
+// resume — the meter just freezes with no error. This watchdog notices
+// the silence, cancels the run (which closes the dead sockets), and
+// reopens — re-enumerating interfaces so a new adapter is picked up.
+//
+// A genuine setup failure (no admin, no interfaces) makes the very first
+// Run return an error before any packet is seen; that's fatal, not a
+// transient stall, so we surface it loudly instead of retry-spamming.
+func superviseCapture(ctx context.Context, sink capture.Sink, seen *atomic.Uint64) {
+	const (
+		stallTimeout = 45 * time.Second
+		checkEvery    = 5 * time.Second
+		reopenDelay   = 2 * time.Second
+	)
+	everSeen := false
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		capCtx, cancel := context.WithCancel(ctx)
+		runErr := make(chan error, 1)
+		go func() { runErr <- capture.Run(capCtx, sink) }()
+
+		last := seen.Load()
+		lastChange := time.Now()
+		ticker := time.NewTicker(checkEvery)
+		reason := ""
+	monitor:
+		for {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				cancel()
+				<-runErr
+				return
+			case err := <-runErr:
+				ticker.Stop()
+				cancel()
+				if ctx.Err() != nil {
+					return
+				}
+				if !everSeen && seen.Load() == 0 {
+					// Never captured anything — a permission / interface
+					// problem, not a recoverable stall. Fail loudly.
+					fatal("capture", err)
+				}
+				reason = fmt.Sprintf("capture stopped: %v", err)
+				break monitor
+			case <-ticker.C:
+				cur := seen.Load()
+				if cur > 0 {
+					everSeen = true
+				}
+				if cur != last {
+					last = cur
+					lastChange = time.Now()
+					continue
+				}
+				// Only treat silence as a stall once traffic has flowed —
+				// before the game connects, zero packets is expected.
+				if everSeen && time.Since(lastChange) >= stallTimeout {
+					reason = fmt.Sprintf("no packets for %s (adapter change / sleep?)", stallTimeout)
+					ticker.Stop()
+					cancel()
+					<-runErr
+					break monitor
+				}
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		log.Printf("capture: %s — reopening sockets in %s", reason, reopenDelay)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(reopenDelay):
+		}
+	}
 }
 
 // ensureConfigured fills in any missing critical config and re-writes

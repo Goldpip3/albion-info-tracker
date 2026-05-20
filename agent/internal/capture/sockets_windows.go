@@ -50,6 +50,7 @@ func Run(ctx context.Context, sink Sink) error {
 
 	var (
 		wg        sync.WaitGroup
+		fds       []windows.Handle
 		anyOpened bool
 		firstErr  error
 	)
@@ -62,19 +63,29 @@ func Run(ctx context.Context, sink Sink) error {
 			continue
 		}
 		anyOpened = true
+		fds = append(fds, fd)
 		wg.Add(1)
-		go func(ip net.IP, fd windows.Handle) {
+		go func(fd windows.Handle) {
 			defer wg.Done()
-			defer windows.Closesocket(fd)
 			receiveLoop(ctx, fd, sink)
-		}(ip, fd)
+		}(fd)
 	}
 
 	if !anyOpened {
 		return firstErr
 	}
 
-	<-ctx.Done()
+	// Close every socket when ctx cancels. receiveLoop blocks in
+	// Recvfrom, which only returns once its socket is closed — without
+	// this, wg.Wait would deadlock on a silent socket and the capture
+	// supervisor could never reopen after a stall.
+	go func() {
+		<-ctx.Done()
+		for _, fd := range fds {
+			windows.Closesocket(fd)
+		}
+	}()
+
 	wg.Wait()
 	return ctx.Err()
 }
