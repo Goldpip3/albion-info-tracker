@@ -30,16 +30,25 @@ agent/                     Go agent — capture + parse + state + WS push
                            localization.go (TMX), spells_override.go (hand-curated names)
   internal/domain/         entity store, combat tracker, Photon event handlers,
                            session economy, sessions.go (disk archive), zones.go (map log),
-                           dungeon.go (run-scoped scope), loot.go (per-looter rollup)
+                           dungeon.go (run-scoped scope), loot.go (per-looter rollup),
+                           party_store.go (party.json persistence), loot_source.go
+                           (@MOB_… → "T6 Harvester" prettifier), guid.go (ParseGuid)
   internal/aodp/           Albion Online Data Project price client (loot value)
   internal/push/           WebSocket push client (coder/websocket, reconnect+backoff)
-  internal/config/         agent.json + env-var loader
+  internal/config/         agent.json + env-var loader (incl. alwaysIncludeNames)
 worker/                    Cloudflare Worker + Durable Object backend (TS)
 web/                       React + Vite + Tailwind v4 frontend
-  src/                     components, hooks, types, demo data, panels
-                           (SessionsPanel, PartyPanel, LootPanel, DungeonStrip, IPChip)
+  src/                     App.tsx (top-tab routing + MeterPanes), TabBar/tabs (nav),
+                           MeterTable, SessionStrip (C3 editorial Fame hero),
+                           LootBody/LootPage, PartyBody/PartyPage, SessionsBody/SessionsPage,
+                           EmptyState, DungeonStrip, IPChip, DrillIn, Header, Footer
+                           (legacy *Panel modals kept but unmounted)
   public/assets/           GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
+Restart GDA Agent.cmd      one-click stop → rebuild → relaunch elevated (self-elevates)
+Restart GDA Agent (Verbose).cmd  same + --verbose → writes agent/agent-verbose.log
+restart-agent.ps1          the script both .cmd wrappers call
 GDA Launcher.lnk           double-click to launch the agent with --open-browser
+SAFETY.md                  passive-capture / no-overlay / no-automation disclosure
 ARCHITECTURE.md            deep-dive into protocol, indexing, race fixes, data flow
 proposals/                 feature backlog drafts (not yet implemented)
 ```
@@ -93,16 +102,31 @@ Single static Windows binary. Captures Albion UDP traffic via raw sockets (`SIO_
 
 ### Build & run
 
+**Preferred iteration loop after an agent change: double-click `Restart GDA Agent.cmd`.**
+It self-elevates (one UAC prompt), stops the running agent, rebuilds, and relaunches it
+elevated with `--open-browser`. The agent runs as admin (raw-socket capture) and Windows
+locks `agent.exe` while running, so a manual `go build` fails until the old process exits —
+the script handles all of that. **Web-only changes need no restart — just hard-refresh.**
+
+For a diagnostic capture, double-click `Restart GDA Agent (Verbose).cmd` — it adds
+`--verbose`, which tees every event to `agent/agent-verbose.log` (truncated each launch,
+gitignored) so the log can be read back directly instead of scraping the elevated console.
+
+Manual build (e.g. CI / just compiling):
+
 ```powershell
 cd agent
 go build -o agent.exe ./cmd/agent
+go test ./internal/domain/   # ParseGuid round-trip + batched HealthUpdates regression
 # Admin PowerShell — SIO_RCVALL requires elevation.
 .\agent.exe
 ```
 
+Flags: `--open-browser` / `-b` (open the meter on launch), `--verbose` / `-v` (debug log + file).
+
 Diagnostic env vars:
-- `ALBION_AGENT_VERBOSE=1` — per-event logging (useful for diagnosing classification + party detection)
-- `ALBION_AGENT_SHOW_ALL=1` — drop the party-membership gate in the snapshot (show every entity with combat activity)
+- `ALBION_AGENT_VERBOSE=1` — per-event logging (same as `--verbose`)
+- `ALBION_AGENT_SHOW_ALL=1` — power-user escape hatch: show every entity with combat activity, bypassing the scope filter (see Meter scope below)
 - `ALBION_AGENT_URL=wss://...` — override push URL
 - `ALBION_AGENT_TOKEN=...` — override push token
 - `ALBION_INSTALL=C:\Program Files (x86)\AlbionOnline` — override Albion install root
@@ -114,42 +138,72 @@ Diagnostic env vars:
 {
   "pushUrl":   "wss://albion-meter.goldpipe.workers.dev/ingest",
   "pushToken": "<32 hex chars>",
-  "albionInstallRoot": "C:\\Program Files (x86)\\AlbionOnline"
+  "albionInstallRoot": "C:\\Program Files (x86)\\AlbionOnline",
+  "alwaysIncludeNames": ["FriendName1", "FriendName2"]
 }
 ```
 
 Missing `agent.json` triggers the first-run wizard (auto-generates a token, opens the browser to the magic-pair URL, writes the file).
 
+`alwaysIncludeNames` (optional, case-sensitive): force these player names into the meter + loot views even when they're not in your guild and `PartyJoined` never fired — for non-guild friends you party with regularly. See the party-detection notes below.
+
 ### What the agent handles
 
 | Event / op | Actual code | What we extract |
 |---|---|---|
-| `HealthUpdate` | 6 | affectedId, healthChange, causerId — damage/heal/taken attribution by ObjectId |
+| `HealthUpdate` | 6 | **singular** hit (mostly auto-attacks): affectedId, healthChange, causerId — damage/heal/taken by ObjectId. Shares `applyHealthChange` with the batched variant. |
+| `HealthUpdates` | 7 | **batched** hits (most ability / multi-source damage) as parallel arrays — was unhandled, which under-counted DPS to near-auto-attack-only. Decoded per-entry through the same path. |
 | `NewCharacter` | 29 | objectId + name + guid + guild + equipment array (param 40), qualities (41), spells (43) |
-| `Join` response | op 2 | objectId + guid + name + guild + zone (param 8) — **only** authoritative source for the local player |
+| `Join` response | op 2 | objectId + guid + name + guild + zone (param 8) — authoritative source for the local player (only fires on zone change) |
 | `JoinFinished` | 2 | zone-change marker |
 | `CharacterEquipmentChanged` | 90 | objectId + equipment array (param 2), qualities (3), **active spells (param 7)** — arrives BEFORE Join response for the local player; cached in `pendingEquip` and replayed on Upsert |
 | `ChangeEquipment` | 5 | older variant of the above; same handler |
 | `MountStart` | 212 | rider objectId — stashed for next NewMountObject |
 | `NewMountObject` | 310 | rider guid — paired with stashed objectId within a 2 s window |
-| `PartyJoined` | 231 | guids byte-array + names array — full member list |
-| `PartyPlayerJoined` | 233 | guid + name |
-| `PartyPlayerLeft` | 235 | guid leaving |
-| `PartyDisbanded` | 237 | resets party flags |
+| `PartyJoined` | 231 | guids byte-array + names array — full member list; persisted to `party.json` |
+| `PartyPlayerJoined` | 233 | guid + name; persisted |
+| `PartyPlayerLeft` | 235 | guid leaving; persisted |
+| `PartyDisbanded` | 237 | resets party flags + clears `party.json` |
 | `Died` | (see events.go) | name + killer for activity log + per-entity death count |
 | `CastFinished` | (see events.go) | per-spell cast count + recent-cast ring buffer for debuff-window attribution |
 | `ActiveSpellEffectsUpdate` | (see events.go) | active buffs/debuffs — diffed to open/close debuff windows |
-| `OtherGrabbedLoot` | 285 | looter name + corpse source + item index + quantity + isSilver — fed into the loot logger |
+| `OtherGrabbedLoot` | 285 | looter name + corpse source + item index + qty + isSilver → loot logger. Source key prettified (`@MOB_T6_HARVESTER_PLAYERSPAWN` → "T6 Harvester"). Does NOT credit silver (TakeSilver does). |
 | `UpdateFame` | 91 | FameWithZoneMultiplier (param 2) + PremiumFame + SatchelFame + BonusFactor → per-event TotalGainedFame (SAT formula) accumulated into `session.fameTotal` |
-| `TakeSilver` | 70 | YieldPreTax (FixPoint) - GuildTax → YieldAfterTax credited to `session.silverTotal` for the local player's pickups |
+| `TakeSilver` | 70 | YieldPreTax (FixPoint) - GuildTax → credited to `session.silverTotal` when looter (param 0) is the local player. Drop-source (param 2) seen via NewSilverObject → tagged into `session.mobSilverTotal`. |
+| `UpdateMoney` | 89 | NOT a silver source (whole wallet, incl. deposits). Param 0 = local player's ObjectId → `localObjIdHint`, lets TakeSilver attribute loot when no Join fired this session. |
+| `NewSilverObject` | 52 | silver-object id → `silverDrops` set; a TakeSilver from one of these is a ground/mob drop (mob-silver breakout). |
 | `UpdateReSpecPoints` | 92 | "Combat Fame Credits" — per-event gained OR lifetime baseline-delta; UI labels this as "Combat Fame" |
 | `MightAndFavorReceivedEvent` | 470 | Might gained (FixPoint) — `session.mightTotal` |
 
 **Critical fixes worth highlighting**:
-- **Silver** uses `TakeSilver` (loot pickup) not `UpdateMoney` (wallet sync). The latter only fires on deposits/purchases, so prior versions missed silver banked from kills.
-- **Fame** uses SAT's `TotalGainedFame = (FameWithZoneMultiplier + Premium + Satchel) × Bonus` — delta-tracking `TotalPlayerFame` lagged the in-game popup and missed premium boosts.
+- **Batched HealthUpdates (code 7)** carries the bulk of ability damage; missing its handler under-counted DPS to near-auto-attack-only totals. Both the singular and batched handlers fold through one `applyHealthChange`.
+- **Silver** is credited from `TakeSilver` only (never `UpdateMoney`, which is the whole wallet incl. deposits/sales; and never OtherGrabbedLoot, which fires for the same pickup → would double-count). The local player is identified by `UpdateMoney`'s param 0 hint, so silver counts even when the agent starts mid-zone with no Join. `session.mobSilverTotal` breaks out ground-drop silver.
+- **Fame** uses SAT's `TotalGainedFame = (FameWithZoneMultiplier + Premium + Satchel) × Bonus`.
+- **Fight scope**: `touchCombat` (fight counter + Current-bucket reset) only fires when the **local player** is the causer/affected (`localInvolved`), so distant mob-on-mob fights don't tick the counter while idle.
+- **LastFight carryover**: `Current.Or(LastFight)` in the snapshot shows the previous fight's numbers in the gap after a new fight starts but before damage lands, so rows don't snap to zero between fights.
 
 **Not handled** (deliberately out of scope): trade, market, guild events, mail, harvest, chat. Loot tracking IS in (F6 + F7).
+
+### Party detection, meter scope & commands
+
+`PartyJoined` only fires the instant a member joins — never retroactively. If the agent starts (or is rebuilt + relaunched) while already grouped, the roster is otherwise lost. Mitigations, in order:
+
+1. **Persistence** — confirmed party members are written to `%LocalAppData%\GDA\party.json` on every party event + manual edit (30-min freshness gate); `RestoreParty()` rehydrates them on boot. Covers the common rebuild-mid-session case automatically.
+2. **Manual add/remove** — the snapshot ships `VisiblePlayers` (tracked players not in the party); the Party tab lists them under "Add players in range", and each party row has Remove. A **Clear party** button (top-right) wipes the roster + `party.json` — the escape hatch when a stale roster shows while solo.
+3. **`alwaysIncludeNames`** allowlist in agent.json — non-guild friends always show.
+
+**Meter scope** (Settings → Visibility, and the title-bar `Party / Guild / All` switch) controls who appears in the meter + loot + archived fights, via the `setLootFilter` command → `Engine.LootFilterMode()`:
+- `party` — confirmed party + allowlist only (tight dungeons)
+- `partyGuild` (default) — + same-guild players (dungeons with guildies)
+- `everyone` — every entity with combat activity (ZvZ)
+
+`scopedMembers()` is the single filter shared by the live snapshot **and** `archiveCurrentFight`, so a past fight shows exactly who the live meter showed at the time.
+
+**Web → agent commands** (over the same WebSocket, forwarded by the Worker; `Engine.HandleCommand`): `resetSession`, `deleteSession <id>`, `setLootFilter <party|partyGuild|everyone>`, `addPartyMember <guid>`, `removePartyMember <guid>`, `clearParty`.
+
+### Capture self-heal
+
+The Windows raw socket binds to the interfaces present at startup and blocks in `Recvfrom`. If the active adapter changes (VPN/Wi-Fi) or the PC sleeps, packets silently stop and never resume. `superviseCapture` (main.go) watchdogs `packetsSeen`: after traffic has flowed, ~45 s of silence cancels + reopens the socket (re-enumerating interfaces). A first run that errors before any packet (no admin / no interface) is still fatal, not retried. The console heartbeat (`packets=N` every 5 s) is the at-a-glance liveness signal.
 
 ### Game-data loaders
 
@@ -185,7 +239,7 @@ TypeScript Worker + Durable Object backend. Deployed at `https://albion-meter.go
 
 Auth: SHA-256 hash of the bearer token names a Durable Object room. No DB, no signup. Agent and browser sharing a token meet in the same room.
 
-`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish every 250 ms so hibernation losing state is harmless.
+`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish every 250 ms so hibernation losing state is harmless. The room also **forwards viewer→agent command messages** (New Session, delete session, set scope, party add/remove/clear) transparently to the ingest socket — see `Engine.HandleCommand`.
 
 ### Build & deploy
 
@@ -222,44 +276,59 @@ npm run dev
 ### Important caveats
 
 - Tailwind v4: no `postcss.config` or `tailwind.config` needed — the `@tailwindcss/vite` plugin handles everything.
-- Settings are stored in localStorage under key `gda:settings:v2` (bump the suffix to force-reset for returning users when design tokens change).
+- Settings are stored in localStorage under key `gda:settings:v2` (bump the suffix to force-reset for returning users when design tokens change). `panes` is now `Record<SubMetric, boolean>` (six keys: `damageCurrent/damageTotal/healCurrent/healTotal/takenCurrent/takenTotal`); the merge falls returning users back to `damageCurrent: true`. `meterScope` (`party|partyGuild|everyone`) also lives here and is mirrored to the agent via `setLootFilter` on connect.
 - Per-deployment hash URLs (`<hash>.albion-meter-web.pages.dev`) are separate browser origins and don't share the user's pairing token — always link to the production alias.
+- Use `Restart GDA Agent.cmd` after agent changes; web changes only need a hard refresh (Empty Cache and Hard Reload — plain Ctrl+Shift+R hasn't reliably busted the cache).
 
 ---
 
 ## Current state (working / known gaps)
 
-✅ **Confirmed working end-to-end**:
-- Agent captures + parses Photon UDP at 200 ms push rate (dirty-gen skips idle ticks).
-- Local player class + IP detection via `CharacterEquipmentChanged` + pre-Join equipment cache. Live equipment & spell swaps reflect within ~250ms.
-- Items.bin loader produces 12,060 entries with enchantment expansion. Spells.bin loader 9,166 entries with channeling expansion (matches SAT).
-- Localization.bin (38,174 EN-US strings) translates spell/item uniquenames to tooltip names ("Adept's Arclight Blasters", "Flickershot", "Chain Slash", "Explosive Bolt"). Falls back to override table + prettifier.
-- Per-class accent colours: Daggers red, Fire amber, Frost cyan, Hammer steel, Arcane violet, Holy gold, Nature green.
-- **IPChip** replaces the legacy XBW-style 3-letter chip — shows averaged IP across core slots with a hover tooltip breaking down each slot.
-- Multi-pane mode (Damage / Healing / Tank side-by-side) with compact 4-column layout.
-- WoW-Details-style per-pane sub-metric selectors (Damage/DPS/Total · Healing/HPS/Total/Overheal · Taken/Total).
-- Stat cards (Fame / Silver / Combat Fame / Might) with rate-pulse sparklines and accent rails.
-- Drill-in with four tabs: Fight / Session / Targets / Assists (Level-2 debuff-window attribution).
-- Fight history archive (last 20 fights, agent RAM only).
-- **Session persistence** — on-disk archive in `%LocalAppData%\GDA\sessions` with a UI panel for review + per-row delete.
-- **Zone history** — append-only zone log with enter/leave timestamps.
-- **Party panel** — modal with each visible player's IP / class / weapon / bound abilities; live on equipment+spell swap.
-- **Dungeon scope** — auto-opens on entry to solo/group/avalonian/mists/hellgate instances. Run-scoped delta strip above the meter.
-- **Loot logger + AODP prices** — `OtherGrabbedLoot` captures who looted what; `aodp.Client` polls the West Albion Data Project API for item values; LootPanel shows per-looter rollup + chronological log.
-- **Combat Fame Credits** correctly labeled (was "Respec" — same currency, different game era).
+### Navigation (web)
+- **Top tab bar** — `Meter · Loot · Party · Sessions`, each a real route (`/`, `/loot`, `/party`, `/sessions`). Soft-navigated via `history.pushState` + `popstate` so a single `LiveApp`/`DemoApp` shell stays mounted (no reload, no scroll jump, one WebSocket across tabs). The old footer-corner buttons are gone; legacy `*Panel` modals remain in the tree but unmounted.
+- **Hotkeys** — `M/L/P/S` cycle tabs, `D/H/T` toggle the Current pane of each metric, `Esc` closes drill-in/Settings.
+- `web/public/_redirects` (`/* → /index.html 200`) makes Pages serve the SPA on every route.
+
+### Meter (web)
+- **C3 editorial Fame hero** (`SessionStrip`) — Fame as a giant `clamp(64–128px)` number with glyph + per-hour pace + a wide **smoothed pace sparkline** (EMA of per-second gain, not raw deltas), Silver / Combat Fame / Might stacked beside it, "Carried by `<top dealer>`" credit (Fraunces italic). Currencies floored (matches the loot panel exactly).
+- **Per-scope panes** — `PaneSet` is `Record<SubMetric, boolean>`; each pane is one metric+scope, so the SAME metric can open twice side-by-side (`Damage · Current` next to `Damage · Session`). Rows show one number + share% + DPS/HPS (no dual `↳ session`). Header has `Cur/Ses` pill pairs per metric; shared `MeterPanes` renders the grid.
+- **Stable ordering** — `rankBy(selector)` (one shared comparator) ranks by metric desc with a `userGuid` tiebreak; the agent also sorts `out.Players` by guid. Kills the "Top"/"Carried by" name flicker on ties.
+- **IPChip** — averaged IP across core slots + per-slot hover tooltip. Note: **base IP only** — Albion no longer ships item quality on the wire, so the quality multiplier can't be applied.
+- Per-class accent colours; live equipment/spell swaps reflect within ~250 ms.
+- Drill-in tabs: Fight / Session / Targets / Assists (Level-2 debuff-window attribution); mob targets resolve to names via mobs.bin.
+- Fight history archive (last 20 fights, agent RAM); scope-aware (a dungeon run archives only the party).
+
+### Loot (web — `/loot`)
+- Per-player rollup: top-farmer card, IPChip rows, gold value bars, activity dot, `PARTY/GUILD/FRIEND` source badges, sticky column headers. Subline falls back: priced top item → "silver only · X" → "recent: X (unpriced)".
+- Silver QTY shows `—` for piles (not raw FixPoint); local row's silver is the authoritative `session.SilverTotal` with a `· mob:` ground-drop breakout.
+- `Copy Summary` / `Copy as table` for Discord.
+
+### Economy & data
+- **Silver** counts mob/world drops (via TakeSilver + UpdateMoney local-id hint), not just chests; `mobSilverTotal` breakout. No double-count, deposits/sales ignored.
+- **Combat Fame Credits** correctly labeled (was "Respec").
+- Session persistence (`%LocalAppData%\GDA\sessions`), zone history, dungeon scope, AODP loot pricing — all as before.
+- Game-data loaders: items.bin (12,060), spells.bin (~9,166), mobs.bin (4,595, `index-15` shift), localization.bin (38,174 EN-US).
+
+### Robustness
+- **Capture self-heal** — watchdog reopens the raw socket on a packet stall (adapter change / sleep).
+- **Party persistence + manual add/remove/clear** — survives agent restart; covers mixed-guild parties PartyJoined never announced.
 
 ⚠️ **Known gaps**:
-- **Mid-zone party detection** — same fundamental limitation as SAT. `PartyJoined` doesn't fire retroactively. Mitigations: mount-event binding, re-zone, `ALBION_AGENT_SHOW_ALL=1`.
-- **Some passive sub-effects return blank tooltip name** — fall through to prettified uniquename. Main abilities resolve correctly.
-- **Crit % detection** — Albion doesn't expose a crit flag; SAT doesn't track this either.
-- **Mechanics pane content** — placeholder only.
-- **Level-3 debuff attribution** — Assists show "damage during your debuff window," not a hard multiplier. Would need a per-debuff modifier table.
+- **Item quality not on the wire** — `parseEquipmentParams` qualities array is all-zero on the current patch, so IP is base only and there's no quality-tinted gear display.
+- **Mid-zone party detection** still can't see a teammate the agent never rendered (no packet for "a party member you've never seen"); persistence + manual add cover the rest.
+- **Some passive sub-effects** fall through to the prettified uniquename (compound-word + city-name splitter added; main abilities resolve correctly).
+- **Crit %** — Albion doesn't expose a crit flag.
+- **Mechanics pane** — removed from the tab cluster (was a placeholder).
+- **Level-3 debuff attribution** — Assists show "damage during your debuff window," not a hard multiplier.
 
 ---
 
 ## User preferences observed
 
 - Iterates fast, screenshots-driven. Prefers concise responses.
+- **Not a coder** — give clear, numbered, copy-paste step-by-step guides; no jargon. Say which launcher to double-click, not which commands to type.
+- After an **agent** change, tell them to double-click `Restart GDA Agent.cmd` (Verbose variant only when a capture is needed) — never hand over the manual `go build` + relaunch. After a **web-only** change, say "hard-refresh." Be explicit which kind a fix was.
+- Often plans via `/ultraplan` (a remote planning session that returns a plan for approval); when one is pending, point them at the URL to review, then implement once approved.
 - Keeps production SAT running in the background during dev; the dev build is separate and only for testing changes.
 - Wants WoW-style damage-meter UX (Skada / Recount / Details! conventions).
 - Pivoted from C# to Go mid-session, motivated by wanting a "single binary that pushes to a website" architecture.

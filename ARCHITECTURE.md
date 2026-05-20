@@ -640,3 +640,77 @@ renders "Totals" and "Items" tabs with a party-total footer.
 - **Multi-language UI** — localization loader keeps only EN-US.
 - **Cloud history per-token** — drafted in `proposals/feature_backlog.md`
   but not built. Real privacy footprint (token = identity).
+
+---
+
+## 13. Refinements after the F-series
+
+Changes layered on after sections 1–12. Code pointers, not full rewrites.
+
+### Batched HealthUpdates (the DPS fix)
+Albion sends single hits (mostly auto-attacks) as `HealthUpdate` (EventCode 6)
+but **batches** most ability / multi-source damage into `HealthUpdates`
+(EventCode 7) as parallel arrays. We had no case for 7, so the bulk of damage
+was dropped → DPS read near auto-attack-only. `handleHealthUpdates` decodes the
+arrays (`paramDoubleArray`/`paramLongArray` in `params.go`, tolerant of every
+numeric slice type incl. `[]any`) and folds each entry through the shared
+`applyHealthChange` — the same path the singular handler uses, so the two can't
+drift. Regression-tested in `health_test.go`.
+
+### Silver attribution
+Silver is credited **only** from `TakeSilver` (`engine.go::handleTakeSilver`),
+gated to the local player. The local ObjectId comes from the bound entity if a
+Join set it, else from `localObjIdHint` — learned from `UpdateMoney` param 0 (a
+self-only wallet event), so silver counts even when the agent starts mid-zone
+with no Join. `OtherGrabbedLoot` does **not** credit silver (it fires for the
+same pickup → would double-count). `NewSilverObject` ids populate a `silverDrops`
+set; a TakeSilver whose source object is in it is tagged into
+`session.MobSilverTotal` (the loot-panel `mob:` breakout). `UpdateMoney` itself
+is never credited (whole wallet incl. deposits/sales).
+
+### Fight scope + last-fight carryover (`engine.go`, `combat.go`)
+`touchCombat` only fires when `localInvolved(causer, affected)` — fights start /
+the Current bucket resets only on the local player's combat, so distant
+mob-on-mob fights don't tick the counter while idle. On a fight boundary
+`resetAllCurrent` snapshots `Current → LastFight`; the snapshot reads
+`Current.Or(LastFight)` so rows show the previous fight's numbers in the gap
+before new damage lands instead of snapping to zero.
+
+### Membership scope (`snapshot.go::scopedMembers`)
+One shared filter for both the live snapshot **and** `archiveCurrentFight`:
+`party` / `partyGuild` / `everyone` (set by the `setLootFilter` command →
+`LootFilterMode()`; `ALBION_AGENT_SHOW_ALL` forces `everyone`). Because both the
+live view and archives use it, a past fight shows exactly who the live meter
+showed. `allowedLooters`/`looterSources` (`loot.go`) apply the same scope to the
+loot panel and tag each looter `local/party/guild/friend`.
+
+### Party persistence (`party_store.go`, `guid.go`)
+`PartyJoined` is non-retroactive, so confirmed members are written to
+`%LocalAppData%\GDA\party.json` (30-min freshness) on every party event + manual
+edit; `RestoreParty()` rehydrates on boot. `ParseGuid` inverts `Guid.String()`
+(round-trip tested) so persisted guids reparse. Manual `addPartyMember` /
+`removePartyMember` / `clearParty` commands + `VisiblePlayers` in the snapshot
+drive the Party tab's add/remove/clear UI.
+
+### Capture self-heal (`main.go::superviseCapture`, `sockets_windows.go`)
+`Run` now closes its sockets on ctx cancel (was deadlocking `wg.Wait` on a silent
+socket). `superviseCapture` watchdogs `packetsSeen`: after traffic has flowed,
+~45 s of silence cancels + reopens (re-enumerating interfaces, fixing
+adapter-change / sleep stalls). First-run errors before any packet stay fatal.
+
+### Web: navigation + panes (`App.tsx`, `TabBar.tsx`, `MeterTable.tsx`)
+Top-tab routing (`/`, `/loot`, `/party`, `/sessions`) via `history.pushState` +
+`popstate` in a single mounted shell. `PaneSet` became `Record<SubMetric,
+boolean>` — each pane is one metric+scope, so the same metric can render twice
+(Current beside Session); `MeterPanes` renders the grid, `MeterTable` is locked
+to a `sub` and shows one number per row. `rankBy(selector)` (`format.ts`) is the
+shared ranker (metric desc, `userGuid` tiebreak) — plus the agent sorts
+`out.Players` by guid — killing the Top/Carried-by flicker. Sparklines plot an
+EMA of per-second gain (`SessionStrip.tsx`), not raw deltas, for a calm pace
+line. The `SessionStrip` is now the C3 editorial Fame hero; currencies are
+floored to match the loot panel (the 651/652 fix).
+
+### Agent ergonomics
+`--verbose` flag (`SetVerbose` + `setupVerboseLog` teeing to
+`agent/agent-verbose.log`) for diagnostic captures that can be read from a file.
+`Restart GDA Agent.cmd` / `(Verbose).cmd` self-elevate, stop, rebuild, relaunch.
