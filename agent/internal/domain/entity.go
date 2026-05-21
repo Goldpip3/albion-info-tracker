@@ -87,10 +87,14 @@ type Entity struct {
 	// the "spells cast this session" report.
 	BySpellSession map[int]*SpellTotals
 
-	// ByTarget aggregates damage dealt to each affected entity. Key is the
-	// target's ObjectId. Used in the drill-in to show "who did this player
-	// focus" — tanks should show the boss, cleavers should show many adds.
+	// ByTarget aggregates damage dealt to each affected entity for the
+	// CURRENT fight. Key is the target's ObjectId. Resets between fights.
 	ByTarget map[int64]int64
+
+	// ByTargetSession is the session-level analogue of ByTarget — same keys,
+	// but it doesn't reset between fights (only on ResetSession). The drill-in
+	// "Targets" tab reads this so the popup isn't empty between pulls.
+	ByTargetSession map[int64]int64
 
 	// ActiveEffects lists spell indices currently buffing/debuffing this
 	// entity. Refreshed on ActiveSpellEffectsUpdate. May be nil.

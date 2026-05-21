@@ -9,7 +9,7 @@ Three boxes, two WebSockets, one tab.
    ┌─────────────┐    UDP        ┌─────────────────┐  WSS ingest   ┌─────────────────┐  WSS view  ┌──────────────┐
    │ Albion      │ ─────────────▶│ Go agent        │ ─────────────▶│ Cloudflare      │ ─────────▶ │ React web    │
    │ client      │   (Photon)    │ (Windows .exe,  │   snapshots   │ Worker + DO     │  snapshots │ UI (Pages)   │
-   │ (any zone)  │               │  raw sockets)   │   every 250ms │ (per-token room)│            │              │
+   │ (any zone)  │               │  raw sockets)   │   push ≤400ms │ (per-token room)│            │              │
    └─────────────┘               └─────────────────┘               └─────────────────┘            └──────────────┘
 ```
 
@@ -180,9 +180,21 @@ type Snapshot struct {
 `PlayerSnapshot` includes everything the frontend needs to render a
 row: identity, class chip, current+overall damage/heal/taken, top
 spells (current fight + session), top targets, active buff/debuff
-indices, and the Assists table.
+indices, and the Assists table. The snapshot also carries
+`VisiblePlayers` (tracked players not in the party — add candidates,
+now with `Guild` + `SameGuild`) and `Roster` (every named player seen,
+with `isInParty`/`isLocal`/`sameGuild`, sorted local→guild→alpha) —
+the data behind the Party tab's add-list and the Meter's Track Players
+picker.
 
-JSON is pushed verbatim by the agent every 250 ms; the Worker stores
+The push client (`internal/push/client.go`) sends on a **400 ms** ticker
+(2.5 Hz) but short-circuits idle ticks via the engine's `DirtyGen`
+counter (bumped by `onEvent` on every Photon packet) — when nothing
+changed it only re-sends every **15 s** (the heartbeat). WebSocket
+messages over an open socket are free on Cloudflare; only connection
+upgrades count as requests, so this cadence (not the message size) is
+what keeps the free-tier 100k-requests/day budget comfortable — at the
+old 1 s heartbeat the idle pulse alone was ~86k/day. The Worker stores
 the latest snapshot in DO memory and replays to viewers.
 
 ---
@@ -317,7 +329,7 @@ room. No DB, no signup. Rotate the token to rotate the room.
   forward to the "agent" socket.
 
 State is in-memory only. Hibernation losing it is fine — agent
-republishes within 250 ms.
+republishes on the next activity tick (≤400 ms; ≤15 s when idle).
 
 ---
 
@@ -459,6 +471,16 @@ auto-pair flow puts them in their own meter room.
 - **Settings persist across token bumps** — bumped the localStorage
   key from `skirmish:settings` to `gda:settings:v2` after defaults
   changed (density 28 → 40).
+- **Snapshot deadlock (recursive RLock)** — `Snapshot()` holds
+  `store.mu.RLock()` and then called the *locking* `AllPlayers()`, which
+  takes the read lock again. Go's `sync.RWMutex` forbids recursive read
+  locking: the moment a combat event was queued to `Lock()` (constant in
+  a 16-player dungeon) the second `RLock()` blocked behind that pending
+  writer and the whole agent froze — the push stalled **and** the
+  `renderLoop` console heartbeat stopped, because both call `Snapshot()`.
+  Fix: `allPlayersLocked()` (no lock) called from `Snapshot()`. Rule:
+  never call a `store.mu`-locking method while already holding the lock;
+  use the `…Locked` variant (cf. `byObjectIdLocked`).
 
 ---
 
@@ -550,7 +572,7 @@ resolved per-slot view via `equipmentSlots[]` (slot label + name + IP)
 and `activeSpellSlots[]` (slot key + localized spell name). The web
 `PartyPanel` modal renders one row per player with chips for every
 bound ability and equipped piece — automatically refreshing on every
-push (every 200 ms when state changes).
+push (≤400 ms when state changes, ≤15 s idle).
 
 Slot key mapping for spells (mirrors SAT):
 - 0/1/2 → MainHand Q / W / E
@@ -684,13 +706,27 @@ live view and archives use it, a past fight shows exactly who the live meter
 showed. `allowedLooters`/`looterSources` (`loot.go`) apply the same scope to the
 loot panel and tag each looter `local/party/guild/friend`.
 
-### Party persistence (`party_store.go`, `guid.go`)
-`PartyJoined` is non-retroactive, so confirmed members are written to
-`%LocalAppData%\GDA\party.json` (30-min freshness) on every party event + manual
-edit; `RestoreParty()` rehydrates on boot. `ParseGuid` inverts `Guid.String()`
-(round-trip tested) so persisted guids reparse. Manual `addPartyMember` /
-`removePartyMember` / `clearParty` commands + `VisiblePlayers` in the snapshot
-drive the Party tab's add/remove/clear UI.
+`partyGuild` (default) returns the **union** of confirmed party members + the
+local player + the `alwaysIncludeNames` allowlist + every same-guild player with
+combat activity, deduped by entity pointer. The earlier logic ("once
+`PartyMembers()` has >1, return only those") let a partial/stale roster *hide*
+fighting guildmates — fatal for a 20-person guild group whose `PartyJoined` was
+never captured. The union means guildmates appear the instant they deal/take
+damage, no roster required (needs the local guild, set on zone change). `party`
+strict stays party + local + allowlist (no guild branch).
+
+### Party persistence (`party_store.go`, `guid.go`, `engine.go`, `main.go`)
+`PartyJoined` is non-retroactive (and no Photon packet re-broadcasts a static
+roster), so confirmed members are written to `%LocalAppData%\GDA\party.json`
+(30-min freshness) on every party event + manual edit; `RestoreParty()`
+rehydrates on boot. A stable party emits no events to refresh the file, so a
+1-min background ticker (`RepersistPartyIfActive`, started in `main.go`,
+no-op when solo) re-stamps `SavedAt` while grouped — otherwise the roster aged
+past the freshness gate and was discarded on the next restart. `ParseGuid`
+inverts `Guid.String()` (round-trip tested) so persisted guids reparse. Manual
+`addPartyMember` / `removePartyMember` / `clearParty` commands + `VisiblePlayers`
++ `Roster` in the snapshot drive the Party tab's add-list and the Meter's
+`PlayerPicker` (guild sorted to top, "Add all guild" bulk-add).
 
 ### Capture self-heal (`main.go::superviseCapture`, `sockets_windows.go`)
 `Run` now closes its sockets on ctx cancel (was deadlocking `wg.Wait` on a silent
@@ -714,3 +750,23 @@ floored to match the loot panel (the 651/652 fix).
 `--verbose` flag (`SetVerbose` + `setupVerboseLog` teeing to
 `agent/agent-verbose.log`) for diagnostic captures that can be read from a file.
 `Restart GDA Agent.cmd` / `(Verbose).cmd` self-elevate, stop, rebuild, relaunch.
+
+### Cloudflare request budget + guild-first picking (latest batch)
+Driven by hitting Cloudflare's free-tier 100k-requests/day limit, then by
+wanting reliable guild-group tracking:
+- **Cadence** (`push/client.go`): `SendInterval` 200→400 ms, `HeartbeatInterval`
+  1 s→15 s. The web stale-badge threshold widened 5 s→20 s (`App.tsx`,
+  `Footer.tsx`) to match the slower idle heartbeat. WebSocket messages are free
+  on Cloudflare; only connections count — cadence is the budget lever.
+- **Guild-union scope** (`scopedMembers`, above) — partyGuild now unions
+  guildmates with activity instead of trusting a partial roster exclusively.
+- **1-min party re-persist** (`RepersistPartyIfActive`) so a stable party
+  survives a restart.
+- **Player picker** (`PlayerPicker.tsx` + `Roster`/`RosterEntry` on the
+  snapshot, "Track Players" button in `App.tsx`; Party-tab add-list now
+  guild-sorted with "Add all guild") — manual curation when auto-detection
+  can't help. There is **no on-demand "scan my party"**: passive capture can
+  only hear `PartyJoined` at the join moment (verified vs SAT +
+  albion-online-stats); the workflow answer is launch-before-grouping or use
+  guild scope.
+- **Recursive-RLock deadlock fix** (`allPlayersLocked`, see §8).

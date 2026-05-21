@@ -128,6 +128,16 @@ type Engine struct {
 	lootMu  sync.Mutex
 	lootLog []LootEntry
 
+	// meterSeen is the session-sticky set of entities the meter has shown
+	// at least once. scopedMembers() re-adds everyone in this set every
+	// snapshot, so a player who leaves the party (and is no longer covered
+	// by guild scope) stays on the meter until "New Session" rather than
+	// vanishing. Keyed by entity pointer — safe because entities live for
+	// the engine's lifetime (never pruned from store.byGuid). Cleared in
+	// ResetSession.
+	meterSeenMu sync.Mutex
+	meterSeen   map[*Entity]struct{}
+
 	// localObjIdHint is the local player's ObjectId learned from
 	// UpdateMoney — a self-only wallet event the server sends only to
 	// the local client. Lets silver attribution work when the agent
@@ -279,6 +289,7 @@ func NewEngine() *Engine {
 		mobNames:       make(map[int64]string),
 		eventCodeHist:  make(map[int]uint64),
 		opCodeHist:     make(map[int]uint64),
+		meterSeen:      make(map[*Entity]struct{}),
 	}
 }
 
@@ -304,11 +315,19 @@ func (e *Engine) ResetSession() {
 		ent.BySpell = nil
 		ent.BySpellSession = nil
 		ent.ByTarget = nil
+		ent.ByTargetSession = nil
 		ent.ActiveEffects = nil
 		ent.AssistsBySpell = nil
 		ent.Deaths = 0
 	}
 	e.store.mu.Unlock()
+
+	// Drop the session-sticky meter set so a fresh session starts empty
+	// rather than re-showing everyone from the prior session.
+	e.meterSeenMu.Lock()
+	e.meterSeen = make(map[*Entity]struct{})
+	e.meterSeenMu.Unlock()
+
 	e.resetLootOnNewSession()
 
 	e.assistMu.Lock()
@@ -1380,6 +1399,10 @@ func recordTarget(ent *Entity, targetId int64, dmg int64) {
 		ent.ByTarget = make(map[int64]int64, 8)
 	}
 	ent.ByTarget[targetId] += dmg
+	if ent.ByTargetSession == nil {
+		ent.ByTargetSession = make(map[int64]int64, 8)
+	}
+	ent.ByTargetSession[targetId] += dmg
 }
 
 // recordCast increments the cast count for a spell on an entity. Caller
@@ -1840,7 +1863,7 @@ func (e *Engine) handleOtherGrabbedLoot(p map[byte]any) {
 		entry.UniqueName = e.items.Name(int(itemIdx))
 		if e.loc != nil {
 			if name := e.loc.ItemName(entry.UniqueName); name != "" {
-				entry.DisplayName = name
+				entry.DisplayName = gamedata.PrettyItemName(entry.UniqueName, name)
 			}
 		}
 		if entry.DisplayName == "" {
@@ -2085,7 +2108,9 @@ func (e *Engine) classifyMainHand(ent *Entity, mainHand int) {
 	label := c.Label
 	if e.loc != nil {
 		if loc := e.loc.ItemName(name); loc != "" {
-			label = strings.ToUpper(loc)
+			// "T8.1 WEEPING REPEATER" — tier word stripped, T#.# prepended,
+			// then uppercased to match the meter's role-subtitle style.
+			label = strings.ToUpper(gamedata.PrettyItemName(name, loc))
 		}
 	}
 	e.store.mu.Lock()

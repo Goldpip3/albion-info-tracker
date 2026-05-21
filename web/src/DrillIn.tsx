@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { AssistBreakdown, PlayerSnapshot, SpellBreakdown, TargetBreakdown } from "./types.ts";
-import { IPChip } from "./IPChip.tsx";
 import { classAccent, fmt, fmtRate, prettySpell, roleKeyOf } from "./format.ts";
 
 interface DrillInProps {
@@ -18,7 +17,10 @@ type DrillTab = "fight" | "session" | "targets" | "assists";
 //   - Assists   — debuff windows this player kept up + damage that flowed
 //                 under them ("Level 2" attribution)
 export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
-	const [tab, setTab] = useState<DrillTab>("fight");
+	// Default to "session": the Fight tab (and its Targets) is wiped between
+	// pulls, so opening straight onto it makes the popup look empty. Session
+	// data persists until "New Session", so the drill-in always has content.
+	const [tab, setTab] = useState<DrillTab>("session");
 	const roleKey = roleKeyOf(player.role);
 	const accent = classAccent(player.classCode, roleKey);
 
@@ -38,7 +40,7 @@ export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
 				}}
 				onClick={(e) => e.stopPropagation()}
 			>
-				<DrillHeader player={player} roleKey={roleKey} accent={accent} onClose={onClose} />
+				<DrillHeader player={player} accent={accent} onClose={onClose} />
 				<DrillTabs tab={tab} setTab={setTab} player={player} />
 				{tab === "fight"   && <SpellTable spells={player.spells ?? []} emptyText="No abilities recorded in the current fight yet." accent={accent} />}
 				{tab === "session" && <SpellTable spells={player.sessionSpells ?? []} emptyText="No spells cast yet this session." accent={accent} showCasts />}
@@ -50,10 +52,9 @@ export function DrillIn({ player, onClose }: DrillInProps): React.ReactElement {
 }
 
 function DrillHeader({
-	player, roleKey, accent, onClose,
+	player, accent, onClose,
 }: {
 	player: PlayerSnapshot;
-	roleKey: ReturnType<typeof roleKeyOf>;
 	accent: string;
 	onClose: () => void;
 }): React.ReactElement {
@@ -83,7 +84,6 @@ function DrillHeader({
 				>
 					←
 				</button>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={28} />
 				<div>
 					<div style={{ fontSize: 16, fontWeight: 600, color: "var(--sk-fg-0)" }}>
 						{player.name || "(unknown)"}

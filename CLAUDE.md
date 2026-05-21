@@ -41,7 +41,8 @@ web/                       React + Vite + Tailwind v4 frontend
   src/                     App.tsx (top-tab routing + MeterPanes), TabBar/tabs (nav),
                            MeterTable, SessionStrip (C3 editorial Fame hero),
                            LootBody/LootPage, PartyBody/PartyPage, SessionsBody/SessionsPage,
-                           EmptyState, DungeonStrip, IPChip, DrillIn, Header, Footer
+                           EmptyState, DungeonStrip, IPChip, DrillIn, Header, Footer,
+                           PlayerPicker ("Track Players" menu under the Meter)
                            (legacy *Panel modals kept but unmounted)
   public/assets/           GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
 Restart GDA Agent.cmd      one-click stop → rebuild → relaunch elevated (self-elevates)
@@ -98,7 +99,7 @@ Both were superseded by the Go pivot. The Go agent ports both ideas + more.
 
 ## Go agent (`go-port` branch, `agent/`)
 
-Single static Windows binary. Captures Albion UDP traffic via raw sockets (`SIO_RCVALL`, requires admin), parses Photon protocol, maintains entity/combat state, pushes JSON snapshots to a Cloudflare Worker every **250 ms**.
+Single static Windows binary. Captures Albion UDP traffic via raw sockets (`SIO_RCVALL`, requires admin), parses Photon protocol, maintains entity/combat state, pushes JSON snapshots to a Cloudflare Worker every **400 ms** during activity (2.5 Hz), throttled to a **15 s** idle heartbeat when nothing changed (dirty-gen short-circuit). Cadence is the main lever on Cloudflare's free-tier 100k-requests/day budget — at 1/s idle the heartbeat alone burned ~86k/day just from leaving the agent running.
 
 ### Build & run
 
@@ -186,15 +187,16 @@ Missing `agent.json` triggers the first-run wizard (auto-generates a token, open
 
 ### Party detection, meter scope & commands
 
-`PartyJoined` only fires the instant a member joins — never retroactively. If the agent starts (or is rebuilt + relaunched) while already grouped, the roster is otherwise lost. Mitigations, in order:
+`PartyJoined` only fires the instant a member joins — never retroactively, and (verified against SAT + albion-online-stats) **no Photon packet re-broadcasts a static roster** mid-session; a passive sniffer can only ever hear the join-moment event. So the clean workflow is **launch the agent first, then group up** — it auto-pulls the whole party. If the agent starts (or is rebuilt + relaunched) while already grouped, the roster is otherwise lost. Mitigations, in order:
 
-1. **Persistence** — confirmed party members are written to `%LocalAppData%\GDA\party.json` on every party event + manual edit (30-min freshness gate); `RestoreParty()` rehydrates them on boot. Covers the common rebuild-mid-session case automatically.
-2. **Manual add/remove** — the snapshot ships `VisiblePlayers` (tracked players not in the party); the Party tab lists them under "Add players in range", and each party row has Remove. A **Clear party** button (top-right) wipes the roster + `party.json` — the escape hatch when a stale roster shows while solo.
-3. **`alwaysIncludeNames`** allowlist in agent.json — non-guild friends always show.
+1. **Guild scope (best for guild groups)** — see below; shows every same-guild combatant with no roster at all. For an all-guild party this is the answer, not party tracking.
+2. **Persistence** — confirmed party members are written to `%LocalAppData%\GDA\party.json` on every party event + manual edit; `RestoreParty()` rehydrates them on boot (30-min freshness gate). A background ticker (`RepersistPartyIfActive`, main.go) **re-saves the roster every 1 min while grouped** so a stable party — which emits no join/leave events to refresh the file — doesn't age out and survives a restart.
+3. **Manual add/remove + the player picker** — the snapshot ships `VisiblePlayers` (tracked players not in the party) **and** `Roster` (every named player seen, with `isInParty` + `sameGuild`, guildmates sorted to top). The **Track Players** picker under the Meter (and the Party tab's "Add players in range") render these: click to toggle tracking, an **"Add all guild"** one-tap bulk-add, search, and a re-zone hint when the local guild isn't known yet. Each party row has Remove; **Clear party** wipes the roster + `party.json`.
+4. **`alwaysIncludeNames`** allowlist in agent.json — non-guild friends always show (additive; surfaced via `AlwaysIncludes` in `scopedMembers`).
 
 **Meter scope** (Settings → Visibility, and the title-bar `Party / Guild / All` switch) controls who appears in the meter + loot + archived fights, via the `setLootFilter` command → `Engine.LootFilterMode()`:
-- `party` — confirmed party + allowlist only (tight dungeons)
-- `partyGuild` (default) — + same-guild players (dungeons with guildies)
+- `party` — confirmed party + local + allowlist only (tight dungeons)
+- `partyGuild` (default) — the **UNION** of party + local + allowlist + every same-guild player with combat activity. Not "trust the party roster exclusively once it has >1 member" (that old behaviour let a partial/stale roster *hide* fighting guildmates) — the union means a 20-person guild group appears the instant members deal/take damage, no roster needed. Requires the local guild to be known (set on zone change), so re-zone once after a restart.
 - `everyone` — every entity with combat activity (ZvZ)
 
 `scopedMembers()` is the single filter shared by the live snapshot **and** `archiveCurrentFight`, so a past fight shows exactly who the live meter showed at the time.
@@ -239,7 +241,7 @@ TypeScript Worker + Durable Object backend. Deployed at `https://albion-meter.go
 
 Auth: SHA-256 hash of the bearer token names a Durable Object room. No DB, no signup. Agent and browser sharing a token meet in the same room.
 
-`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish every 250 ms so hibernation losing state is harmless. The room also **forwards viewer→agent command messages** (New Session, delete session, set scope, party add/remove/clear) transparently to the ingest socket — see `Engine.HandleCommand`.
+`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish on activity (≤400 ms) so hibernation losing state is harmless. The room also **forwards viewer→agent command messages** (New Session, delete session, set scope, party add/remove/clear) transparently to the ingest socket — see `Engine.HandleCommand`. WebSocket *messages* over an open socket don't count as Cloudflare requests; only the connection upgrade does — so the daily-request budget is driven by snapshot/DO message volume, hence the cadence throttle on the agent.
 
 ### Build & deploy
 
@@ -294,7 +296,8 @@ npm run dev
 - **Per-scope panes** — `PaneSet` is `Record<SubMetric, boolean>`; each pane is one metric+scope, so the SAME metric can open twice side-by-side (`Damage · Current` next to `Damage · Session`). Rows show one number + share% + DPS/HPS (no dual `↳ session`). Header has `Cur/Ses` pill pairs per metric; shared `MeterPanes` renders the grid.
 - **Stable ordering** — `rankBy(selector)` (one shared comparator) ranks by metric desc with a `userGuid` tiebreak; the agent also sorts `out.Players` by guid. Kills the "Top"/"Carried by" name flicker on ties.
 - **IPChip** — averaged IP across core slots + per-slot hover tooltip. Note: **base IP only** — Albion no longer ships item quality on the wire, so the quality multiplier can't be applied.
-- Per-class accent colours; live equipment/spell swaps reflect within ~250 ms.
+- Per-class accent colours; live equipment/spell swaps reflect within ~400 ms.
+- **Track Players picker** (`PlayerPicker`, button under the Meter) — every player in range, guildmates sorted to top, click to toggle tracking, search + "Add all guild" bulk-add. Reads the snapshot's `Roster` field.
 - Drill-in tabs: Fight / Session / Targets / Assists (Level-2 debuff-window attribution); mob targets resolve to names via mobs.bin.
 - Fight history archive (last 20 fights, agent RAM); scope-aware (a dungeon run archives only the party).
 
@@ -311,11 +314,13 @@ npm run dev
 
 ### Robustness
 - **Capture self-heal** — watchdog reopens the raw socket on a packet stall (adapter change / sleep).
-- **Party persistence + manual add/remove/clear** — survives agent restart; covers mixed-guild parties PartyJoined never announced.
+- **Party persistence + 1-min re-persist while grouped + manual add/remove/clear + picker** — survives agent restart; the guild-union scope covers guild groups with no roster at all.
+- **Snapshot deadlock fixed** — `Snapshot()` holds `store.mu.RLock` and used to call the locking `AllPlayers()` again (recursive RLock). Go's `RWMutex` forbids recursive read-locking, so in a busy zone (16-player dungeon) the second RLock blocked behind a pending writer and froze the whole agent — push stalled *and* the renderLoop heartbeat stopped (both call `Snapshot()`). Now uses `allPlayersLocked()` (no re-lock). Watch for this pattern: never call a `store.mu`-locking method while already holding the lock — use the `…Locked` variant.
+- **Request-budget cadence** — 400 ms active / 15 s idle heartbeat keeps Cloudflare's free-tier 100k/day request limit comfortable.
 
 ⚠️ **Known gaps**:
 - **Item quality not on the wire** — `parseEquipmentParams` qualities array is all-zero on the current patch, so IP is base only and there's no quality-tinted gear display.
-- **Mid-zone party detection** still can't see a teammate the agent never rendered (no packet for "a party member you've never seen"); persistence + manual add cover the rest.
+- **Mid-session party capture is impossible passively** — Albion only sends the roster at the join moment (no re-broadcast packet exists; confirmed against SAT + albion-online-stats). Mitigated by: launch-before-grouping, guild scope (no roster needed), the 1-min persistence, and manual/"Add all guild" picking. There's no magic "scan my party" button — the tool can only listen, never request.
 - **Some passive sub-effects** fall through to the prettified uniquename (compound-word + city-name splitter added; main abilities resolve correctly).
 - **Crit %** — Albion doesn't expose a crit flag.
 - **Mechanics pane** — removed from the tab cluster (was a placeholder).

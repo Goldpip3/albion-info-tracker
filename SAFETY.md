@@ -12,7 +12,8 @@ A two-component pipeline:
 1. **Agent** — a single Windows binary (`agent.exe`) that opens a raw socket
    on the local machine, reads Albion's UDP traffic, decodes Photon Protocol 18
    in user space, maintains in-memory combat/loot/zone state, and pushes JSON
-   snapshots over an outbound WebSocket every 250 ms.
+   snapshots over an outbound WebSocket roughly every 400 ms (and at most
+   every 15 s when idle).
 2. **Web UI** — a React page hosted on Cloudflare Pages that subscribes to
    the same WebSocket room and renders the snapshots as a WoW-Details-style
    meter.

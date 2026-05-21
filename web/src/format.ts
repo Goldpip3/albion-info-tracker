@@ -58,35 +58,38 @@ export function roleKeyOf(role: string | undefined): RoleKey {
 	}
 }
 
-// CLASS_ACCENT maps a 3-letter chip code to a specific hex accent. Holy
-// Staff (HLY) and Nature Staff (NTR) split here so the two healer weapons
-// read distinctly — gold vs green — even though both share RoleHealer.
+// CLASS_ACCENT maps a 3-letter chip code to a specific hex accent. The
+// palette is tuned for maximum separation on the near-black background —
+// each role sits on a distinct hue (azure / gold / emerald / orange /
+// crimson / teal / violet) so a glance tells roles apart. Holy Staff (HLY)
+// and Nature Staff (NTR) still split — gold vs emerald — even though both
+// share RoleHealer.
 const CLASS_ACCENT: Record<string, string> = {
-	// Healers (split per-weapon)
-	HLY: "#ffd770", DVN: "#ffd770", RED: "#ffd770",
-	NTR: "#5cf0a4", WLD: "#5cf0a4", FAL: "#5cf0a4",
-	// Tanks
-	HAM: "#8aa3ff", MAC: "#8aa3ff", QRT: "#8aa3ff", KNK: "#8aa3ff",
-	// Ranged DPS
-	LBW: "#ffb43a", WBW: "#ffb43a", BOW: "#ffb43a", XBW: "#ffb43a",
-	FIR: "#ffb43a", CRS: "#ffb43a",
-	// Control
-	FRO: "#6fd8ff",
-	// Support
-	ARC: "#c08cff",
-	// Melee DPS
-	DGR: "#ff6464", GRT: "#ff6464", SWD: "#ff6464",
-	AXE: "#ff6464", SPR: "#ff6464",
+	// Healers (split per-weapon: Holy = gold, Nature = emerald)
+	HLY: "#ffd24a", DVN: "#ffd24a", RED: "#ffd24a",
+	NTR: "#36d989", WLD: "#36d989", FAL: "#36d989",
+	// Tanks — azure blue
+	HAM: "#4f8cff", MAC: "#4f8cff", QRT: "#4f8cff", KNK: "#4f8cff",
+	// Ranged DPS — orange
+	LBW: "#ff7a2e", WBW: "#ff7a2e", BOW: "#ff7a2e", XBW: "#ff7a2e",
+	FIR: "#ff7a2e", CRS: "#ff7a2e",
+	// Control (Frost) — teal/cyan
+	FRO: "#3ad1e0",
+	// Support (Arcane) — violet
+	ARC: "#a877ff",
+	// Melee DPS — crimson/rose
+	DGR: "#ff4d6d", GRT: "#ff4d6d", SWD: "#ff4d6d",
+	AXE: "#ff4d6d", SPR: "#ff4d6d",
 };
 
 const ROLE_ACCENT: Record<RoleKey, string> = {
-	tank:    "#8aa3ff",
-	healer:  "#5cf0a4",
-	rdps:    "#ffb43a",
-	mdps:    "#ff6464",
-	support: "#c08cff",
-	control: "#6fd8ff",
-	unknown: "#6a6a76",
+	tank:    "#4f8cff",
+	healer:  "#36d989",
+	rdps:    "#ff7a2e",
+	mdps:    "#ff4d6d",
+	support: "#a877ff",
+	control: "#3ad1e0",
+	unknown: "#7a7a88",
 };
 
 // classAccent picks the per-weapon hex color when known; otherwise falls

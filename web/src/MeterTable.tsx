@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Mode, PlayerSnapshot, Snapshot, SubMetric } from "./types.ts";
 import type { Settings } from "./useSettings.ts";
-import { IPChip } from "./IPChip.tsx";
 import { classAccent, fmt, fmtRate, rankBy, roleKeyOf, type RoleKey } from "./format.ts";
 
 interface MeterTableProps {
@@ -160,9 +159,9 @@ function PlayerRow({ player, rank, mode, max, partyTotal, primary, settings, onH
 				{String(rank).padStart(2, "0")}
 			</span>
 
-			{/* Class chip + name + role label */}
+			{/* Name + role label (accent stripe on the left edge carries the
+			    class colour now that the IP chip is gone). */}
 			<div className="flex items-center min-w-0" style={{ gap: 10 }}>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={Math.min(28, Math.max(22, rowH - 14))} />
 				<div className="flex flex-col min-w-0" style={{ lineHeight: 1.15, gap: 2 }}>
 					<span
 						className="truncate"
@@ -323,7 +322,6 @@ function RowTooltip({ player }: { player: PlayerSnapshot }): React.ReactElement 
 				className="flex items-center"
 				style={{ gap: 8, marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--sk-line)" }}
 			>
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={22} />
 				<div className="min-w-0">
 					<div
 						style={{

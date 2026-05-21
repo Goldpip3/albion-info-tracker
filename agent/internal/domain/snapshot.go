@@ -168,7 +168,9 @@ func (e *Engine) equipmentSlots(ent *Entity) []SlotInfo {
 		uniqueName := e.items.Name(idx)
 		display := ""
 		if e.loc != nil {
-			display = e.loc.ItemName(uniqueName)
+			if name := e.loc.ItemName(uniqueName); name != "" {
+				display = gamedata.PrettyItemName(uniqueName, name)
+			}
 		}
 		if display == "" {
 			display = uniqueName
@@ -242,11 +244,14 @@ func (e *Engine) activeSpellSlots(ent *Entity) []SpellSlotInfo {
 //   3. "" — frontend renders "#<id>" as the final fallback
 // Caller must hold store.mu.
 func (e *Engine) topTargets(ent *Entity, n int) []TargetBreakdown {
-	if len(ent.ByTarget) == 0 {
+	// Session-scoped so the drill-in "Targets" tab stays populated between
+	// fights (ByTarget resets each pull; ByTargetSession persists until
+	// "New Session").
+	if len(ent.ByTargetSession) == 0 {
 		return nil
 	}
-	out := make([]TargetBreakdown, 0, len(ent.ByTarget))
-	for id, dmg := range ent.ByTarget {
+	out := make([]TargetBreakdown, 0, len(ent.ByTargetSession))
+	for id, dmg := range ent.ByTargetSession {
 		var name string
 		if t := e.store.byObjectIdLocked(id); t != nil {
 			name = t.Name
@@ -549,6 +554,31 @@ func (e *Engine) scopedMembers() []*Entity {
 		case includeGuild && ent.Guild == local.Guild:
 			add(ent)
 		}
+	}
+
+	// Session-sticky: anyone shown this session stays on the meter until
+	// "New Session", even after they leave the party (or drop out of guild
+	// scope). Record the freshly-built set, then re-add everyone we've ever
+	// shown — the local `seen` map makes re-adding idempotent. Only players
+	// already displayed stick, so the tightness of "party"/"partyGuild" is
+	// preserved for players never shown. Entities are never pruned from the
+	// store, so the cached pointers stay valid until ResetSession clears the
+	// set. (The "everyone" / SHOW_ALL path returned early above and isn't
+	// affected — it already shows all activity.)
+	e.meterSeenMu.Lock()
+	if e.meterSeen == nil {
+		e.meterSeen = make(map[*Entity]struct{})
+	}
+	for _, ent := range out {
+		e.meterSeen[ent] = struct{}{}
+	}
+	sticky := make([]*Entity, 0, len(e.meterSeen))
+	for ent := range e.meterSeen {
+		sticky = append(sticky, ent)
+	}
+	e.meterSeenMu.Unlock()
+	for _, ent := range sticky {
+		add(ent)
 	}
 	return out
 }

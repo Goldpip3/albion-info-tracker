@@ -90,6 +90,66 @@ func (l *Localization) ItemName(uniqueName string) string {
 	return l.byTuid["@ITEMS_"+base]
 }
 
+// tierWords maps an item tier (1..8) to the English "tier word" Albion bakes
+// into every item's localized display name ("Elder's Weeping Repeater"). We
+// strip this word in PrettyItemName so the tier reads once, numerically, as
+// "T8.1" instead of as a flavour adjective.
+var tierWords = map[int]string{
+	1: "Beginner's",
+	2: "Novice's",
+	3: "Journeyman's",
+	4: "Adept's",
+	5: "Expert's",
+	6: "Master's",
+	7: "Grandmaster's",
+	8: "Elder's",
+}
+
+// TierEnchant parses the tier (1..8) and enchantment level (0..4) out of an
+// items.bin uniquename — "T8_2H_REPEATER_HELL@1" → (8, 1, true). The parse
+// mirrors ItemPowerOf: a leading "T<digit>_" prefix, plus an optional
+// trailing "@<level>" suffix. Returns ok=false when the name doesn't carry a
+// recognisable tier prefix (consumables, mounts, journals).
+func TierEnchant(uniqueName string) (tier, enchant int, ok bool) {
+	u := strings.ToUpper(uniqueName)
+	if len(u) < 3 || u[0] != 'T' || u[2] != '_' {
+		return 0, 0, false
+	}
+	tier = int(u[1] - '0')
+	if tier < 1 || tier > 8 {
+		return 0, 0, false
+	}
+	if at := strings.LastIndexByte(u, '@'); at >= 0 && at+1 < len(u) {
+		if lvl := int(u[at+1] - '0'); lvl >= 0 && lvl <= 4 {
+			enchant = lvl
+		}
+	}
+	return tier, enchant, true
+}
+
+// PrettyItemName reformats a localized item name as "T#.# Name", dropping the
+// tier word Albion prepends. "T8_2H_REPEATER_HELL@1" + "Elder's Weeping
+// Repeater" → "T8.1 Weeping Repeater". When the tier can't be parsed or the
+// localized name is empty, the localized name is returned unchanged.
+//
+// Only the EXACT tier word for the parsed tier is stripped (e.g. "Elder's "
+// for T8), so a base name that legitimately contains an apostrophe-s isn't
+// mangled by a blind "strip everything up to 's" rule.
+func PrettyItemName(uniqueName, localized string) string {
+	if localized == "" {
+		return localized
+	}
+	tier, enchant, ok := TierEnchant(uniqueName)
+	if !ok {
+		return localized
+	}
+	name := localized
+	if w := tierWords[tier]; w != "" {
+		name = strings.TrimPrefix(name, w+" ")
+	}
+	return fmt.Sprintf("T%d.%d %s", tier, enchant, name)
+}
+
 // SpellName resolves a spells.bin uniquename to its in-game display name.
 // Walks a fallback chain of prefix variants because Albion sprinkles spell
 // tu-ids across multiple keyspaces:

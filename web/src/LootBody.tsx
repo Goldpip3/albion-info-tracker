@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import type { LootEntry, LooterTotals, PlayerSnapshot, Session } from "./types.ts";
-import { fmt, roleKeyOf } from "./format.ts";
-import { IPChip } from "./IPChip.tsx";
+import { fmt } from "./format.ts";
 import { EmptyState } from "./EmptyState.tsx";
 
 // Silver-pile pickups arrive on the wire as FixPoint copper (1 silver
@@ -10,7 +9,16 @@ import { EmptyState } from "./EmptyState.tsx";
 // scales straight at the display boundary so callers never have to
 // remember which way a particular field is denominated.
 const toSilver = (copper: number): number => Math.floor(copper / 10_000);
-const totalSilverOf = (l: LooterTotals): number => toSilver(l.silverPicked) + l.silverValueLoot;
+// A looter's total = AODP-estimated value of looted ITEMS + raw silver
+// picked off corpses/chests. The two are surfaced as separate columns now
+// (the user couldn't tell how much the items alone were worth when both
+// were folded into one "Silver" number).
+const itemValueOf = (l: LooterTotals): number => l.silverValueLoot;
+const rawSilverOf = (l: LooterTotals): number => toSilver(l.silverPicked);
+const totalSilverOf = (l: LooterTotals): number => rawSilverOf(l) + itemValueOf(l);
+// money formats a silver amount, collapsing zero to an em dash so empty
+// cells don't read as a real "0".
+const money = (n: number): string => (n > 0 ? fmt(n) : "—");
 
 export interface LootBodyProps {
 	loot: LootEntry[];
@@ -30,15 +38,16 @@ type Tab = "perPlayer" | "items";
 // chrome differs — backdrop, max-width, close button — but the rows
 // and the per-player drill-in live here so the two surfaces never
 // drift.
-export function LootBody({ loot, looterTotals, players, session, generatedAt, onOpenAsPage }: LootBodyProps): React.ReactElement {
+export function LootBody({ loot, looterTotals, session, generatedAt, onOpenAsPage }: LootBodyProps): React.ReactElement {
 	const [tab, setTab] = useState<Tab>("perPlayer");
 	const [drillName, setDrillName] = useState<string | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
 
 	// Sort + grand-total + top-value memo. Recomputes when the agent
 	// posts a new snapshot (generatedAt flips) — not on every internal
-	// state change like opening a tooltip.
-	const { sorted, topValue, grandTotal } = useMemo(() => {
+	// state change like opening a tooltip. grandItems / grandSilver split
+	// the party total so the footer can show item value vs raw silver.
+	const { sorted, topValue, grandTotal, grandItems, grandSilver } = useMemo(() => {
 		const arr = [...looterTotals].sort((a, b) => {
 			const d = totalSilverOf(b) - totalSilverOf(a);
 			if (d !== 0) return d;
@@ -46,18 +55,11 @@ export function LootBody({ loot, looterTotals, players, session, generatedAt, on
 		});
 		const top = arr.length > 0 ? totalSilverOf(arr[0]) : 0;
 		const grand = arr.reduce((s, l) => s + totalSilverOf(l), 0);
-		return { sorted: arr, topValue: top, grandTotal: grand };
+		const gItems = arr.reduce((s, l) => s + itemValueOf(l), 0);
+		const gSilver = arr.reduce((s, l) => s + rawSilverOf(l), 0);
+		return { sorted: arr, topValue: top, grandTotal: grand, grandItems: gItems, grandSilver: gSilver };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [generatedAt, looterTotals.length]);
-
-	// O(n) lookup into players by name for the IPChip on each row.
-	const playerByName = useMemo(() => {
-		const m = new Map<string, PlayerSnapshot>();
-		for (const p of players) {
-			if (p.name) m.set(p.name, p);
-		}
-		return m;
-	}, [players]);
 
 	const drillEntries = useMemo(() => {
 		if (!drillName) return [];
@@ -155,7 +157,8 @@ export function LootBody({ loot, looterTotals, players, session, generatedAt, on
 					sorted={sorted}
 					topValue={topValue}
 					grandTotal={grandTotal}
-					playerByName={playerByName}
+					grandItems={grandItems}
+					grandSilver={grandSilver}
 					onOpenLooter={setDrillName}
 				/>
 			) : (
@@ -171,13 +174,15 @@ function PerPlayerTab({
 	sorted,
 	topValue,
 	grandTotal,
-	playerByName,
+	grandItems,
+	grandSilver,
 	onOpenLooter,
 }: {
 	sorted: LooterTotals[];
 	topValue: number;
 	grandTotal: number;
-	playerByName: Map<string, PlayerSnapshot>;
+	grandItems: number;
+	grandSilver: number;
 	onOpenLooter: (name: string) => void;
 }): React.ReactElement {
 	if (sorted.length === 0) {
@@ -192,7 +197,7 @@ function PerPlayerTab({
 	const rest = sorted.slice(1);
 	return (
 		<div style={{ overflowY: "auto", flex: 1 }}>
-			<TopFarmerCard l={top} playerByName={playerByName} />
+			<TopFarmerCard l={top} />
 			<LooterHeader />
 			<div>
 				{rest.map((l) => (
@@ -200,15 +205,19 @@ function PerPlayerTab({
 						key={l.name}
 						l={l}
 						topValue={topValue}
-						player={playerByName.get(l.name)}
 						onClick={() => onOpenLooter(l.name)}
 					/>
 				))}
 			</div>
-			<GrandTotal grandTotal={grandTotal} />
+			<GrandTotal grandTotal={grandTotal} grandItems={grandItems} grandSilver={grandSilver} />
 		</div>
 	);
 }
+
+// Shared column template for the per-player loot list. Item value and raw
+// silver are separate columns so it's obvious how much the looted *items*
+// are worth versus silver picked off corpses/chests.
+const LOOTER_GRID = "minmax(180px, 1.4fr) minmax(0, 1.6fr) 56px 92px 92px 16px";
 
 // LooterHeader is the sticky column-label row that sits between the
 // Top Farmer card and the per-player list. Without it the bare `34`
@@ -219,7 +228,7 @@ function LooterHeader(): React.ReactElement {
 		<div
 			className="grid items-center sk-upper"
 			style={{
-				gridTemplateColumns: "44px minmax(180px, 1.4fr) minmax(0, 2fr) 70px 100px 16px",
+				gridTemplateColumns: LOOTER_GRID,
 				gap: 12,
 				padding: "8px 16px",
 				position: "sticky",
@@ -233,20 +242,18 @@ function LooterHeader(): React.ReactElement {
 				zIndex: 1,
 			}}
 		>
-			<span />
 			<span>Player</span>
 			<span>Relative to top</span>
 			<span style={{ textAlign: "right" }}>Pickups</span>
-			<span style={{ textAlign: "right" }}>Silver</span>
+			<span style={{ textAlign: "right" }} title="AODP-estimated market value of looted items">Items</span>
+			<span style={{ textAlign: "right" }} title="Silver picked off corpses / chests">Silver</span>
 			<span />
 		</div>
 	);
 }
 
-function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map<string, PlayerSnapshot> }): React.ReactElement {
+function TopFarmerCard({ l }: { l: LooterTotals }): React.ReactElement {
 	const total = totalSilverOf(l);
-	const player = playerByName.get(l.name);
-	const roleKey = roleKeyOf(player?.role);
 	return (
 		<div
 			style={{
@@ -261,17 +268,6 @@ function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map
 				borderLeft: l.isLocal ? "3px solid var(--sk-local)" : "3px solid var(--sk-card-fame, #d4af37)",
 			}}
 		>
-			{player ? (
-				<IPChip
-					itemPower={player.itemPower}
-					classCode={player.classCode}
-					roleKey={roleKey}
-					slots={player.equipmentSlots}
-					size={36}
-				/>
-			) : (
-				<Placeholder size={36} />
-			)}
 			<div className="flex flex-col" style={{ gap: 3, minWidth: 0, flex: 1 }}>
 				<div className="flex items-baseline" style={{ gap: 8 }}>
 					<span className="sk-upper" style={{ fontSize: 9.5, color: "var(--sk-fg-3)" }}>Top farmer</span>
@@ -291,12 +287,18 @@ function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map
 					<LooterSubline l={l} />
 				</div>
 			</div>
-			<div className="flex flex-col items-end" style={{ gap: 2 }}>
+			<div className="flex flex-col items-end" style={{ gap: 3 }}>
 				<span
 					className="sk-mono"
 					style={{ fontSize: 22, fontWeight: 700, color: "var(--sk-card-fame, #d4af37)", letterSpacing: "-0.02em" }}
 				>
 					{fmt(total)}
+				</span>
+				{/* Explicit value split so item worth is never hidden inside
+				    the headline total. */}
+				<span className="sk-mono" style={{ fontSize: 11, color: "var(--sk-fg-3)" }}>
+					items <span style={{ color: "var(--sk-card-fame, #d4af37)" }}>{money(itemValueOf(l))}</span>
+					{" · "}silver <span style={{ color: "var(--sk-card-silver, #d0d4dc)" }}>{money(rawSilverOf(l))}</span>
 				</span>
 				<span className="sk-upper" style={{ fontSize: 9.5, color: "var(--sk-fg-3)" }}>
 					{l.pickups} pickups
@@ -309,17 +311,14 @@ function TopFarmerCard({ l, playerByName }: { l: LooterTotals; playerByName: Map
 function LooterRow({
 	l,
 	topValue,
-	player,
 	onClick,
 }: {
 	l: LooterTotals;
 	topValue: number;
-	player?: PlayerSnapshot;
 	onClick: () => void;
 }): React.ReactElement {
 	const total = totalSilverOf(l);
 	const pct = topValue > 0 ? Math.min(100, (total / topValue) * 100) : 0;
-	const roleKey = roleKeyOf(player?.role);
 	const goldFill = "var(--sk-card-fame, #d4af37)";
 	const lastMs = l.lastPickupAt ? Date.now() - +new Date(l.lastPickupAt) : Number.POSITIVE_INFINITY;
 	const activeRatio = Math.max(0, Math.min(1, 1 - lastMs / 30_000));
@@ -328,7 +327,7 @@ function LooterRow({
 			onClick={onClick}
 			className="grid items-center"
 			style={{
-				gridTemplateColumns: "44px minmax(180px, 1.4fr) minmax(0, 2fr) 70px 100px 16px",
+				gridTemplateColumns: LOOTER_GRID,
 				gap: 12,
 				padding: "11px 16px",
 				borderBottom: "1px solid var(--sk-line)",
@@ -338,12 +337,6 @@ function LooterRow({
 				transition: "background 160ms var(--sk-ease)",
 			}}
 		>
-			{player ? (
-				<IPChip itemPower={player.itemPower} classCode={player.classCode} roleKey={roleKey} slots={player.equipmentSlots} size={30} />
-			) : (
-				<Placeholder size={30} />
-			)}
-
 			<div className="flex flex-col min-w-0" style={{ gap: 2, lineHeight: 1.2 }}>
 				<span
 					className="truncate"
@@ -390,8 +383,11 @@ function LooterRow({
 			<span className="sk-mono" style={{ textAlign: "right", fontSize: 12, color: "var(--sk-fg-2)" }}>
 				{l.pickups}
 			</span>
-			<span className="sk-mono" style={{ textAlign: "right", fontSize: 14, fontWeight: 700, color: goldFill }}>
-				{fmt(total)}
+			<span className="sk-mono" style={{ textAlign: "right", fontSize: 13, fontWeight: 700, color: goldFill }} title="Estimated item value">
+				{money(itemValueOf(l))}
+			</span>
+			<span className="sk-mono" style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: "var(--sk-card-silver, #d0d4dc)" }} title="Silver picked">
+				{money(rawSilverOf(l))}
 			</span>
 
 			{/* Activity dot: green when fresh, fading to grey beyond 30s. */}
@@ -572,7 +568,7 @@ function ItemsTab({ loot }: { loot: LootEntry[] }): React.ReactElement {
 	);
 }
 
-function GrandTotal({ grandTotal }: { grandTotal: number }): React.ReactElement {
+function GrandTotal({ grandTotal, grandItems, grandSilver }: { grandTotal: number; grandItems: number; grandSilver: number }): React.ReactElement {
 	return (
 		<div
 			className="flex items-baseline"
@@ -584,6 +580,10 @@ function GrandTotal({ grandTotal }: { grandTotal: number }): React.ReactElement 
 			}}
 		>
 			<span className="sk-upper" style={{ fontSize: 10, color: "var(--sk-fg-2)" }}>Party total</span>
+			<span className="sk-mono" style={{ fontSize: 11, color: "var(--sk-fg-3)" }}>
+				items <span style={{ color: "var(--sk-card-fame, #d4af37)" }}>{money(grandItems)}</span>
+				{" · "}silver <span style={{ color: "var(--sk-card-silver, #d0d4dc)" }}>{money(grandSilver)}</span>
+			</span>
 			<span className="sk-mono" style={{ fontSize: 14, fontWeight: 700, color: "var(--sk-card-fame, #d4af37)", marginLeft: "auto" }}>
 				{fmt(grandTotal)}
 			</span>
@@ -666,30 +666,6 @@ function SourceBadge({ source, inline = false }: { source?: string; inline?: boo
 		>
 			{entry.label}
 		</span>
-	);
-}
-
-function Placeholder({ size }: { size: number }): React.ReactElement {
-	return (
-		<div
-			title="IP unknown — agent hasn't seen this looter's equipment yet"
-			style={{
-				width: size,
-				height: size,
-				borderRadius: 4,
-				background: "transparent",
-				border: "1px solid var(--sk-line)",
-				color: "var(--sk-fg-3)",
-				display: "inline-flex",
-				alignItems: "center",
-				justifyContent: "center",
-				fontFamily: "var(--sk-font-mono)",
-				fontSize: Math.max(11, Math.floor(size * 0.45)),
-				lineHeight: 1,
-			}}
-		>
-			—
-		</div>
 	);
 }
 

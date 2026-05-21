@@ -42,13 +42,14 @@
 	--sk-heal-tint:   color-mix(in oklab, var(--sk-heal)   16%, transparent);
 	--sk-taken-tint:  color-mix(in oklab, var(--sk-taken)  16%, transparent);
 
-	/* Role colors — distinct hue per role */
-	--sk-role-tank:    #8aa3ff;
-	--sk-role-healer:  #6fb6ff;
-	--sk-role-mdps:    #ff6464;
-	--sk-role-rdps:    #ffb43a;
-	--sk-role-support: #c08cff;
-	--sk-role-control: #6fd8ff;
+	/* Role colors — one distinct hue per role, matched to format.ts
+	   ROLE_ACCENT (azure / emerald / orange / crimson / violet / teal). */
+	--sk-role-tank:    #4f8cff;
+	--sk-role-healer:  #36d989;
+	--sk-role-mdps:    #ff4d6d;
+	--sk-role-rdps:    #ff7a2e;
+	--sk-role-support: #a877ff;
+	--sk-role-control: #3ad1e0;
 	--sk-role-unknown: var(--sk-fg-3);
 
 	/* Headline farm-card glyph accents — matched to design */
