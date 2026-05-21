@@ -1,0 +1,7 @@
+/node_modules
+/src-tauri/target
+/src-tauri/gen
+# Tauri auto-generates icons; regenerated from web/public/assets via `tauri icon`.
+/src-tauri/icons
+# The capture agent is bundled at build time, not tracked.
+/src-tauri/binaries/*.exe

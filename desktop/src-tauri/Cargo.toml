@@ -1,0 +1,32 @@
+[package]
+name = "gda-desktop"
+version = "0.6.0"
+description = "GDA Meter desktop shell"
+edition = "2021"
+rust-version = "1.77.2"
+
+# main.rs calls into this lib so the same entry point can be reused on
+# mobile targets later. Standard Tauri v2 layout.
+[lib]
+name = "gda_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+getrandom = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[features]
+# Enabled by Tauri for production builds; left here for the standard layout.
+custom-protocol = ["tauri/custom-protocol"]

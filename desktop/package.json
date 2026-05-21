@@ -1,0 +1,13 @@
+{
+  "name": "gda-desktop",
+  "private": true,
+  "version": "0.6.0",
+  "type": "module",
+  "description": "GDA Meter desktop shell (Tauri) — wraps the web UI and manages the capture agent.",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0"
+  }
+}
