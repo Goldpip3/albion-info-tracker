@@ -14,10 +14,12 @@ UI renders that state as a WoW-Details-style meter. It runs in one of two ways:
 
 1. **Local / desktop (the distributed app).** The agent serves the meter and
    its data over a loopback socket (`127.0.0.1:8787`), and the desktop app
-   (a Tauri native window) displays it. **Nothing leaves the machine** — no
-   network connections beyond reading local game traffic, no servers, no
-   telemetry, no account. This is the mode the published, signed installer
-   uses.
+   (a Tauri native window) displays it. **No game data or user data leaves the
+   machine** — no telemetry, no analytics, no account, no servers of our own.
+   The only outbound connection is an **auto-update check** to the project's
+   GitHub Releases page: it fetches a small version manifest and, if a newer
+   signed build exists, downloads the installer. It sends no information about
+   the user. This is the mode the published, signed installer uses.
 2. **Optional website mode (opt-in).** If the user explicitly chooses it, the
    agent pushes JSON snapshots over an outbound WebSocket (~1 s active, ≤60 s
    idle) to a Cloudflare relay, so the meter can be opened from another device.
