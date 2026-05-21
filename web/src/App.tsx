@@ -274,7 +274,8 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
-		return Date.now() - lastMessageAt > 5000;
+		// 20s grace: matches the agent's 15s idle heartbeat (see Footer).
+		return Date.now() - lastMessageAt > 20000;
 	}, [lastMessageAt, state, snapshot]);
 
 	if (!configured) {

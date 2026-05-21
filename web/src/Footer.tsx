@@ -21,7 +21,9 @@ export function Footer({ snapshot, lastMessageAt }: FooterProps): React.ReactEle
 	const ago = lastMessageAt
 		? `${((Date.now() - lastMessageAt) / 1000).toFixed(1)}s ago`
 		: "—";
-	const status = lastMessageAt && Date.now() - lastMessageAt < 5000 ? "live" : "stale";
+	// 20s grace: the agent's idle heartbeat is 15s, so a tighter window would
+	// falsely flag a healthy-but-idle agent as stale.
+	const status = lastMessageAt && Date.now() - lastMessageAt < 20000 ? "live" : "stale";
 	const inCombat = snapshot?.fight?.inCombat ?? false;
 	return (
 		<div style={{ flexShrink: 0 }}>

@@ -25,8 +25,10 @@ type Client struct {
 	AgentVersion string
 
 	// SendInterval is how often Snapshot() is read and pushed. Defaults to
-	// 200ms (5 Hz) — fast enough that DPS jitter and bar widths feel live;
-	// slow enough to stay well below the Worker's per-room CPU budget.
+	// 400ms (2.5 Hz) — fast enough that DPS jitter and bar widths feel live,
+	// while halving the request count vs 5 Hz. Each push is one Cloudflare
+	// request, and the free plan caps at 100k/day, so cadence is the main
+	// lever on the daily budget.
 	SendInterval time.Duration
 
 	// Snapshot is called from the push goroutine to fetch the current state.
@@ -39,9 +41,11 @@ type Client struct {
 	DirtyGen func() uint64
 
 	// HeartbeatInterval is the maximum gap between sends regardless of
-	// dirty state. Defaults to 1s — viewers still see a fresh
-	// generatedAt timestamp at least that often so the "stale" badge
-	// doesn't flicker. Only consulted when DirtyGen is set.
+	// dirty state. Defaults to 15s — when idle, an unchanged snapshot is
+	// resent only this often. At 1s the idle heartbeat alone was ~86k
+	// requests/day (near the free plan's 100k cap) just from leaving the
+	// agent running; 15s cuts that ~15x. Viewers must widen their "stale"
+	// badge threshold to match. Only consulted when DirtyGen is set.
 	HeartbeatInterval time.Duration
 
 	// LocalGuid is included in the Hello message when set.
@@ -63,7 +67,7 @@ type Client struct {
 // if it never connected once.
 func (c *Client) Run(ctx context.Context) error {
 	if c.SendInterval == 0 {
-		c.SendInterval = 200 * time.Millisecond
+		c.SendInterval = 400 * time.Millisecond
 	}
 
 	backoff := newBackoff(time.Second, 30*time.Second)
@@ -138,7 +142,7 @@ func (c *Client) connectAndPump(ctx context.Context) error {
 	t := time.NewTicker(c.SendInterval)
 	defer t.Stop()
 	if c.HeartbeatInterval == 0 {
-		c.HeartbeatInterval = time.Second
+		c.HeartbeatInterval = 15 * time.Second
 	}
 	var lastGen uint64
 	var lastSent time.Time
