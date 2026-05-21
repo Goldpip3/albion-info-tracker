@@ -6,8 +6,22 @@ mod elevate;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             debug_log(&format!("setup start; current_exe={:?}", std::env::current_exe()));
+
+            // Auto-update: on launch, check the GitHub Releases manifest for a
+            // newer signed build and, if found, download + install it, then
+            // relaunch into the new version. Best-effort and silent — any
+            // error (offline, no update) just leaves the app on the current
+            // version. Only in release builds; dev builds never self-update.
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    check_for_update(handle).await;
+                });
+            }
 
             // Launch the capture agent elevated (one UAC prompt) in LOCAL
             // mode: it serves the meter + its /view WebSocket on
@@ -49,6 +63,36 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the GDA desktop shell");
+}
+
+// check_for_update asks the GitHub Releases manifest whether a newer signed
+// build exists; if so it downloads, installs, and relaunches. Silent and
+// best-effort: friends never have to reinstall — opening the app pulls the
+// latest fix on its own.
+#[cfg(not(debug_assertions))]
+async fn check_for_update(app: tauri::AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = match app.updater() {
+        Ok(u) => u,
+        Err(e) => {
+            debug_log(&format!("updater init failed: {e}"));
+            return;
+        }
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            debug_log(&format!("update available: {}", update.version));
+            match update.download_and_install(|_, _| {}, || {}).await {
+                Ok(_) => {
+                    debug_log("update installed; restarting");
+                    app.restart();
+                }
+                Err(e) => debug_log(&format!("update install failed: {e}")),
+            }
+        }
+        Ok(None) => debug_log("no update available"),
+        Err(e) => debug_log(&format!("update check failed: {e}")),
+    }
 }
 
 // agent_path returns the bundled capture agent. Tauri's externalBin strips

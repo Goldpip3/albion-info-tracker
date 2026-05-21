@@ -14,9 +14,18 @@
       "csp": "default-src 'self'; connect-src 'self' ws://localhost:8787 ws://127.0.0.1:8787; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Goldpip3/albion-info-tracker/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFRjMzNThBNDJFNzQyNDEKUldSQlF1ZENpalh6L3BoNDhnYlY3bnNTbXhpUEU0TWxRSUo2VzRkeGRkSXVQZHp2Qk9wOUNHcFcK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

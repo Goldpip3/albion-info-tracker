@@ -1,0 +1,110 @@
+name: Release GDA Meter (desktop)
+
+# Builds the GDA Meter Windows desktop app in the cloud, signs it for
+# auto-update, and publishes it as a downloadable GitHub Release — including
+# the latest.json manifest that installed apps poll to update themselves.
+#
+# Trigger it from the Actions tab ("Run workflow"), or by pushing a desktop-v*
+# tag. The version comes from desktop/src-tauri/tauri.conf.json, so a release
+# always matches the version baked into the app (which is what the auto-updater
+# compares). To ship an update: bump that version, then run this workflow.
+#
+# Requires one repository secret: TAURI_SIGNING_PRIVATE_KEY (the updater
+# private key). The desktop-v prefix keeps this separate from the C# app's
+# v* release flow.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build + publish Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read app version
+        id: ver
+        shell: bash
+        run: |
+          V=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=desktop-v$V" >> "$GITHUB_OUTPUT"
+          echo "Releasing GDA Meter v$V (tag desktop-v$V)"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+
+      # The capture agent ships inside the installer as a Tauri sidecar.
+      # externalBin strips the -x86_64-pc-windows-msvc triple at bundle time and
+      # drops plain agent.exe next to the shell, which lib.rs agent_path() finds.
+      # -H=windowsgui builds the console-less flavor the hidden sidecar uses.
+      - name: Build capture agent (sidecar)
+        working-directory: agent
+        run: go build -ldflags="-H=windowsgui" -o ../desktop/src-tauri/binaries/agent-x86_64-pc-windows-msvc.exe ./cmd/agent
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Produces web/dist, which tauri.conf.json frontendDist points at.
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install desktop deps (Tauri CLI)
+        working-directory: desktop
+        run: npm ci
+
+      # Generates src-tauri/icons/* (gitignored) from the GDA brand mark.
+      - name: Generate Tauri icons
+        working-directory: desktop
+        run: npx tauri icon ../web/public/assets/icon-GDA-512.png
+
+      # tauri-action builds + signs the installer, creates/updates the GitHub
+      # Release at the tag, uploads the .exe + its .sig, and generates the
+      # latest.json updater manifest (because a signing key is present).
+      - name: Build, sign, and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key was generated without a password, so this stays empty.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          projectPath: desktop
+          tagName: ${{ steps.ver.outputs.tag }}
+          releaseName: GDA Meter v${{ steps.ver.outputs.version }}
+          releaseDraft: false
+          prerelease: false
+          releaseBody: |
+            **GDA Meter** — Albion Online live combat meter for Windows.
+
+            ## Install
+            Download the **`*-setup.exe`** below and run it.
+
+            - If Windows shows **"Windows protected your PC"**, click **More info → Run anyway** (the app is not code-signed).
+            - Click **Yes** on the administrator prompt — it's required for passive packet capture.
+            - **Albion Online must be installed.**
+
+            Once installed, the app keeps itself up to date automatically — you won't need to reinstall for future versions.
