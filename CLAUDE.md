@@ -64,7 +64,7 @@ proposals/                 feature backlog drafts (not yet implemented)
 - Remote: `https://github.com/Goldpip3/albion-info-tracker` (carries the previous project's name).
 - Active branch: **`go-port`** (started from `sat-fork`, no merges back).
 - `origin/main` and `origin/webify` preserve the much-older `albion-info-tracker` project. Replaced with SAT source in commit `0e540a6`.
-- **Before pushing `go-port` to a public mirror, rotate the `pushToken`** — an early commit briefly tracked `agent.json`. Token is currently `cd80e1d86f30432a35bd17840cf763fd`.
+- **The `pushToken` is a per-machine secret — it lives only in `%LocalAppData%\GDA\agent.json` (gitignored), never in the repo.** An early commit briefly exposed a token in this file + `agent.json`; that token has been **rotated**, so the value still visible in git history is dead (it only ever named a now-abandoned Cloudflare room). The desktop installer ships in local mode and uses no token. To rotate again: clear `pushToken` in `agent.json` — the agent generates a fresh one and re-pairs the website on the next Website-mode launch.
 
 ## Deploy URLs
 
