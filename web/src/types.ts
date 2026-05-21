@@ -139,6 +139,8 @@ export interface RosterEntry {
 export interface VisiblePlayer {
 	userGuid: string;
 	name: string;
+	guild?: string;
+	sameGuild?: boolean;
 	itemPower?: number;
 	classCode?: string;
 	role?: string;

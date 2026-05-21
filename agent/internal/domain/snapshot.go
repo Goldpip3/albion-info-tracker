@@ -417,6 +417,8 @@ type Session struct {
 type VisiblePlayer struct {
 	UserGuid  string `json:"userGuid"`
 	Name      string `json:"name"`
+	Guild     string `json:"guild,omitempty"`
+	SameGuild bool   `json:"sameGuild,omitempty"`
 	ItemPower int    `json:"itemPower,omitempty"`
 	ClassCode string `json:"classCode,omitempty"`
 	Role      string `json:"role,omitempty"`
@@ -714,14 +716,22 @@ func (e *Engine) Snapshot() Snapshot {
 		out.VisiblePlayers = append(out.VisiblePlayers, VisiblePlayer{
 			UserGuid:  gid,
 			Name:      ent.Name,
+			Guild:     ent.Guild,
+			SameGuild: localGuild != "" && ent.Guild == localGuild,
 			ItemPower: displayIP(ent),
 			ClassCode: ent.ClassCode,
 			Role:      ent.Role,
 			RoleLabel: ent.RoleLabel,
 		})
 	}
+	// Guildmates first (so a 20-person guild floats to the top of the
+	// add list), then alphabetical within each group.
 	sort.Slice(out.VisiblePlayers, func(i, j int) bool {
-		return out.VisiblePlayers[i].Name < out.VisiblePlayers[j].Name
+		a, b := out.VisiblePlayers[i], out.VisiblePlayers[j]
+		if a.SameGuild != b.SameGuild {
+			return a.SameGuild
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	})
 	// Roster order: local first, then same-guild, then alphabetical —
 	// so the picker shows you, then your guild, then everyone else.
