@@ -48,6 +48,14 @@ type Entity struct {
 	// landing — see gamedata.AverageItemPower for the formula.
 	ItemPower int
 
+	// RealItemPower is the spec/mastery-inclusive IP the server reports in
+	// the GetCharacterEquipment inspect response (op 151). It's 0 until the
+	// game sends one (it only fires when a player is inspected / shown in a
+	// party-builder panel), and is reset to 0 on any gear change so a stale
+	// inspected value can't linger after the loadout changes. The snapshot
+	// prefers this over the base ItemPower when present.
+	RealItemPower int
+
 	IsLocal   bool
 	IsInParty bool
 

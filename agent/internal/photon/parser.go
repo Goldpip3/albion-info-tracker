@@ -2,6 +2,7 @@ package photon
 
 import (
 	"encoding/binary"
+	"sync/atomic"
 )
 
 const (
@@ -23,6 +24,31 @@ type Handlers struct {
 type Parser struct {
 	h        Handlers
 	segments map[int32]*segmentedPackage
+
+	// Diagnostic counters (atomic). Surface decisive signal for the
+	// "nothing tracked" bisect: are real Photon datagrams reaching the
+	// parser, and do they decode into events/responses or just error out?
+	datagrams  atomic.Uint64
+	events     atomic.Uint64
+	responses  atomic.Uint64
+	requests   atomic.Uint64
+	decodeErrs atomic.Uint64
+}
+
+// Stats is a snapshot of the parser's diagnostic counters.
+type Stats struct {
+	Datagrams, Events, Responses, Requests, DecodeErrs uint64
+}
+
+// Stats returns the current counter values.
+func (p *Parser) Stats() Stats {
+	return Stats{
+		Datagrams:  p.datagrams.Load(),
+		Events:     p.events.Load(),
+		Responses:  p.responses.Load(),
+		Requests:   p.requests.Load(),
+		DecodeErrs: p.decodeErrs.Load(),
+	}
 }
 
 // segmentedPackage accumulates the chunks of a Photon SendFragment payload
@@ -47,6 +73,7 @@ func (p *Parser) Receive(payload []byte) {
 	if len(payload) < photonHeaderLen {
 		return
 	}
+	p.datagrams.Add(1)
 	r := &reader{buf: payload}
 
 	if err := r.skip(2); err != nil { // peer id
@@ -147,24 +174,30 @@ func (p *Parser) handleReliable(r *reader, bodyLen int) bool {
 	case msgOperationRequest:
 		req, err := DeserializeOperationRequest(inner)
 		if err != nil {
+			p.decodeErrs.Add(1)
 			return true // skip malformed, keep parsing later commands
 		}
+		p.requests.Add(1)
 		if p.h.OnRequest != nil {
 			p.h.OnRequest(req)
 		}
 	case msgOperationResponse:
 		resp, err := DeserializeOperationResponse(inner)
 		if err != nil {
+			p.decodeErrs.Add(1)
 			return true
 		}
+		p.responses.Add(1)
 		if p.h.OnResponse != nil {
 			p.h.OnResponse(resp)
 		}
 	case msgEvent:
 		evt, err := DeserializeEventData(inner)
 		if err != nil {
+			p.decodeErrs.Add(1)
 			return true
 		}
+		p.events.Add(1)
 		if p.h.OnEvent != nil {
 			p.h.OnEvent(evt)
 		}

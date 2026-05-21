@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +13,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -45,7 +47,8 @@ func main() {
 	// AND tee all log output to agent-verbose.log next to the exe, so a
 	// diagnostic capture can be read back from the file without
 	// copy-pasting an elevated console window.
-	if hasFlag("--verbose") || hasFlag("-v") || os.Getenv("ALBION_AGENT_VERBOSE") != "" {
+	verbose := hasFlag("--verbose") || hasFlag("-v") || os.Getenv("ALBION_AGENT_VERBOSE") != ""
+	if verbose {
 		domain.SetVerbose(true)
 		if path, err := setupVerboseLog(); err != nil {
 			log.Printf("  verbose log file: %v", err)
@@ -74,6 +77,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// When launched by the desktop shell, --parent-pid <pid> ties our
+	// lifetime to that window: the shell runs unelevated and can't kill
+	// this elevated process directly, so we watch its PID and shut down
+	// gracefully when it closes. Avoids an orphaned capture process.
+	if pidStr := flagValue("--parent-pid"); pidStr != "" {
+		if pid, err := strconv.Atoi(pidStr); err == nil && pid > 0 {
+			go watchParentExit(pid, cancel)
+		}
+	}
+
 	engine := domain.NewEngine()
 	engine.SetAlwaysIncludeNames(cfg.AlwaysIncludeNames)
 	loadGameData(cfg, engine)
@@ -90,6 +103,12 @@ func main() {
 		fmt.Printf("  Party roster on disk: %s\n", pstore.Path())
 		engine.RestoreParty()
 	}
+	if dstore, err := domain.NewDailyStore(); err != nil {
+		log.Printf("  daily store: %v", err)
+	} else {
+		engine.SetDailyStore(dstore)
+		fmt.Printf("  Daily progress on disk: %s\n", dstore.Path())
+	}
 	priceClient := aodp.New()
 	priceClient.Start(ctx)
 	engine.SetPriceClient(priceClient)
@@ -103,7 +122,7 @@ func main() {
 		parser.Receive(pkt.Payload)
 	})
 
-	go renderLoop(ctx, engine, &packetsSeen)
+	go renderLoop(ctx, engine, &packetsSeen, parser, verbose)
 
 	if cfg.PushURL != "" {
 		client := &push.Client{
@@ -126,6 +145,8 @@ func main() {
 	}
 
 	superviseCapture(ctx, sink, &packetsSeen)
+	engine.FlushDaily()
+	logDiag(engine, parser, packetsSeen.Load(), "final")
 	fmt.Println("\nStopped.")
 }
 
@@ -298,16 +319,36 @@ func hasFlag(name string) bool {
 	return false
 }
 
-// setupVerboseLog tees all log output to agent-verbose.log beside the
-// exe (truncated each launch) while keeping it on stderr. Lets a
-// diagnostic capture be read back from the file even when the agent
-// runs in an elevated console we can't scrape.
+// flagValue returns the value following a "--name value" pair, or the
+// "--name=value" form. Empty string when the flag is absent or has no
+// value. Same minimal style as hasFlag.
+func flagValue(name string) string {
+	args := os.Args[1:]
+	for i, a := range args {
+		if a == name && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(a, name+"=") {
+			return strings.TrimPrefix(a, name+"=")
+		}
+	}
+	return ""
+}
+
+// setupVerboseLog tees all log output to agent-verbose.log in the GDA
+// data dir (truncated each launch) while keeping it on stderr. Lets a
+// diagnostic capture be read back from the file even when the agent runs
+// in an elevated console we can't scrape, or with no console at all (the
+// bundled -H windowsgui flavor inside the desktop shell).
 func setupVerboseLog() (string, error) {
-	exe, err := os.Executable()
+	dir, err := config.Dir()
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(filepath.Dir(exe), "agent-verbose.log")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "agent-verbose.log")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return "", err
@@ -341,18 +382,10 @@ func generateToken() string {
 	return hex.EncodeToString(b[:])
 }
 
-// writeConfig serializes cfg to agent.json next to the executable.
+// writeConfig serializes cfg to agent.json in the GDA data dir
+// (%LocalAppData%\GDA on Windows) via config.Save.
 func writeConfig(cfg config.Config) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(filepath.Dir(exe), "agent.json")
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
+	return config.Save(cfg)
 }
 
 // guessAlbionInstall tries the canonical Windows install locations so a
@@ -410,7 +443,7 @@ func loadGameData(cfg config.Config, engine *domain.Engine) {
 	fmt.Println()
 }
 
-func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
+func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64, parser *photon.Parser, verbose bool) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {
@@ -420,14 +453,64 @@ func renderLoop(ctx context.Context, e *domain.Engine, pkts *atomic.Uint64) {
 		case <-t.C:
 			snap := e.Snapshot()
 			total, _, _ := e.Store().Counts()
-			if len(snap.Players) == 0 {
-				fmt.Printf("  waiting for combat… packets=%d tracked=%d\n", pkts.Load(), total)
-				continue
+			st := parser.Stats()
+			_, name, _, known := e.LocalIdentity()
+			local := "unknown"
+			if known {
+				local = name
+				if local == "" {
+					local = "(bound, no name)"
+				}
 			}
-			fmt.Printf("  fight %02d · %d player(s) · top: %s\n",
-				snap.Fight.Number, len(snap.Players), topName(snap))
+			// Always-on enriched heartbeat: even a glance shows whether
+			// packets are flowing, decoding, and binding a local player.
+			fmt.Printf("  packets=%d datagrams=%d events=%d decodeErr=%d tracked=%d players=%d local=%s zone=%q\n",
+				pkts.Load(), st.Datagrams, st.Events, st.DecodeErrs, total, len(snap.Players), local, snap.Fight.Zone)
+			if verbose {
+				logDiag(e, parser, pkts.Load(), "tick")
+			}
 		}
 	}
+}
+
+// logDiag writes a full diagnostic line to the (verbose-teed) log: parser
+// counters, top event/op codes by frequency, local identity, and zone.
+// This is the decisive signal for the "meter tracks nothing" bisect — it
+// reveals whether the break is capture, deserialize, code-routing, or
+// identity. Reaches agent-verbose.log via the log MultiWriter.
+func logDiag(e *domain.Engine, parser *photon.Parser, packets uint64, label string) {
+	st := parser.Stats()
+	events, ops := e.DiagHistograms()
+	objId, name, guild, known := e.LocalIdentity()
+	local := "unknown"
+	if known {
+		local = fmt.Sprintf("objId=%d name=%q guild=%q", objId, name, guild)
+	}
+	log.Printf("diag(%s): packets=%d datagrams=%d events=%d responses=%d requests=%d decodeErr=%d | local: %s | topEvents[%s] | topOps[%s]",
+		label, packets, st.Datagrams, st.Events, st.Responses, st.Requests, st.DecodeErrs,
+		local, topCodes(events, 8), topCodes(ops, 6))
+}
+
+// topCodes formats the n highest-count entries of a code histogram as
+// "code×count" descending. Used to spot event/op-code drift after a patch.
+func topCodes(hist map[int]uint64, n int) string {
+	type kv struct {
+		code  int
+		count uint64
+	}
+	pairs := make([]kv, 0, len(hist))
+	for c, cnt := range hist {
+		pairs = append(pairs, kv{c, cnt})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].count > pairs[j].count })
+	if len(pairs) > n {
+		pairs = pairs[:n]
+	}
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		parts = append(parts, fmt.Sprintf("%d×%d", p.code, p.count))
+	}
+	return strings.Join(parts, " ")
 }
 
 func topName(s domain.Snapshot) string {

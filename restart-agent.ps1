@@ -13,7 +13,7 @@
 # Run it after Claude pushes agent changes:
 #   - double-click "Restart GDA Agent.cmd", or
 #   - double-click "Restart GDA Agent (Verbose).cmd" for a diagnostic
-#     capture (writes agent-verbose.log next to agent.exe), or
+#     capture (writes agent-verbose.log to %LocalAppData%\GDA), or
 #   - from a shell:  pwsh -ExecutionPolicy Bypass -File restart-agent.ps1 [-Trace]
 #
 # The relaunch always passes --open-browser, so the meter opens on its
@@ -21,7 +21,7 @@
 
 param(
     # -Trace turns on verbose logging; the agent tees every event line to
-    # agent-verbose.log next to the exe so a capture can be read back.
+    # %LocalAppData%\GDA\agent-verbose.log so a capture can be read back.
     [switch]$Trace
 )
 
@@ -76,7 +76,7 @@ Write-Host "  build OK." -ForegroundColor Green
 $launchArgs = @("--open-browser")
 if ($Trace) {
     $launchArgs += "--verbose"
-    Write-Host "  TRACE on - events will be written to agent\agent-verbose.log" -ForegroundColor Yellow
+    Write-Host "  TRACE on - events will be written to %LocalAppData%\GDA\agent-verbose.log" -ForegroundColor Yellow
 }
 Write-Host "  relaunching agent..."
 Start-Process -FilePath $exe -WorkingDirectory $agentDir -ArgumentList $launchArgs

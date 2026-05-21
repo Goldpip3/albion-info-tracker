@@ -433,6 +433,7 @@ type Snapshot struct {
 	Recent      []FightArchive    `json:"recent,omitempty"`
 	Events      []ActivityEvent   `json:"events,omitempty"`
 	Sessions    []ArchivedSession `json:"sessions,omitempty"`
+	Daily       []DailyStat       `json:"daily,omitempty"`
 	Zones       []ZoneVisit       `json:"zones,omitempty"`
 	Dungeon     *DungeonRun       `json:"dungeon,omitempty"`
 	Loot        []LootEntry       `json:"loot,omitempty"`
@@ -513,6 +514,16 @@ func (e *Engine) scopedMembers() []*Entity {
 	return members
 }
 
+// displayIP returns the spec/mastery-inclusive IP from a GetCharacterEquipment
+// inspect when we have one, else the base averaged IP. Lets an inspected
+// player show their true character-sheet IP while everyone else shows base.
+func displayIP(m *Entity) int {
+	if m.RealItemPower > 0 {
+		return m.RealItemPower
+	}
+	return m.ItemPower
+}
+
 func (e *Engine) Snapshot() Snapshot {
 	members := e.scopedMembers()
 	now := e.now()
@@ -555,6 +566,9 @@ func (e *Engine) Snapshot() Snapshot {
 	if e.sessions != nil {
 		out.Sessions = e.sessions.List()
 	}
+	if e.daily != nil {
+		out.Daily = e.daily.List(60)
+	}
 	e.store.mu.RLock()
 	defer e.store.mu.RUnlock()
 	for _, m := range members {
@@ -569,7 +583,7 @@ func (e *Engine) Snapshot() Snapshot {
 			ClassCode: m.ClassCode,
 			Role:      m.Role,
 			RoleLabel: m.RoleLabel,
-			ItemPower: m.ItemPower,
+			ItemPower: displayIP(m),
 
 			// Current values fall back to LastFight when this fight
 			// hasn't produced damage yet so the row doesn't snap to
@@ -632,7 +646,7 @@ func (e *Engine) Snapshot() Snapshot {
 		out.VisiblePlayers = append(out.VisiblePlayers, VisiblePlayer{
 			UserGuid:  gid,
 			Name:      ent.Name,
-			ItemPower: ent.ItemPower,
+			ItemPower: displayIP(ent),
 			ClassCode: ent.ClassCode,
 			Role:      ent.Role,
 			RoleLabel: ent.RoleLabel,

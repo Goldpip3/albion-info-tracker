@@ -41,6 +41,14 @@ type Engine struct {
 	guard sync.Mutex
 	now   func() time.Time
 
+	// Diagnostic histograms (protected by diagMu): every event/op code seen
+	// by application-level number, regardless of whether a handler matched.
+	// Reveals event-code / op-code drift after a game patch — the classic
+	// "meter tracks nothing" cause, where every switch falls through.
+	diagMu        sync.Mutex
+	eventCodeHist map[int]uint64
+	opCodeHist    map[int]uint64
+
 	// items, when set, lets handleNewCharacter classify a player's weapon
 	// into a role + 3-letter class chip. Nil is fine — entities just get
 	// "?" / "—" until the catalog loads or never loads.
@@ -100,6 +108,11 @@ type Engine struct {
 	// Optional — when nil the roster lives only in RAM (the old
 	// behaviour) and a restart loses it.
 	party *PartyStore
+
+	// daily accrues per-day economy totals independent of session resets,
+	// so day-over-day progress survives "New session" and multi-day runs.
+	// Optional — nil disables daily tracking.
+	daily *DailyStore
 
 	// zones is the append-only log of zone visits, capped at zoneLogCap.
 	// Updated from handleJoinResponse via noteZoneEntry.
@@ -264,6 +277,8 @@ func NewEngine() *Engine {
 		recentCastsCap: 64,
 		pendingEquip:   make(map[int64]pendingEquipEntry),
 		mobNames:       make(map[int64]string),
+		eventCodeHist:  make(map[int]uint64),
+		opCodeHist:     make(map[int]uint64),
 	}
 }
 
@@ -521,6 +536,26 @@ func (e *Engine) Sessions() *SessionsStore {
 	return e.sessions
 }
 
+// SetDailyStore wires the disk-backed per-day economy archive. When set,
+// fame/silver/respec/might/death accrue into today's bucket alongside the
+// session totals, independent of session resets. Optional.
+func (e *Engine) SetDailyStore(s *DailyStore) {
+	e.daily = s
+}
+
+// Daily returns the configured daily store (or nil).
+func (e *Engine) Daily() *DailyStore {
+	return e.daily
+}
+
+// FlushDaily forces a final write of the daily archive. Called on shutdown
+// so the last throttle window isn't lost. No-op when no store is wired.
+func (e *Engine) FlushDaily() {
+	if e.daily != nil {
+		e.daily.Flush()
+	}
+}
+
 // SetLocalization wires a localization.bin lookup so spells/items resolve
 // to their in-game tooltip names instead of raw uniquenames.
 func (e *Engine) SetLocalization(l *gamedata.Localization) {
@@ -607,6 +642,9 @@ func (e *Engine) DirtyGen() uint64 {
 
 func (e *Engine) onEvent(ev photon.EventData) {
 	code := realCode(ev.Parameters, ev.Code)
+	e.diagMu.Lock()
+	e.eventCodeHist[code]++
+	e.diagMu.Unlock()
 	e.markDirty()
 	switch gamecodes.Event(code) {
 	case gamecodes.EventHealthUpdate:
@@ -701,11 +739,71 @@ func (e *Engine) onRequest(photon.OperationRequest) {}
 
 func (e *Engine) onResponse(resp photon.OperationResponse) {
 	code := realCode(resp.Parameters, resp.OperationCode)
+	e.diagMu.Lock()
+	e.opCodeHist[code]++
+	e.diagMu.Unlock()
 	switch gamecodes.Op(code) {
 	case gamecodes.OpJoin:
 		dbg("Join response %v", resp.Parameters)
 		e.handleJoinResponse(resp.Parameters)
+	case gamecodes.OpGetCharacterEquipment:
+		dbg("GetCharacterEquipment %v", resp.Parameters)
+		e.handleGetCharacterEquipment(resp.Parameters)
 	}
+}
+
+// handleGetCharacterEquipment reads the spec/mastery-inclusive IP from the
+// inspect response Albion sends when a player is examined (op 151). Param 0
+// is the inspected player's guid; param 3 is their final, real Item Power as
+// a double. This is the only wire source of spec-adjusted IP — it's absent
+// from NewCharacter / CharacterEquipmentChanged, which carry base item data
+// only. Fires on inspect / party-builder open, not continuously.
+func (e *Engine) handleGetCharacterEquipment(p map[byte]any) {
+	guid, ok := paramGuid(p, 0)
+	if !ok || guid.IsZero() {
+		return
+	}
+	ipF, ok := paramDouble(p, 3)
+	if !ok || ipF <= 0 {
+		return
+	}
+	ent := e.store.ByGuid(guid)
+	if ent == nil {
+		return
+	}
+	e.store.mu.Lock()
+	ent.RealItemPower = int(ipF + 0.5) // round; ipF > 0 guaranteed above
+	e.store.mu.Unlock()
+	dbg("GetCharacterEquipment guid=%s ip=%.0f", guid.String(), ipF)
+	e.markDirty()
+}
+
+// DiagHistograms returns copies of the event-code and op-code histograms.
+// Used by the verbose heartbeat to surface code drift (the "meter tracks
+// nothing" cause where every dispatch switch falls through).
+func (e *Engine) DiagHistograms() (events, ops map[int]uint64) {
+	e.diagMu.Lock()
+	defer e.diagMu.Unlock()
+	events = make(map[int]uint64, len(e.eventCodeHist))
+	for k, v := range e.eventCodeHist {
+		events[k] = v
+	}
+	ops = make(map[int]uint64, len(e.opCodeHist))
+	for k, v := range e.opCodeHist {
+		ops[k] = v
+	}
+	return events, ops
+}
+
+// LocalIdentity reports the bound local player (ObjectId/name/guild) and
+// whether one is known yet. Drives the heartbeat's local=… field, which
+// distinguishes "no Join seen" from "Join seen but no rows".
+func (e *Engine) LocalIdentity() (objId int64, name, guild string, known bool) {
+	local := e.store.localGuidEntity()
+	if local == nil {
+		return 0, "", "", false
+	}
+	return local.ObjectId, local.Name, local.Guild, true
 }
 
 // handleJoinResponse processes the operation response sent when the local
@@ -726,6 +824,7 @@ func (e *Engine) handleJoinResponse(p map[byte]any) {
 	}
 	ent := e.store.UpsertByGuid(guid, objectId, name, guild)
 	e.store.SetLocalGuid(guid)
+	dbg("JOIN bound: objId=%d guid=%s name=%q guild=%q", objectId, guid.String(), name, guild)
 	// Local player is always in their own party for damage-meter purposes,
 	// even when actually solo — that matches SAT's behaviour.
 	e.store.MarkInParty(guid, true)
@@ -990,6 +1089,9 @@ func (e *Engine) handleDied(p map[byte]any) {
 	e.sessionMu.Lock()
 	e.session.DeathsTotal++
 	e.sessionMu.Unlock()
+	if e.daily != nil {
+		e.daily.AddDeath(e.now())
+	}
 }
 
 // handleUpdateFame folds a fame-change event into the session total.
@@ -1019,8 +1121,13 @@ func (e *Engine) handleUpdateFame(p map[byte]any) {
 			return
 		}
 		e.sessionMu.Lock()
+		before := e.session.FameTotal
 		e.session.AccumulateFame(total)
+		delta := e.session.FameTotal - before
 		e.sessionMu.Unlock()
+		if delta > 0 && e.daily != nil {
+			e.daily.AddFame(delta, e.now())
+		}
 		return
 	}
 	premium := int64(0)
@@ -1046,6 +1153,9 @@ func (e *Engine) handleUpdateFame(p map[byte]any) {
 	// so the delta-baseline logic in AccumulateFame would mis-count.
 	e.session.FameTotal += totalGained
 	e.sessionMu.Unlock()
+	if e.daily != nil {
+		e.daily.AddFame(totalGained, e.now())
+	}
 }
 
 // creditSilver folds a silver gain into the session total, and into the
@@ -1063,6 +1173,9 @@ func (e *Engine) creditSilver(amount int64, isMob bool) {
 		e.session.MobSilverTotal += amount
 	}
 	e.sessionMu.Unlock()
+	if e.daily != nil {
+		e.daily.AddSilver(amount, e.now())
+	}
 }
 
 // handleUpdateMoney records the local player's ObjectId from a wallet
@@ -1159,6 +1272,9 @@ func (e *Engine) handleUpdateReSpec(p map[byte]any) {
 	e.sessionMu.Lock()
 	e.session.AccumulateRespec(gain)
 	e.sessionMu.Unlock()
+	if e.daily != nil {
+		e.daily.AddRespec(gain, e.now())
+	}
 }
 
 // chooseRespecGain reconciles the two possible respec param semantics.
@@ -1232,6 +1348,9 @@ func (e *Engine) handleMightAndFavor(p map[byte]any) {
 	e.sessionMu.Lock()
 	e.session.AccumulateMight(gained)
 	e.sessionMu.Unlock()
+	if e.daily != nil {
+		e.daily.AddMight(gained, e.now())
+	}
 }
 
 // recordTarget increments the per-target damage bucket. Caller must
@@ -1903,18 +2022,36 @@ func (e *Engine) applyEquipmentArray(ent *Entity, equip [10]int, qualities [10]i
 	if ent == nil || e.items == nil {
 		return
 	}
-	// Class chip + role + label come from MainHand.
+	// Class chip + role + label come from MainHand. On unequip the event
+	// carries MainHand=0, so clear the weapon instead of leaving the stale
+	// one — otherwise an unequipped player keeps showing their old weapon
+	// forever. This (and the IP recompute below) is the only state touched;
+	// combat stats are never altered by an equipment change.
 	if mh := equip[0]; mh > 0 {
 		e.classifyMainHand(ent, mh)
+	} else {
+		e.clearMainHand(ent)
 	}
 	// IP across core slots — MainHand, OffHand, Head, Chest, Shoes, Cape.
 	// AverageItemPower handles the 2H "occupies both hands" rule.
 	ip := gamedata.AverageItemPower(e.items, equip, qualities)
 	e.store.mu.Lock()
+	// CharacterEquipmentChanged re-broadcasts even when nothing was swapped
+	// (spell changes, mounting, zone re-sync), so detect a real loadout
+	// change BEFORE overwriting ent.Equipment. Only an actual change should
+	// invalidate the inspect-populated spec IP — otherwise a re-broadcast a
+	// tick after an op-151 inspect would wipe RealItemPower and the IP chip
+	// would snap back to base.
+	gearChanged := ent.Equipment != equip
 	ent.Equipment = equip
 	ent.Qualities = qualities
 	ent.ActiveSpells = spells
 	ent.ItemPower = ip
+	if gearChanged {
+		// Loadout actually changed: drop the stale inspected spec IP and
+		// fall back to fresh base IP until the next GetCharacterEquipment.
+		ent.RealItemPower = 0
+	}
 	e.store.mu.Unlock()
 }
 
@@ -1940,6 +2077,19 @@ func (e *Engine) classifyMainHand(ent *Entity, mainHand int) {
 	ent.ClassCode = c.Code
 	ent.Role = string(c.Role)
 	ent.RoleLabel = label
+	e.store.mu.Unlock()
+}
+
+// clearMainHand resets the weapon-derived fields when MainHand is empty
+// (the player unequipped their weapon). Leaves IP to the caller's recompute
+// and never touches combat stats — only the class chip / role / label /
+// weapon id are cleared so the UI stops showing a stale weapon.
+func (e *Engine) clearMainHand(ent *Entity) {
+	e.store.mu.Lock()
+	ent.MainHandItemId = 0
+	ent.ClassCode = ""
+	ent.Role = ""
+	ent.RoleLabel = ""
 	e.store.mu.Unlock()
 }
 

@@ -119,56 +119,48 @@ func AverageItemPower(c *ItemCatalog, equip [10]int, qualities [10]int) int {
 		return 0
 	}
 	const (
-		slotMain   = 0
-		slotOff    = 1
-		slotHead   = 2
-		slotChest  = 3
-		slotShoes  = 4
+		slotMain  = 0
+		slotOff   = 1
+		slotHead  = 2
+		slotChest = 3
+		slotShoes = 4
 		// slotBag   = 5  — excluded
-		slotCape   = 6
+		slotCape = 6
 		// slotMount = 7  — excluded
 		// slotPotion = 8 — excluded
 		// slotFood   = 9 — excluded
 	)
 	coreSlots := []int{slotMain, slotOff, slotHead, slotChest, slotShoes, slotCape}
 
-	mainName := ""
-	if equip[slotMain] > 0 {
-		mainName = strings.ToUpper(c.Name(equip[slotMain]))
-	}
-	is2H := strings.Contains(mainName, "2H_")
-
-	total := 0
-	count := 0
-	for _, slot := range coreSlots {
+	// IP of one slot; an empty slot (idx 0) or unknown item contributes 0.
+	ipOf := func(slot int) int {
 		idx := equip[slot]
 		if idx == 0 {
-			// 2H weapon: the OffHand slot is "occupied" by the main hand
-			// even though equip[slotOff] is 0. Count main-hand IP again.
-			if slot == slotOff && is2H && equip[slotMain] > 0 {
-				name := c.Name(equip[slotMain])
-				q := 1
-				if qualities[slotMain] >= 1 {
-					q = qualities[slotMain]
-				}
-				ip := ItemPowerOf(name, q)
-				if ip > 0 {
-					total += ip
-					count++
-				}
-			}
-			continue
+			return 0
 		}
-		name := c.Name(idx)
 		q := 1
 		if qualities[slot] >= 1 {
 			q = qualities[slot]
 		}
-		ip := ItemPowerOf(name, q)
-		if ip > 0 {
-			total += ip
-			count++
-		}
+		return ItemPowerOf(c.Name(idx), q)
+	}
+
+	// Divisor is the FIXED count of core slots (6) — empty slots still
+	// count (contributing 0), so unequipping your weapon drops the average
+	// the same way it does on the in-game character sheet.
+	total := 0
+	count := len(coreSlots)
+	for _, slot := range coreSlots {
+		total += ipOf(slot)
+	}
+	// A 2H weapon occupies BOTH hand slots, so its IP is counted twice in
+	// the numerator (MainHand + the otherwise-empty OffHand it fills) while
+	// the divisor stays 6. This matches the game's character-sheet average:
+	// e.g. (2×weapon + 4×armor) / 6. NOTE: this intentionally diverges from
+	// SAT, which increments the divisor to 7 and so under-reports armed 2H
+	// builds relative to the game.
+	if equip[slotMain] > 0 && strings.Contains(strings.ToUpper(c.Name(equip[slotMain])), "2H_") {
+		total += ipOf(slotMain)
 	}
 	if count == 0 {
 		return 0
