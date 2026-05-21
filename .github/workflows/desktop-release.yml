@@ -101,10 +101,25 @@ jobs:
             **GDA Meter** — Albion Online live combat meter for Windows.
 
             ## Install
-            Download the **`*-setup.exe`** below and run it.
+            Download **`GDA-Meter-Windows.zip`** below, unzip it, and run the installer inside.
 
-            - If Windows shows **"Windows protected your PC"**, click **More info → Run anyway** (the app is not code-signed).
+            - We use a `.zip` because browsers block raw `.exe` downloads — the zip downloads cleanly.
+            - On first launch, if Windows shows **"Windows protected your PC"**, click **More info → Run anyway** (the app is not code-signed).
             - Click **Yes** on the administrator prompt — it's required for passive packet capture.
             - **Albion Online must be installed.**
 
             Once installed, the app keeps itself up to date automatically — you won't need to reinstall for future versions.
+
+      # Add a Chrome-friendly .zip of the installer to the release. Browsers
+      # block bare .exe downloads (the user's friends hit exactly this), but
+      # not .zip — they download the zip, unzip, and run the installer inside.
+      # Stable, version-less name so the share link never changes. The .exe +
+      # latest.json published above still power the in-app auto-updater.
+      - name: Add Chrome-friendly zip to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = Get-ChildItem desktop/src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          Compress-Archive -Path $exe.FullName -DestinationPath GDA-Meter-Windows.zip -Force
+          gh release upload ${{ steps.ver.outputs.tag }} GDA-Meter-Windows.zip --repo ${{ github.repository }} --clobber
