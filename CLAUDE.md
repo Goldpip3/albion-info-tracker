@@ -3,7 +3,7 @@
 Personal fork of [Triky313/AlbionOnline-StatisticsAnalysis](https://github.com/Triky313/AlbionOnline-StatisticsAnalysis) (SAT) — a third-party Albion Online stats / damage-meter app. The repo now contains **two parallel implementations on different branches**:
 
 - **`sat-fork`** — the original C# / WPF / .NET 10 SAT fork. Production-quality, used for actual gameplay. Two WIP commits on top of upstream (current+overall meter + mount-event ObjectId binding); both compile clean but were **never verified in-game** before the user pivoted to Go.
-- **`go-port`** — clean-room Go rewrite that pushes JSON snapshots to a Cloudflare Worker and renders the meter in a React web UI hosted on Cloudflare Pages. **Currently the active development branch and confirmed working end-to-end.**
+- **`go-port`** — clean-room Go rewrite. The agent captures + parses Photon and renders the meter in a React UI three ways: (1) **local** — the agent serves the UI at `http://localhost:8787`, no Cloudflare; (2) **website** — pushes snapshots to a Cloudflare Worker + Pages; (3) **desktop app** — a Tauri shell (`desktop/`) that bundles the agent and runs local mode in a native window, shipped as a **public, auto-updating GitHub Release installer**. **Active development branch, confirmed working end-to-end.**
 
 Nothing here is intended to go upstream.
 
@@ -41,7 +41,7 @@ web/                       React + Vite + Tailwind v4 frontend
   src/                     App.tsx (top-tab routing + MeterPanes), TabBar/tabs (nav),
                            MeterTable, SessionStrip (C3 editorial Fame hero),
                            LootBody/LootPage, PartyBody/PartyPage, SessionsBody/SessionsPage,
-                           EmptyState, DungeonStrip, IPChip, DrillIn, Header, Footer,
+                           EmptyState, DungeonStrip, DrillIn, Header, Footer,
                            PlayerPicker ("Track Players" menu under the Meter)
                            (legacy *Panel modals kept but unmounted)
   public/assets/           GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
@@ -226,7 +226,9 @@ Missing `agent.json` triggers the first-run wizard (auto-generates a token, open
 
 `scopedMembers()` is the single filter shared by the live snapshot **and** `archiveCurrentFight`, so a past fight shows exactly who the live meter showed at the time.
 
-**Web → agent commands** (over the same WebSocket, forwarded by the Worker; `Engine.HandleCommand`): `resetSession`, `deleteSession <id>`, `setLootFilter <party|partyGuild|everyone>`, `addPartyMember <guid>`, `removePartyMember <guid>`, `clearParty`.
+**Sticky meter** — `scopedMembers()` records every displayed entity into a session-sticky set (`Engine.meterSeen`, pointer-keyed; entities are never pruned from `byGuid`) and re-adds the whole set each snapshot. So a player who **leaves the party** (and is no longer covered by guild scope) **stays on the meter until "New Session"** instead of vanishing mid-farm. Cleared by `ResetSession`. Applies only to the union path (the `everyone`/SHOW_ALL path returns early — it already shows all activity).
+
+**Web → agent commands** (over the same WebSocket, forwarded by the Worker; `Engine.HandleCommand`): `resetSession`, `clearMeter`, `deleteSession <id>`, `setLootFilter <party|partyGuild|everyone>`, `addPartyMember <guid>`, `removePartyMember <guid>`, `clearParty`. **`clearMeter`** (header "Clear meter" button) drops everyone *except* the local player — clears the party roster + `meterSeen` and zeroes non-local combat stats — while preserving your own numbers + the session economy (the "I left the group, go solo" button, distinct from New Session). `clearParty` only wipes the roster.
 
 ### Capture self-heal
 
@@ -266,7 +268,7 @@ TypeScript Worker + Durable Object backend. Deployed at `https://albion-meter.go
 
 Auth: SHA-256 hash of the bearer token names a Durable Object room. No DB, no signup. Agent and browser sharing a token meet in the same room.
 
-`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish on activity (≤400 ms) so hibernation losing state is harmless. The room also **forwards viewer→agent command messages** (New Session, delete session, set scope, party add/remove/clear) transparently to the ingest socket — see `Engine.HandleCommand`. WebSocket *messages* over an open socket don't count as Cloudflare requests; only the connection upgrade does — so the daily-request budget is driven by snapshot/DO message volume, hence the cadence throttle on the agent.
+`MeterRoom` uses the WebSocket Hibernation API. Latest snapshot is kept in memory; agents republish on activity (≤1 s) so hibernation losing state is harmless. The room also **forwards viewer→agent command messages** (New Session, Clear meter, delete session, set scope, party add/remove/clear) transparently to the ingest socket — see `Engine.HandleCommand`. Each snapshot message to the Durable Object counts toward the free-tier request budget (~86k/day at 1/s confirmed empirically), which is why the agent throttles cadence — and why local/desktop mode (no Cloudflare) avoids the budget entirely.
 
 ### Build & deploy
 
@@ -320,15 +322,17 @@ npm run dev
 - **C3 editorial Fame hero** (`SessionStrip`) — Fame as a giant `clamp(64–128px)` number with glyph + per-hour pace + a wide **smoothed pace sparkline** (EMA of per-second gain, not raw deltas), Silver / Combat Fame / Might stacked beside it, "Carried by `<top dealer>`" credit (Fraunces italic). Currencies floored (matches the loot panel exactly).
 - **Per-scope panes** — `PaneSet` is `Record<SubMetric, boolean>`; each pane is one metric+scope, so the SAME metric can open twice side-by-side (`Damage · Current` next to `Damage · Session`). Rows show one number + share% + DPS/HPS (no dual `↳ session`). Header has `Cur/Ses` pill pairs per metric; shared `MeterPanes` renders the grid.
 - **Stable ordering** — `rankBy(selector)` (one shared comparator) ranks by metric desc with a `userGuid` tiebreak; the agent also sorts `out.Players` by guid. Kills the "Top"/"Carried by" name flicker on ties.
-- **IPChip** — averaged IP across core slots + per-slot hover tooltip. Note: **base IP only** — Albion no longer ships item quality on the wire, so the quality multiplier can't be applied.
-- Per-class accent colours; live equipment/spell swaps reflect within ~400 ms.
+- **No IP chip** — the averaged-IP chip beside each name was removed (base-IP-only, so it read wrong since item quality isn't on the wire). Names sit flush; class identity reads from the bar/DPS accent. The `itemPower`/`equipmentSlots` wire fields stay (cheap, still used by the Party panel gear strip). `IPChip.tsx` is deleted.
+- **Class/role accent palette** (`format.ts` + `index.css` `--sk-role-*`) — refreshed for clear per-role separation: Tank azure, Holy gold, Nature emerald, Ranged orange, Melee crimson, Frost/control teal, Arcane/support violet. Drives bar fill + DPS column. Live equipment/spell swaps reflect within ~1 s (post-cadence change).
+- **Item names as `T#.#`** — weapon subtitle, loot, and gear names render as e.g. `T8.1 Weeping Repeater` (tier word stripped, tier+enchant prefixed) via `gamedata.PrettyItemName`, applied at the loot (`handleOtherGrabbedLoot`), equipment-slot (`equipmentSlots`), and `RoleLabel` (`classifyMainHand`) resolution sites.
 - **Track Players picker** (`PlayerPicker`, button under the Meter) — every player in range, guildmates sorted to top, click to toggle tracking, search + "Add all guild" bulk-add. Reads the snapshot's `Roster` field.
-- Drill-in tabs: Fight / Session / Targets / Assists (Level-2 debuff-window attribution); mob targets resolve to names via mobs.bin.
+- Drill-in tabs: **Session (default)** / Fight / Targets / Assists. Opens on Session because Fight + its Targets reset between pulls (looked empty); **Targets is session-scoped** (`ByTargetSession`, persists until New Session). Mob targets resolve to names via mobs.bin.
 - Fight history archive (last 20 fights, agent RAM); scope-aware (a dungeon run archives only the party).
 
 ### Loot (web — `/loot`)
-- Per-player rollup: top-farmer card, IPChip rows, gold value bars, activity dot, `PARTY/GUILD/FRIEND` source badges, sticky column headers. Subline falls back: priced top item → "silver only · X" → "recent: X (unpriced)".
-- Silver QTY shows `—` for piles (not raw FixPoint); local row's silver is the authoritative `session.SilverTotal` with a `· mob:` ground-drop breakout.
+- Per-player rollup: top-farmer card, "relative to top" bars, activity dot, `PARTY/GUILD/FRIEND` source badges, sticky column headers (no IP chip / avatar column anymore). Subline falls back: priced top item → "silver only · X" → "recent: X (unpriced)".
+- **Item value is explicit** — two separate columns, **Items** (AODP-estimated worth of looted gear, gold) and **Silver** (raw silver picked, grey), instead of folding both into one "Silver" number. Same `items X · silver Y` split on the top-farmer card and the party-total footer. Helpers `itemValueOf` / `rawSilverOf` / `totalSilverOf` in `LootBody.tsx`.
+- Silver shows `—` for empty cells (not raw FixPoint); local row's silver is the authoritative `session.SilverTotal` with a `· mob:` ground-drop breakout.
 - `Copy Summary` / `Copy as table` for Discord.
 
 ### Economy & data
@@ -340,11 +344,12 @@ npm run dev
 ### Robustness
 - **Capture self-heal** — watchdog reopens the raw socket on a packet stall (adapter change / sleep).
 - **Party persistence + 1-min re-persist while grouped + manual add/remove/clear + picker** — survives agent restart; the guild-union scope covers guild groups with no roster at all.
+- **Sticky meter** — anyone shown stays until New Session (`meterSeen`); a player leaving the party no longer drops off mid-fight. "Clear meter" is the explicit "go solo, keep my numbers" reset.
 - **Snapshot deadlock fixed** — `Snapshot()` holds `store.mu.RLock` and used to call the locking `AllPlayers()` again (recursive RLock). Go's `RWMutex` forbids recursive read-locking, so in a busy zone (16-player dungeon) the second RLock blocked behind a pending writer and froze the whole agent — push stalled *and* the renderLoop heartbeat stopped (both call `Snapshot()`). Now uses `allPlayersLocked()` (no re-lock). Watch for this pattern: never call a `store.mu`-locking method while already holding the lock — use the `…Locked` variant.
-- **Request-budget cadence** — 400 ms active / 15 s idle heartbeat keeps Cloudflare's free-tier 100k/day request limit comfortable.
+- **Request-budget cadence** — 1 s active / 60 s idle heartbeat (slowed from 400 ms / 15 s after hitting the cap) keeps Cloudflare's free-tier 100k/day request limit comfortable. Web "stale" grace is 70 s to match. **Local/desktop mode uses no Cloudflare at all** (zero budget).
 
 ⚠️ **Known gaps**:
-- **Item quality not on the wire** — `parseEquipmentParams` qualities array is all-zero on the current patch, so IP is base only and there's no quality-tinted gear display.
+- **Item quality not on the wire** — `parseEquipmentParams` qualities array is all-zero on the current patch, so any IP shown (e.g. the Party panel gear strip) is base-only. The misleading averaged-IP chip that surfaced this was removed from the meter entirely.
 - **Mid-session party capture is impossible passively** — Albion only sends the roster at the join moment (no re-broadcast packet exists; confirmed against SAT + albion-online-stats). Mitigated by: launch-before-grouping, guild scope (no roster needed), the 1-min persistence, and manual/"Add all guild" picking. There's no magic "scan my party" button — the tool can only listen, never request.
 - **Some passive sub-effects** fall through to the prettified uniquename (compound-word + city-name splitter added; main abilities resolve correctly).
 - **Crit %** — Albion doesn't expose a crit flag.
