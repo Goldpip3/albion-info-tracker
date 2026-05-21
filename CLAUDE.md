@@ -72,6 +72,17 @@ proposals/                 feature backlog drafts (not yet implemented)
 - **Worker**: <https://albion-meter.goldpipe.workers.dev>
 - **Ingest endpoint**: `wss://albion-meter.goldpipe.workers.dev/ingest?token=<token>`
 - **Viewer endpoint**: `wss://albion-meter.goldpipe.workers.dev/view?token=<token>` (consumed by the web UI)
+- **Desktop installer (public download)**: <https://github.com/Goldpip3/albion-info-tracker/releases/latest> — the GitHub Release. The repo is **public** as of 2026-05-21 so friends can download + auto-update.
+
+## Desktop release & auto-update
+
+The Tauri app auto-updates: on launch it polls the repo's latest `latest.json` and silently installs a newer signed build (`check_for_update` in `desktop/src-tauri/src/lib.rs`, release builds only). Endpoint + embedded public key live in `tauri.conf.json` `plugins.updater`.
+
+**To ship an update (the only release path):**
+1. Bump `version` in `desktop/src-tauri/tauri.conf.json` (this is the single source of truth — the updater compares it).
+2. Commit, then trigger `.github/workflows/desktop-release.yml` — either push a `desktop-v<version>` tag, or run it from the Actions tab. It builds the agent sidecar (`-H=windowsgui`) + web + icons, then `tauri-action` signs the installer, publishes the GitHub Release at `desktop-v<version>`, and uploads `latest.json`. Installed apps update themselves within one launch.
+
+**Signing key (critical):** the updater private key is at `~/.tauri/gda-meter.key` (NOT in the repo) and is mirrored in the repo secret `TAURI_SIGNING_PRIVATE_KEY` (empty password). **If this key is lost, no future build will be accepted by already-installed apps** — back it up. The matching public key is baked into `tauri.conf.json`.
 
 ---
 
