@@ -113,6 +113,24 @@ export interface Snapshot {
 	loot?: LootEntry[];           // Loot ring buffer (most recent first)
 	looterTotals?: LooterTotals[];// Per-looter rollup
 	visiblePlayers?: VisiblePlayer[]; // Tracked players not in party — "add to party" candidates
+	roster?: RosterEntry[];           // Every named player seen — powers the Meter player picker
+}
+
+// RosterEntry is one row of the Meter's player picker: every named player
+// the agent can see, with whether they're currently tracked (isInParty)
+// and whether they share the local player's guild (sameGuild). Toggling a
+// row fires addPartyMember / removePartyMember.
+export interface RosterEntry {
+	userGuid: string;
+	name: string;
+	guild?: string;
+	itemPower?: number;
+	classCode?: string;
+	role?: string;
+	roleLabel?: string;
+	isInParty?: boolean;
+	isLocal?: boolean;
+	sameGuild?: boolean;
 }
 
 // VisiblePlayer is an "add to party" candidate: a tracked, named player

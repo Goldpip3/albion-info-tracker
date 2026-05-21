@@ -494,6 +494,22 @@ func (e *Engine) persistParty() {
 	}
 }
 
+// RepersistPartyIfActive refreshes party.json's timestamp while the user
+// is still grouped. A stable party emits no join/leave events to re-save
+// the file, so without this its SavedAt ages past the freshness gate and
+// the roster is discarded on the next restart even though the party never
+// disbanded. Called on a timer; no-op when solo so a genuinely-ended
+// party still ages out and doesn't resurrect later.
+func (e *Engine) RepersistPartyIfActive() {
+	if e.party == nil {
+		return
+	}
+	if len(e.store.PartyMembers()) == 0 {
+		return
+	}
+	e.persistParty()
+}
+
 // RestoreParty rehydrates the roster from disk on startup. Each ref
 // becomes a named, IsInParty entity with ObjectId=0; it rebinds to
 // live combat on the next NewCharacter exactly like a PartyJoined

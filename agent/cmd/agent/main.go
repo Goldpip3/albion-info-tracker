@@ -124,6 +124,22 @@ func main() {
 
 	go renderLoop(ctx, engine, &packetsSeen, parser, verbose)
 
+	// Keep party.json's timestamp fresh while grouped so a stable party
+	// (no join/leave events to re-save it) survives an agent restart
+	// instead of aging past the 30-min freshness gate. No-op when solo.
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				engine.RepersistPartyIfActive()
+			}
+		}
+	}()
+
 	if cfg.PushURL != "" {
 		client := &push.Client{
 			URL:          cfg.PushURL,

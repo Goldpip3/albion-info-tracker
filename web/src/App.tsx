@@ -4,6 +4,7 @@ import { MeterTable } from "./MeterTable.tsx";
 import { Header } from "./Header.tsx";
 import { Footer } from "./Footer.tsx";
 import { SettingsPanel } from "./SettingsPanel.tsx";
+import { PlayerPicker } from "./PlayerPicker.tsx";
 import { DrillIn } from "./DrillIn.tsx";
 import { ActivityLog } from "./ActivityLog.tsx";
 import { SessionStrip } from "./SessionStrip.tsx";
@@ -184,6 +185,7 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 
 	const { settings, update, reset } = useSettings();
 	const [showSettings, setShowSettings] = useState(false);
+	const [showPicker, setShowPicker] = useState(false);
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 	const [viewingFight, setViewingFight] = useState<number | null>(null);
 
@@ -241,6 +243,9 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					if (drillGuid) {
 						e.preventDefault();
 						setDrillGuid(null);
+					} else if (showPicker) {
+						e.preventDefault();
+						setShowPicker(false);
 					} else if (showSettings) {
 						e.preventDefault();
 						setShowSettings(false);
@@ -270,7 +275,7 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [drillGuid, showSettings, settings.panes, update]);
+	}, [drillGuid, showPicker, showSettings, settings.panes, update]);
 
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
@@ -325,6 +330,32 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 			<TabBar tabs={tabsFor(snapshot, token)} active={tab} />
 			{tab === "meter" && <SessionStrip snapshot={snapshot} />}
 			{tab === "meter" && <DungeonStrip dungeon={snapshot?.dungeon} />}
+			{tab === "meter" && (
+				<div
+					className="flex items-center justify-end"
+					style={{ gap: 10, padding: "6px 16px", borderBottom: "1px solid var(--sk-line)", background: "var(--sk-bg-1)" }}
+				>
+					<button
+						onClick={() => setShowPicker(true)}
+						className="sk-upper"
+						title="Pick which players the meter tracks"
+						style={{
+							appearance: "none",
+							border: "1px solid var(--sk-line)",
+							background: "var(--sk-bg-2)",
+							color: "var(--sk-fg-1)",
+							padding: "4px 12px",
+							borderRadius: 5,
+							cursor: "pointer",
+							fontSize: 10,
+							fontWeight: 700,
+							letterSpacing: "0.06em",
+						}}
+					>
+						Track Players{snapshot?.roster?.length ? ` · ${snapshot.roster.length}` : ""}
+					</button>
+				</div>
+			)}
 			<main className="flex-1 overflow-hidden flex flex-col">
 				{tab === "loot" && (
 					<LootBody
@@ -376,6 +407,13 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					update={update}
 					reset={reset}
 					onClose={() => setShowSettings(false)}
+					sendCommand={sendCommand}
+				/>
+			)}
+			{showPicker && (
+				<PlayerPicker
+					roster={snapshot?.roster ?? []}
+					onClose={() => setShowPicker(false)}
 					sendCommand={sendCommand}
 				/>
 			)}

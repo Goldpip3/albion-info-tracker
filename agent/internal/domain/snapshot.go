@@ -423,6 +423,26 @@ type VisiblePlayer struct {
 	RoleLabel string `json:"roleLabel,omitempty"`
 }
 
+// RosterEntry is one row of the Meter's player picker: every named
+// player the agent can see, annotated with whether they're currently
+// tracked (IsInParty) and whether they share the local player's guild.
+// The web sorts guildmates to the top and toggles IsInParty via the
+// addPartyMember / removePartyMember commands. Unlike VisiblePlayer this
+// includes the local player and players already in the party, so the
+// picker can render the full pick list with current on/off state.
+type RosterEntry struct {
+	UserGuid  string `json:"userGuid"`
+	Name      string `json:"name"`
+	Guild     string `json:"guild,omitempty"`
+	ItemPower int    `json:"itemPower,omitempty"`
+	ClassCode string `json:"classCode,omitempty"`
+	Role      string `json:"role,omitempty"`
+	RoleLabel string `json:"roleLabel,omitempty"`
+	IsInParty bool   `json:"isInParty,omitempty"`
+	IsLocal   bool   `json:"isLocal,omitempty"`
+	SameGuild bool   `json:"sameGuild,omitempty"`
+}
+
 // Snapshot is the full set of party-member states the UI needs to render.
 type Snapshot struct {
 	GeneratedAt time.Time         `json:"generatedAt"`
@@ -441,29 +461,31 @@ type Snapshot struct {
 	// VisiblePlayers are tracked, named players not currently in the
 	// party — the manual "add to party" candidates for the Party panel.
 	VisiblePlayers []VisiblePlayer `json:"visiblePlayers,omitempty"`
+	// Roster is every named player the agent can see (incl. local + party
+	// members) with their current tracking + guild state — powers the
+	// Meter's player picker.
+	Roster []RosterEntry `json:"roster,omitempty"`
 }
 
 // Snapshot reads current state into a flat, JSON-friendly value. Safe to
 // call concurrently with engine event handlers.
 //
-// Membership rules, in order:
+// Membership rules:
 //
-//  1. ALBION_AGENT_SHOW_ALL set → render every entity with combat
-//     activity, no filtering. Power-user escape hatch.
-//  2. Party detection reports more than just the local player → trust it.
-//     Random players in the zone are filtered out as desired.
-//  3. Party detection only knows about the local player → fall back to
-//     activity, but only include entities whose Guild matches the local
-//     player's. This catches the well-known mid-zone case (user joined
-//     the party before the agent started, so PartyJoined never fired)
-//     without dragging in unrelated players who happened to be hitting
-//     things nearby. Re-zoning doesn't reliably re-broadcast
-//     PartyJoined, so we fix it here instead of leaning on a manual
-//     env-var workaround.
+//  1. ALBION_AGENT_SHOW_ALL or "everyone" scope → every entity with
+//     combat activity, no filtering. ZvZ / open-world escape hatch.
+//  2. Otherwise the displayed set is the UNION of confirmed party
+//     members (shown even with no combat yet), the local player, the
+//     allowlist, and — in "partyGuild" scope — every same-guild player
+//     with combat activity. The union means a partial or stale party
+//     roster can't hide guildmates who are actively fighting: a large
+//     guild group rarely has a fully-captured PartyJoined (20-person
+//     rosters, or the agent started/restarted mid-session), yet every
+//     guildmate still appears the instant they deal or take damage.
 //
-// When the local player is guildless the guild filter has nothing to
-// pivot on, so we hold the line at strict party-only — better than
-// flooding the meter with strangers.
+// When the local player is guildless the guild pivot is empty, so
+// partyGuild collapses to party + allowlist — better than flooding the
+// meter with strangers.
 // scopedMembers returns the entities the meter should display under the
 // current scope. Shared by Snapshot (live view) and archiveCurrentFight
 // (past fights) so the two never disagree — picking a past fight from
@@ -486,32 +508,47 @@ func (e *Engine) scopedMembers() []*Entity {
 		return e.store.AllWithActivity()
 	}
 
-	members := e.store.PartyMembers()
-	if len(members) > 1 {
-		// Party detection succeeded — trust it, drop random players.
-		return members
-	}
-
-	// Party detection only knows the local player. Fall back to
-	// activity, filtered by the scope: same-guild for "partyGuild",
-	// allowlist-only for "party". Guildless locals can't pivot on
-	// guild, so they collapse to allowlist-only too.
+	// Union of: confirmed party members (shown even without combat
+	// activity), the local player, the allowlist, and — in partyGuild
+	// scope — every same-guild player with combat activity. Deduped by
+	// entity pointer, since PartyMembers / localGuidEntity /
+	// AllWithActivity all return pointers into the same byGuid map.
+	//
+	// A union — rather than "trust the party roster exclusively once it
+	// has >1 member" — so a partial or stale party roster can't hide
+	// guildmates who are actively fighting. Large guild groups rarely
+	// have a fully-captured PartyJoined (20-person rosters, or the agent
+	// started/restarted mid-session), but every guildmate still appears
+	// the instant they deal or take damage.
 	local := e.store.localGuidEntity()
 	includeGuild := mode == "partyGuild" && local != nil && local.Guild != ""
-	all := e.store.AllWithActivity()
-	filtered := make([]*Entity, 0, len(all))
-	for _, ent := range all {
+
+	seen := make(map[*Entity]struct{})
+	out := make([]*Entity, 0)
+	add := func(ent *Entity) {
+		if ent == nil {
+			return
+		}
+		if _, ok := seen[ent]; ok {
+			return
+		}
+		seen[ent] = struct{}{}
+		out = append(out, ent)
+	}
+
+	for _, m := range e.store.PartyMembers() {
+		add(m)
+	}
+	add(local)
+	for _, ent := range e.store.AllWithActivity() {
 		switch {
 		case ent.IsLocal, e.AlwaysIncludes(ent.Name):
-			filtered = append(filtered, ent)
+			add(ent)
 		case includeGuild && ent.Guild == local.Guild:
-			filtered = append(filtered, ent)
+			add(ent)
 		}
 	}
-	if len(filtered) > len(members) {
-		return filtered
-	}
-	return members
+	return out
 }
 
 // displayIP returns the spec/mastery-inclusive IP from a GetCharacterEquipment
@@ -635,11 +672,42 @@ func (e *Engine) Snapshot() Snapshot {
 	for _, pl := range out.Players {
 		shown[pl.UserGuid] = struct{}{}
 	}
-	for _, ent := range e.store.AllPlayers() {
-		if ent.IsLocal || ent.UserGuid.IsZero() {
+	allPlayers := e.store.AllPlayers()
+	localGuild := ""
+	for _, ent := range allPlayers {
+		if ent.IsLocal {
+			localGuild = ent.Guild
+			break
+		}
+	}
+	for _, ent := range allPlayers {
+		if ent.UserGuid.IsZero() {
 			continue
 		}
 		gid := ent.UserGuid.String()
+
+		// Full roster for the Meter's player picker: every named player
+		// the agent can see, with their current tracking + guild state.
+		// Includes the local player and already-tracked party members so
+		// the picker renders the complete pick list with on/off state.
+		out.Roster = append(out.Roster, RosterEntry{
+			UserGuid:  gid,
+			Name:      ent.Name,
+			Guild:     ent.Guild,
+			ItemPower: displayIP(ent),
+			ClassCode: ent.ClassCode,
+			Role:      ent.Role,
+			RoleLabel: ent.RoleLabel,
+			IsInParty: ent.IsInParty,
+			IsLocal:   ent.IsLocal,
+			SameGuild: localGuild != "" && ent.Guild == localGuild,
+		})
+
+		// Add-to-party candidates for the Party tab: tracked named
+		// players not already displayed and not the local player.
+		if ent.IsLocal {
+			continue
+		}
 		if _, ok := shown[gid]; ok {
 			continue
 		}
@@ -654,6 +722,18 @@ func (e *Engine) Snapshot() Snapshot {
 	}
 	sort.Slice(out.VisiblePlayers, func(i, j int) bool {
 		return out.VisiblePlayers[i].Name < out.VisiblePlayers[j].Name
+	})
+	// Roster order: local first, then same-guild, then alphabetical —
+	// so the picker shows you, then your guild, then everyone else.
+	sort.Slice(out.Roster, func(i, j int) bool {
+		a, b := out.Roster[i], out.Roster[j]
+		if a.IsLocal != b.IsLocal {
+			return a.IsLocal
+		}
+		if a.SameGuild != b.SameGuild {
+			return a.SameGuild
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 	})
 
 	// Deterministic player order at the source. members comes from a Go
