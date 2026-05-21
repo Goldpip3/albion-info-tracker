@@ -325,15 +325,26 @@ func ensureConfigured(cfg config.Config, localMode bool) config.Config {
 	return cfg
 }
 
-// openLocalURL opens the agent's built-in local meter. A short delay lets
-// the HTTP listener finish binding before the browser hits it.
+// openLocalURL opens the agent's built-in local meter as a standalone "app
+// window" — chromeless, with its own taskbar entry and the page's GDA
+// favicon, so it launches like a native app instead of a browser tab. A
+// short delay lets the HTTP listener finish binding first.
 func openLocalURL(url string) {
 	time.Sleep(500 * time.Millisecond)
-	fmt.Println("  Opening the local meter in your browser:")
+	fmt.Println("  Opening the local meter as an app window:")
 	fmt.Println("      " + url)
 	fmt.Println()
+	// Chromium "app mode" (--app) gives a frameless single-purpose window.
+	// Edge ships on every Win10/11 box; we launch it through the same shell
+	// `start` path as a normal open (confirmed working in this environment),
+	// just naming the browser + passing --app. Falls back to a normal tab.
+	if runtime.GOOS == "windows" {
+		if err := exec.Command("cmd", "/c", "start", "", "msedge", "--app="+url).Start(); err == nil {
+			return
+		}
+	}
 	if !openInBrowser(url) {
-		fmt.Println("  (Couldn't launch a browser automatically — open the URL above.)")
+		fmt.Println("  (Couldn't launch automatically — open the URL above.)")
 		fmt.Println()
 	}
 }
