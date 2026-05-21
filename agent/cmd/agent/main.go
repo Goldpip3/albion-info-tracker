@@ -622,8 +622,14 @@ func fatal(stage string, err error) {
 	fmt.Println()
 	fmt.Printf("  ✕ %s: %v\n", stage, err)
 	fmt.Println()
-	fmt.Println("  Press Enter to close…")
-	bufio.NewReader(os.Stdin).ReadString('\n')
+	// Only wait for Enter when attached to an interactive console. Run
+	// headless (e.g. as the desktop shell's hidden sidecar) there is no
+	// console, and blocking on stdin would hang the process forever instead
+	// of exiting so the shell can notice the agent died.
+	if fi, e := os.Stdin.Stat(); e == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
+		fmt.Println("  Press Enter to close…")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+	}
 	os.Exit(1)
 }
 

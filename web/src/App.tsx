@@ -120,22 +120,31 @@ function useStored(key: string, initial: string): [string, (v: string) => void] 
 
 const DEFAULT_VIEW_URL = "wss://albion-meter.goldpipe.workers.dev/view";
 
-// isLocalMode is true when the page is served by the agent's built-in local
-// server (http://localhost:<port>) instead of the Cloudflare-hosted site.
-// In that case we connect straight to the agent's /view WebSocket on the
-// same origin — no pairing token, no Cloudflare in the data path, so it
-// never touches the daily request budget.
+// isLocalMode is true when the meter is talking to a local agent rather than
+// the Cloudflare-hosted site — either served by the agent's own server
+// (http://localhost:<port>) or bundled inside the GDA desktop shell
+// (tauri.localhost / the tauri: scheme). In both cases we connect straight
+// to the agent's /view WebSocket — no pairing token, no Cloudflare in the
+// data path, so it never touches the daily request budget.
 function isLocalMode(): boolean {
 	const h = window.location.hostname;
-	return h === "localhost" || h === "127.0.0.1" || h === "::1";
+	return (
+		h === "localhost" || h === "127.0.0.1" || h === "::1" ||
+		h === "tauri.localhost" || window.location.protocol === "tauri:"
+	);
 }
 
-// localViewWsUrl derives the agent's /view WebSocket URL from the current
-// origin (ws:// for http, wss:// for https). It's the same host:port the
-// page loaded from, so it's same-origin and never blocked by the browser.
+// localViewWsUrl derives the agent's /view WebSocket URL. When the page was
+// served by the agent itself it's the same origin; inside the desktop shell
+// the bundle loads from tauri.localhost, so we point at the agent's fixed
+// loopback port (8787, the agent default).
 function localViewWsUrl(): string {
-	const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-	return `${proto}//${window.location.host}/view`;
+	const h = window.location.hostname;
+	if (h === "localhost" || h === "127.0.0.1" || h === "::1") {
+		const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+		return `${proto}//${window.location.host}/view`;
+	}
+	return "ws://localhost:8787/view";
 }
 
 // readPairFromURL returns ?pair=<token> from the current URL and strips the

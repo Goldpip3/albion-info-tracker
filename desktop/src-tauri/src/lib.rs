@@ -1,13 +1,7 @@
-use std::fs;
 use std::path::PathBuf;
 
 #[cfg(windows)]
 mod elevate;
-
-// New installs point at the shared Skirmish backend, matching the agent's
-// default. A custom Worker still works because the token (room name) is
-// what actually pairs the shell, agent, and any browser together.
-const PUSH_URL: &str = "wss://albion-meter.goldpipe.workers.dev/ingest";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,20 +9,14 @@ pub fn run() {
         .setup(|app| {
             debug_log(&format!("setup start; current_exe={:?}", std::env::current_exe()));
 
-            // The token lives in agent.json. Reading (or creating) it here,
-            // before the agent launches, guarantees the shell and agent
-            // share one token — and pre-writing it keeps the agent's
-            // first-run flow from opening a stray browser tab, since the
-            // shell *is* the UI now.
-            let token = ensure_token().unwrap_or_default();
-            debug_log(&format!("token len={}", token.len()));
-
-            // Launch the capture agent elevated (one UAC prompt). It runs as
-            // a separate elevated process and meets this window only in the
-            // Cloudflare Worker room — they never talk directly, so the
-            // integrity boundary between an unelevated UI and an elevated
-            // agent is not a problem. Passing our PID lets the agent shut
-            // itself down when this window closes (no orphaned capture).
+            // Launch the capture agent elevated (one UAC prompt) in LOCAL
+            // mode: it serves the meter + its /view WebSocket on
+            // 127.0.0.1:8787 and does NOT push to Cloudflare. This window
+            // loads the bundled UI, which auto-detects the desktop shell
+            // (tauri.localhost) and connects to that local socket — so no
+            // data ever leaves the machine and no pairing token is needed.
+            // Passing our PID lets the agent self-exit when this window
+            // closes (no orphaned capture process).
             #[cfg(windows)]
             match agent_path() {
                 Some(agent) => {
@@ -37,9 +25,7 @@ pub fn run() {
                     // setup() here would stop the window from ever building.
                     let pid = std::process::id();
                     std::thread::spawn(move || {
-                        // NOTE: --verbose is temporary for diagnostics; it tees
-                        // the agent's per-event log to %LocalAppData%\GDA\agent-verbose.log.
-                        let rc = elevate::run_as_admin(&agent, &format!("--parent-pid {pid} --verbose"));
+                        let rc = elevate::run_as_admin(&agent, &format!("--local --parent-pid {pid}"));
                         debug_log(&format!("runas agent={agent:?} rc={rc}"));
                     });
                     debug_log("runas dispatched on background thread");
@@ -47,15 +33,11 @@ pub fn run() {
                 None => debug_log("agent_path() = None (sidecar not found next to exe)"),
             }
 
-            // Load the bundled UI at the pair URL so the existing
-            // readPairFromURL() in the web app wires this window to the agent
-            // without anyone typing a token.
-            let url = if token.is_empty() {
-                "index.html".to_string()
-            } else {
-                format!("index.html?pair={token}")
-            };
-            let built = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App(url.into()))
+            // Load the bundled UI. It detects the tauri.localhost origin and
+            // connects to the agent's local /view socket on its own; the
+            // socket auto-reconnects, so it's fine that the agent (waiting on
+            // the UAC prompt) may not be listening for a second or two yet.
+            let built = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 .title("GDA Meter")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
@@ -104,38 +86,4 @@ fn debug_log(msg: &str) {
 // the shell and the elevated agent agree on where agent.json lives.
 fn gda_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|p| PathBuf::from(p).join("GDA"))
-}
-
-// ensure_token returns the existing pushToken from agent.json, or generates
-// one and writes a minimal config the agent completes on launch.
-fn ensure_token() -> Option<String> {
-    let dir = gda_dir()?;
-    let path = dir.join("agent.json");
-
-    if let Ok(bytes) = fs::read(&path) {
-        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            if let Some(t) = v.get("pushToken").and_then(|t| t.as_str()) {
-                if !t.is_empty() {
-                    return Some(t.to_string());
-                }
-            }
-        }
-    }
-
-    let token = random_token()?;
-    let _ = fs::create_dir_all(&dir);
-    let cfg = serde_json::json!({
-        "pushUrl": PUSH_URL,
-        "pushToken": token,
-    });
-    fs::write(&path, serde_json::to_vec_pretty(&cfg).ok()?).ok()?;
-    Some(token)
-}
-
-// random_token returns 32 hex chars (16 random bytes) — the same shape the
-// agent and website use for a pairing token.
-fn random_token() -> Option<String> {
-    let mut b = [0u8; 16];
-    getrandom::getrandom(&mut b).ok()?;
-    Some(b.iter().map(|x| format!("{x:02x}")).collect())
 }
