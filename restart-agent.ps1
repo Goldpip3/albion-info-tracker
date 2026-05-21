@@ -22,7 +22,13 @@
 param(
     # -Trace turns on verbose logging; the agent tees every event line to
     # %LocalAppData%\GDA\agent-verbose.log so a capture can be read back.
-    [switch]$Trace
+    [switch]$Trace,
+
+    # -Local runs the agent in local-only mode: it serves the meter itself
+    # at http://localhost:8787 and does NOT push to Cloudflare, so it never
+    # touches the daily request budget. Without it the agent pushes to the
+    # Cloudflare-hosted website (the original behaviour).
+    [switch]$Local
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +42,7 @@ if (-not $isAdmin) {
     Write-Host "Requesting administrator rights..." -ForegroundColor Cyan
     $argv = @("-ExecutionPolicy", "Bypass", "-NoProfile", "-File", "`"$PSCommandPath`"")
     if ($Trace) { $argv += "-Trace" }
+    if ($Local) { $argv += "-Local" }
     Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argv
     exit
 }
@@ -77,6 +84,12 @@ $launchArgs = @("--open-browser")
 if ($Trace) {
     $launchArgs += "--verbose"
     Write-Host "  TRACE on - events will be written to %LocalAppData%\GDA\agent-verbose.log" -ForegroundColor Yellow
+}
+if ($Local) {
+    $launchArgs += "--local"
+    Write-Host "  LOCAL mode - serving the meter at http://localhost:8787 (no Cloudflare, no request limit)" -ForegroundColor Yellow
+} else {
+    Write-Host "  WEBSITE mode - pushing to Cloudflare; meter opens at the hosted site" -ForegroundColor Yellow
 }
 Write-Host "  relaunching agent..."
 Start-Process -FilePath $exe -WorkingDirectory $agentDir -ArgumentList $launchArgs

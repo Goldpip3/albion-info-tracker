@@ -45,10 +45,15 @@ web/                       React + Vite + Tailwind v4 frontend
                            PlayerPicker ("Track Players" menu under the Meter)
                            (legacy *Panel modals kept but unmounted)
   public/assets/           GDA brand mark (16/32/48/64/128/256/512 PNG + SVG)
-Restart GDA Agent.cmd      one-click stop → rebuild → relaunch elevated (self-elevates)
+GDA App (Local).cmd        LOCAL mode: agent serves the meter at http://localhost:8787,
+                           no Cloudflare push (no request budget). restart-agent.ps1 -Local.
+GDA Website.cmd            WEBSITE mode: pushes to Cloudflare, opens the hosted site.
+Restart GDA Agent.cmd      one-click stop → rebuild → relaunch elevated (self-elevates).
+                           Equivalent to GDA Website.cmd (cloud mode).
 Restart GDA Agent (Verbose).cmd  same + --verbose → writes agent/agent-verbose.log
-restart-agent.ps1          the script both .cmd wrappers call
+restart-agent.ps1          the script all .cmd wrappers call (-Trace verbose, -Local local mode)
 GDA Launcher.lnk           double-click to launch the agent with --open-browser
+agent/internal/localserver/  embedded web UI (webdist/) + HTTP/WS server for local mode
 SAFETY.md                  passive-capture / no-overlay / no-automation disclosure
 ARCHITECTURE.md            deep-dive into protocol, indexing, race fixes, data flow
 proposals/                 feature backlog drafts (not yet implemented)
@@ -99,7 +104,16 @@ Both were superseded by the Go pivot. The Go agent ports both ideas + more.
 
 ## Go agent (`go-port` branch, `agent/`)
 
-Single static Windows binary. Captures Albion UDP traffic via raw sockets (`SIO_RCVALL`, requires admin), parses Photon protocol, maintains entity/combat state, pushes JSON snapshots to a Cloudflare Worker every **400 ms** during activity (2.5 Hz), throttled to a **15 s** idle heartbeat when nothing changed (dirty-gen short-circuit). Cadence is the main lever on Cloudflare's free-tier 100k-requests/day budget — at 1/s idle the heartbeat alone burned ~86k/day just from leaving the agent running.
+Single static Windows binary. Captures Albion UDP traffic via raw sockets (`SIO_RCVALL`, requires admin), parses Photon protocol, maintains entity/combat state, pushes JSON snapshots to a Cloudflare Worker every **1 s** during activity (1 Hz), throttled to a **60 s** idle heartbeat when nothing changed (dirty-gen short-circuit). Cadence is the main lever on Cloudflare's free-tier 100k-requests/day budget — at 1/s idle the heartbeat alone burned ~86k/day just from leaving the agent running (was 400ms/15s; slowed to 1s/60s after the user hit the cap). Each push ≈ 1 request, so this is the budget knob. The web UI's "stale" grace is 70s to tolerate the 60s heartbeat.
+
+### Local mode vs Website mode (two launchers)
+
+The agent **always** runs an embedded web server (`internal/localserver`, bound to `127.0.0.1:8787`) that serves the same React bundle (`webdist/`, committed so `go build` works) plus a `/view` WebSocket streaming snapshots + accepting commands — the exact `push.Envelope` protocol the Worker uses. The bundle auto-detects a `localhost` origin (`isLocalMode()` in App.tsx) and connects to that local socket with no token, **bypassing Cloudflare entirely (zero request budget)**.
+
+- **`GDA App (Local).cmd`** → `restart-agent.ps1 -Local` → agent runs with `--local`: serves localhost, **Cloudflare push OFF**, opens `http://localhost:8787`. Everyday use.
+- **`GDA Website.cmd`** (≡ `Restart GDA Agent.cmd`) → no `--local`: pushes to Cloudflare AND serves localhost; opens the hosted site. For phone/remote access; uses the daily budget.
+
+`--local` also suppresses the first-run Cloudflare pairing pop-up (local needs no token). Both modes serve localhost; the flag only gates the cloud push + which URL `--open-browser` opens.
 
 ### Build & run
 

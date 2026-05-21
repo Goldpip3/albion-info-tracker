@@ -120,6 +120,24 @@ function useStored(key: string, initial: string): [string, (v: string) => void] 
 
 const DEFAULT_VIEW_URL = "wss://albion-meter.goldpipe.workers.dev/view";
 
+// isLocalMode is true when the page is served by the agent's built-in local
+// server (http://localhost:<port>) instead of the Cloudflare-hosted site.
+// In that case we connect straight to the agent's /view WebSocket on the
+// same origin — no pairing token, no Cloudflare in the data path, so it
+// never touches the daily request budget.
+function isLocalMode(): boolean {
+	const h = window.location.hostname;
+	return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
+// localViewWsUrl derives the agent's /view WebSocket URL from the current
+// origin (ws:// for http, wss:// for https). It's the same host:port the
+// page loaded from, so it's same-origin and never blocked by the browser.
+function localViewWsUrl(): string {
+	const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+	return `${proto}//${window.location.host}/view`;
+}
+
 // readPairFromURL returns ?pair=<token> from the current URL and strips the
 // query param so a refresh / bookmark doesn't keep showing it.
 function readPairFromURL(): string | null {
@@ -189,10 +207,14 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 	const [drillGuid, setDrillGuid] = useState<string | null>(null);
 	const [viewingFight, setViewingFight] = useState<number | null>(null);
 
-	const configured = url.trim() !== "" && token.trim() !== "";
+	// Local mode (served by the agent at localhost): connect straight to the
+	// agent's /view socket on this origin, no token, no Cloudflare. Otherwise
+	// fall back to the saved Cloudflare URL + pairing token.
+	const localMode = isLocalMode();
+	const configured = localMode || (url.trim() !== "" && token.trim() !== "");
 	const { state, snapshot, lastMessageAt, error, sendCommand } = useMeterSocket({
-		url: url.trim(),
-		token: token.trim(),
+		url: localMode ? localViewWsUrl() : url.trim(),
+		token: localMode ? "local" : token.trim(),
 		enabled: configured,
 	});
 

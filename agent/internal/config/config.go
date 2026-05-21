@@ -26,6 +26,11 @@ type Config struct {
 	// Used by the optional spell-name catalog loader.
 	AlbionInstallRoot string `json:"albionInstallRoot,omitempty"`
 
+	// LocalPort is the port the built-in local web server listens on
+	// (127.0.0.1:<LocalPort>). Zero → default 8787. The "GDA App (Local)"
+	// launcher serves the meter from here with no Cloudflare in the path.
+	LocalPort int `json:"localPort,omitempty"`
+
 	// AlwaysIncludeNames forces matching player names into the meter even
 	// when they're not in the local player's guild and PartyJoined never
 	// fired. Use for non-guild friends you party with regularly so they

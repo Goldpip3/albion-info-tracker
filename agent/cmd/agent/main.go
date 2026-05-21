@@ -25,6 +25,7 @@ import (
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/config"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/domain"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/gamedata"
+	"github.com/Goldpip3/albion-info-tracker/agent/internal/localserver"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/photon"
 	"github.com/Goldpip3/albion-info-tracker/agent/internal/push"
 )
@@ -59,6 +60,11 @@ func main() {
 
 	openBrowser := hasFlag("--open-browser") || hasFlag("-b") || os.Getenv("ALBION_AGENT_OPEN_BROWSER") != ""
 
+	// Local mode: serve the meter from the agent at http://localhost and do
+	// NOT push to Cloudflare. No daily request budget; runs fully on this PC.
+	// The "GDA App (Local)" launcher passes --local; "GDA Website" doesn't.
+	localMode := hasFlag("--local") || hasFlag("-l") || os.Getenv("ALBION_AGENT_LOCAL") != ""
+
 	cfg, err := config.Load()
 	if err != nil {
 		fatal("agent.json", err)
@@ -67,10 +73,12 @@ func main() {
 	// First-run wizard: if pushToken or pushUrl is missing, walk the user
 	// through pairing without making them edit JSON by hand. autoPair opens
 	// the browser on its own; if we already had a token we still honor the
-	// launcher's --open-browser flag below.
+	// launcher's --open-browser flag below. In local mode we still generate
+	// a token (so the user can switch to the website later) but skip the
+	// Cloudflare pairing pop-up — local mode needs no pairing.
 	firstRun := cfg.PushToken == ""
-	cfg = ensureConfigured(cfg)
-	if openBrowser && !firstRun {
+	cfg = ensureConfigured(cfg, localMode)
+	if openBrowser && !firstRun && !localMode {
 		openViewURL(cfg.PushToken)
 	}
 
@@ -140,7 +148,39 @@ func main() {
 		}
 	}()
 
-	if cfg.PushURL != "" {
+	// Local web server (always on): serves the meter UI + its /view socket at
+	// http://localhost:<port> with no Cloudflare in the path. Bound to
+	// loopback so it never trips the Windows Firewall or is reachable off
+	// the machine. The embedded UI auto-detects localhost and connects here.
+	localPort := cfg.LocalPort
+	if localPort == 0 {
+		localPort = 8787
+	}
+	localURL := fmt.Sprintf("http://localhost:%d", localPort)
+	if ls, lerr := localserver.New(localserver.Options{
+		Addr:      fmt.Sprintf("127.0.0.1:%d", localPort),
+		Snapshot:  engine.Snapshot,
+		DirtyGen:  engine.DirtyGen,
+		OnCommand: engine.HandleCommand,
+	}); lerr != nil {
+		log.Printf("local server: disabled (%v)", lerr)
+	} else {
+		go func() {
+			if err := ls.Run(ctx); err != nil {
+				log.Printf("local server: stopped: %v", err)
+			}
+		}()
+		fmt.Printf("\n  Local meter: %s  (no Cloudflare, no request limit)\n", localURL)
+	}
+
+	switch {
+	case localMode:
+		// Local-only: skip the Cloudflare push entirely. Zero requests.
+		fmt.Println("  Cloud push: OFF (local mode)")
+		if openBrowser {
+			openLocalURL(localURL)
+		}
+	case cfg.PushURL != "":
 		client := &push.Client{
 			URL:          cfg.PushURL,
 			Token:        cfg.PushToken,
@@ -149,14 +189,14 @@ func main() {
 			DirtyGen:     engine.DirtyGen,
 			OnCommand:    engine.HandleCommand,
 		}
-		fmt.Printf("\n  Streaming to %s\n", maskedURL(cfg.PushURL))
+		fmt.Printf("  Streaming to %s\n", maskedURL(cfg.PushURL))
 		fmt.Printf("  View at      %s\n\n", defaultViewURL)
 		go func() {
 			if err := client.Run(ctx); err != nil && err != context.Canceled {
 				log.Printf("push: stopped: %v", err)
 			}
 		}()
-	} else {
+	default:
 		log.Print("push: no PushURL configured — running in stdout-only mode")
 	}
 
@@ -255,7 +295,7 @@ func superviseCapture(ctx context.Context, sink capture.Sink, seen *atomic.Uint6
 // run pairing is handled by autoPair — the agent generates a token and
 // opens the default browser to the magic-link URL so the user never has
 // to type or copy a token.
-func ensureConfigured(cfg config.Config) config.Config {
+func ensureConfigured(cfg config.Config, localMode bool) config.Config {
 	dirty := false
 	if cfg.PushURL == "" {
 		cfg.PushURL = defaultPushURL
@@ -279,10 +319,23 @@ func ensureConfigured(cfg config.Config) config.Config {
 			log.Printf("warn: could not save agent.json: %v", err)
 		}
 	}
-	if freshPair {
+	if freshPair && !localMode {
 		autoPair(cfg.PushToken)
 	}
 	return cfg
+}
+
+// openLocalURL opens the agent's built-in local meter. A short delay lets
+// the HTTP listener finish binding before the browser hits it.
+func openLocalURL(url string) {
+	time.Sleep(500 * time.Millisecond)
+	fmt.Println("  Opening the local meter in your browser:")
+	fmt.Println("      " + url)
+	fmt.Println()
+	if !openInBrowser(url) {
+		fmt.Println("  (Couldn't launch a browser automatically — open the URL above.)")
+		fmt.Println()
+	}
 }
 
 // autoPair prints the magic-link URL and tries to open the user's default
