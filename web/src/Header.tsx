@@ -14,6 +14,7 @@ interface HeaderProps {
 	setViewingFight: (n: number | null) => void;
 	onSettings: () => void;
 	onNewSession: () => void;
+	onClearMeter: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
@@ -27,7 +28,7 @@ interface HeaderProps {
 export function Header({
 	state, stale, snapshot, panes, togglePane,
 	viewingFight, setViewingFight,
-	onSettings, onNewSession, onReset, onToggleLog, showLog,
+	onSettings, onNewSession, onClearMeter, onReset, onToggleLog, showLog,
 	meterScope, onScopeChange,
 }: HeaderProps): React.ReactElement {
 	const localPlayer = snapshot?.players.find((p) => p.isLocal);
@@ -41,6 +42,7 @@ export function Header({
 				stale={stale}
 				onSettings={onSettings}
 				onNewSession={onNewSession}
+				onClearMeter={onClearMeter}
 				onReset={onReset}
 				onToggleLog={onToggleLog}
 				showLog={showLog}
@@ -64,6 +66,7 @@ interface TitleBarProps {
 	stale: boolean;
 	onSettings: () => void;
 	onNewSession: () => void;
+	onClearMeter: () => void;
 	onReset: () => void;
 	onToggleLog: () => void;
 	showLog: boolean;
@@ -72,7 +75,7 @@ interface TitleBarProps {
 }
 
 function TitleBar({
-	localName, state, stale, onSettings, onNewSession, onReset, onToggleLog, showLog,
+	localName, state, stale, onSettings, onNewSession, onClearMeter, onReset, onToggleLog, showLog,
 	meterScope, onScopeChange,
 }: TitleBarProps): React.ReactElement {
 	const breadcrumb = localName ? `meter / ${localName.toLowerCase()}` : "meter / (waiting)";
@@ -126,6 +129,25 @@ function TitleBar({
 			<div className="flex items-center" style={{ gap: 14 }}>
 				<ScopeSegment scope={meterScope} onChange={onScopeChange} />
 				<AgentPill state={state} stale={stale} />
+				<button
+					onClick={onClearMeter}
+					className="sk-upper"
+					style={{
+						appearance: "none",
+						border: "1px solid var(--sk-line-2)",
+						background: "var(--sk-bg-2)",
+						color: "var(--sk-fg-1)",
+						padding: "4px 9px",
+						borderRadius: 4,
+						cursor: "pointer",
+						fontSize: 10,
+						fontWeight: 600,
+						letterSpacing: "0.08em",
+					}}
+					title="Drop everyone else off the meter (after leaving a group) — keeps YOUR numbers and the session totals"
+				>
+					Clear meter
+				</button>
 				<button
 					onClick={onNewSession}
 					className="sk-upper"

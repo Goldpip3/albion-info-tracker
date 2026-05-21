@@ -350,6 +350,48 @@ func (e *Engine) ResetSession() {
 	e.events = newEventBuffer()
 }
 
+// ClearMeter drops every player EXCEPT the local one from the meter while
+// preserving the local player's combat numbers and the whole session
+// economy (fame / silver / might / etc.). It's the "I left the group, go
+// solo" button — distinct from ResetSession, which wipes your own numbers
+// too.
+//
+// It (1) wipes the party roster + its persisted file, (2) clears the
+// session-sticky meterSeen set so departed members stop being re-added, and
+// (3) zeroes every NON-local entity's combat stats so they also fall out of
+// guild-union scope (AllWithActivity). Other players only reappear if they
+// produce fresh in-scope activity afterwards.
+func (e *Engine) ClearMeter() {
+	e.store.ResetParty()
+	if e.party != nil {
+		_ = e.party.Clear()
+	}
+
+	e.meterSeenMu.Lock()
+	e.meterSeen = make(map[*Entity]struct{})
+	e.meterSeenMu.Unlock()
+
+	e.store.mu.Lock()
+	for _, ent := range e.store.byGuid {
+		if ent.IsLocal {
+			continue
+		}
+		ent.Current.Reset()
+		ent.Overall.Reset()
+		ent.LastFight.Reset()
+		ent.BySpell = nil
+		ent.BySpellSession = nil
+		ent.ByTarget = nil
+		ent.ByTargetSession = nil
+		ent.ActiveEffects = nil
+		ent.AssistsBySpell = nil
+		ent.Deaths = 0
+	}
+	e.store.mu.Unlock()
+
+	e.markDirty()
+}
+
 // HandleCommand dispatches a command from the browser (forwarded by the
 // Worker over the same WebSocket). The command may have an Arg payload
 // for commands that need a target (e.g. deleteSession <id>).
@@ -357,6 +399,8 @@ func (e *Engine) HandleCommand(action, arg string) {
 	switch action {
 	case "resetSession":
 		e.ResetSession()
+	case "clearMeter":
+		e.ClearMeter()
 	case "deleteSession":
 		if e.sessions != nil && arg != "" {
 			_ = e.sessions.Delete(arg)

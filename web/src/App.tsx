@@ -206,6 +206,16 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 		}
 	};
 
+	const onClearMeter = (): void => {
+		if (!confirm("Clear the meter? This drops everyone else off the meter and clears the party roster. Your own numbers and the session totals are kept.")) {
+			return;
+		}
+		const ok = sendCommand("clearMeter");
+		if (!ok) {
+			alert("Couldn't reach the agent — connection isn't open. Make sure agent.exe is running.");
+		}
+	};
+
 	// Apply the chosen accent color as CSS variables so every component
 	// re-tints without a re-render. Drives --sk-local + --sk-local-tint
 	// across the whole tree.
@@ -279,8 +289,9 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 
 	const stale = useMemo(() => {
 		if (!lastMessageAt) return false;
-		// 20s grace: matches the agent's 15s idle heartbeat (see Footer).
-		return Date.now() - lastMessageAt > 20000;
+		// 70s grace: must exceed the agent's 60s idle heartbeat (see Footer)
+		// so a healthy-but-idle agent isn't falsely flagged stale.
+		return Date.now() - lastMessageAt > 70000;
 	}, [lastMessageAt, state, snapshot]);
 
 	if (!configured) {
@@ -313,6 +324,7 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 				setViewingFight={setViewingFight}
 				onSettings={() => setShowSettings(true)}
 				onNewSession={onNewSession}
+				onClearMeter={onClearMeter}
 				onReset={() => {
 					if (confirm("Disconnect and clear settings?")) {
 						setUrl("");
@@ -460,6 +472,7 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 				setViewingFight={setViewingFight}
 				onSettings={() => setShowSettings(true)}
 				onNewSession={() => {/* demo no-op */}}
+				onClearMeter={() => {/* demo no-op */}}
 				onReset={() => {/* demo no-op */}}
 				onToggleLog={() => update("showActivityLog", !settings.showActivityLog)}
 				showLog={settings.showActivityLog}
