@@ -7,20 +7,27 @@ Interactive can audit its behaviour at a glance.
 
 ## What this tool is
 
-A two-component pipeline:
+A capture **agent** plus a React **meter UI**. The agent (`agent.exe`) opens a
+raw socket on the local machine, reads Albion's UDP traffic, decodes Photon
+Protocol 18 in user space, and maintains in-memory combat/loot/zone state. The
+UI renders that state as a WoW-Details-style meter. It runs in one of two ways:
 
-1. **Agent** — a single Windows binary (`agent.exe`) that opens a raw socket
-   on the local machine, reads Albion's UDP traffic, decodes Photon Protocol 18
-   in user space, maintains in-memory combat/loot/zone state, and pushes JSON
-   snapshots over an outbound WebSocket roughly every 400 ms (and at most
-   every 15 s when idle).
-2. **Web UI** — a React page hosted on Cloudflare Pages that subscribes to
-   the same WebSocket room and renders the snapshots as a WoW-Details-style
-   meter.
+1. **Local / desktop (the distributed app).** The agent serves the meter and
+   its data over a loopback socket (`127.0.0.1:8787`), and the desktop app
+   (a Tauri native window) displays it. **Nothing leaves the machine** — no
+   network connections beyond reading local game traffic, no servers, no
+   telemetry, no account. This is the mode the published, signed installer
+   uses.
+2. **Optional website mode (opt-in).** If the user explicitly chooses it, the
+   agent pushes JSON snapshots over an outbound WebSocket (~1 s active, ≤60 s
+   idle) to a Cloudflare relay, so the meter can be opened from another device.
+   The agent and the browser share a **per-user pairing token the user
+   controls**; the Cloudflare Worker only forwards bytes between the two
+   sockets sharing that token. Still no account, no database, no telemetry —
+   the data goes only to the user's own token-scoped room.
 
-The agent and the browser share a per-user pairing token; the Cloudflare Worker
-between them does nothing except forward bytes between the two sockets that
-share that token. There is no account, no database, no telemetry.
+The two modes share one engine; the signed desktop build defaults to local and
+makes no outbound connection.
 
 ## What this tool does NOT do
 
