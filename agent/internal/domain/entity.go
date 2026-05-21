@@ -390,6 +390,15 @@ func (s *Store) PartyRefs() []PartyRef {
 func (s *Store) AllPlayers() []*Entity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.allPlayersLocked()
+}
+
+// allPlayersLocked is AllPlayers without taking the lock — the caller
+// MUST already hold s.mu (read or write). Snapshot calls this while
+// holding its read lock; using AllPlayers there instead would be a
+// recursive RLock, which deadlocks the instant a combat event is
+// waiting to write (sync.RWMutex forbids recursive read locking).
+func (s *Store) allPlayersLocked() []*Entity {
 	out := make([]*Entity, 0)
 	for _, e := range s.byGuid {
 		if e.Name != "" {

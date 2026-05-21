@@ -674,7 +674,7 @@ func (e *Engine) Snapshot() Snapshot {
 	for _, pl := range out.Players {
 		shown[pl.UserGuid] = struct{}{}
 	}
-	allPlayers := e.store.AllPlayers()
+	allPlayers := e.store.allPlayersLocked() // already holding e.store.mu.RLock — must not re-lock
 	localGuild := ""
 	for _, ent := range allPlayers {
 		if ent.IsLocal {
