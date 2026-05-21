@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Snapshot } from "./types.ts";
+import type { DailyStat, Snapshot } from "./types.ts";
 
 // useDemoSnapshot returns a hand-crafted Snapshot that exercises every
 // per-class accent (daggers, fire staff, frost staff, hammer, holy,
@@ -41,6 +41,34 @@ const ROSTER: DemoPlayer[] = [
 	{ guid: "09", name: "Jorah",       classCode: "NTR", role: "H", roleLabel: "NATURE STAFF",itemPower: 1330, dps:  789, taken:  90000, heal: 4570000 },
 	{ guid: "10", name: "Orson",       classCode: "HLY", role: "H", roleLabel: "HOLY STAFF",  itemPower: 1350, dps:  900, taken:  88000, heal: 3920000 },
 ];
+
+// demoDaily synthesizes a week of per-day economy totals ending today, so
+// the Sessions-tab ProgressChart has something to render under ?demo=1.
+// Today's bar (last) matches the demo session headline numbers.
+function demoDaily(): DailyStat[] {
+	const fameK   = [380, 520, 610, 290, 740, 455, 95];   // thousands of fame
+	const silverK = [110, 140, 90, 60, 175, 120, 27];     // thousands of silver
+	const respec  = [3, 5, 4, 2, 6, 4, 2];
+	const might   = [820, 1100, 640, 410, 1320, 760, 148];
+	const deaths  = [1, 0, 2, 0, 1, 0, 0];
+	const out: DailyStat[] = [];
+	for (let i = 6; i >= 0; i--) {
+		const d = new Date();
+		d.setDate(d.getDate() - i);
+		const mm = String(d.getMonth() + 1).padStart(2, "0");
+		const dd = String(d.getDate()).padStart(2, "0");
+		const idx = 6 - i;
+		out.push({
+			date: `${d.getFullYear()}-${mm}-${dd}`,
+			fameTotal:   fameK[idx]   * 1000 * 10_000,
+			silverTotal: silverK[idx] * 1000 * 10_000,
+			respecTotal: respec[idx] * 10_000,
+			mightTotal:  might[idx]  * 10_000,
+			deathsTotal: deaths[idx],
+		});
+	}
+	return out;
+}
 
 export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number } {
 	const [t, setT] = useState(15); // fight elapsed seconds
@@ -133,6 +161,7 @@ export function useDemoSnapshot(): { snapshot: Snapshot; lastMessageAt: number }
 				respecTotal: 8 * 10_000, mightTotal: 850 * 10_000, deathsTotal: 0,
 			},
 		],
+		daily: demoDaily(),
 		zones: [
 			{ name: "Caerleon", enteredAt: new Date(Date.now() - 1_800_000).toISOString(), leftAt: new Date(Date.now() - 1_200_000).toISOString(), durationMs: 600_000 },
 			{ name: "Mists Hub", enteredAt: new Date(Date.now() - 1_200_000).toISOString(), leftAt: new Date(Date.now() - 600_000).toISOString(), durationMs: 600_000 },

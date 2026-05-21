@@ -11,6 +11,11 @@ export interface Settings {
 	columns: ColumnVisibility;
 	showActivityLog: boolean;
 	panes: PaneSet;
+	// paneLayout controls how multiple meter panes arrange:
+	//   "auto"    — responsive card grid; wraps so panes never crush (default)
+	//   "columns" — side-by-side, horizontal-scrolls instead of crushing
+	//   "rows"    — full-width stacked cards
+	paneLayout: PaneLayout;
 	// meterScope sets who shows in the meter + loot + archived fights:
 	//   "party"      — confirmed party members + alwaysIncludeNames only
 	//   "partyGuild" — + same-guild players (default; dungeons w/ guild)
@@ -22,6 +27,8 @@ export interface Settings {
 }
 
 export type MeterScope = "party" | "partyGuild" | "everyone";
+
+export type PaneLayout = "auto" | "columns" | "rows";
 
 // PaneSet picks which tables show side-by-side, keyed by sub-metric so
 // the SAME metric can appear twice — e.g. "Damage · Current" next to
@@ -50,6 +57,7 @@ const DEFAULT: Settings = {
 	barStyle: "outline",
 	groupByRole: false,
 	meterScope: "partyGuild",
+	paneLayout: "auto",
 	columns: {
 		dps: true,
 		hps: false,

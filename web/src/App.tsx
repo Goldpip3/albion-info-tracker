@@ -11,6 +11,7 @@ import { DungeonStrip } from "./DungeonStrip.tsx";
 import { LootBody } from "./LootBody.tsx";
 import { PartyBody } from "./PartyBody.tsx";
 import { SessionsBody } from "./SessionsBody.tsx";
+import { ProgressChart } from "./ProgressChart.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { tabsFor, type TabId } from "./tabs.ts";
 import { isDemoMode, useDemoSnapshot } from "./demo.ts";
@@ -29,9 +30,15 @@ const PANES: Array<{ sub: SubMetric; mode: Exclude<Mode, "mechanics">; label: st
 	{ sub: "takenTotal",    mode: "taken",  label: "Tank · Session",    tone: "var(--sk-taken)" },
 ];
 
-// MeterPanes renders every enabled pane side-by-side. Each pane is a
-// MeterTable locked to one SubMetric, with a colored header bar naming
-// it — so two panes of the same metric (Current / Session) read clearly.
+// MeterPanes renders every enabled pane as a rounded card. Each pane is a
+// MeterTable locked to one SubMetric, with a colored header bar naming it.
+// The arrangement follows settings.paneLayout:
+//   auto    — responsive card grid that fills the area for 1–2 panes and
+//             wraps into a tidy 2×N grid for 3–4 (380px anti-crush floor).
+//   columns — side-by-side, horizontal-scrolls instead of crushing.
+//   rows    — full-width stacked cards.
+// Replaces the old fixed `repeat(N,1fr)` grid, which crushed each table
+// below its ~290px content width once 2–3 panes were open.
 function MeterPanes({ meterSnapshot, settings, onDrillIn }: {
 	meterSnapshot: Snapshot | null;
 	settings: Settings;
@@ -39,14 +46,34 @@ function MeterPanes({ meterSnapshot, settings, onDrillIn }: {
 }): React.ReactElement {
 	const active = PANES.filter((p) => settings.panes[p.sub]);
 	if (active.length === 0) active.push(PANES[0]); // defensive: never blank
+	const layout = settings.paneLayout;
+
+	const outerClass = layout === "columns" ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto";
+	const container: React.CSSProperties =
+		layout === "columns"
+			? { display: "flex", flexDirection: "row", flexWrap: "nowrap", gap: 10, padding: 10, height: "100%", overflowX: "auto" }
+			: layout === "rows"
+			? { display: "flex", flexDirection: "column", gap: 10, padding: 10, minHeight: "100%" }
+			: { display: "flex", flexWrap: "wrap", gap: 10, padding: 10, minHeight: "100%", alignContent: "stretch" };
+	const paneFlex = layout === "columns" ? "1 1 0" : layout === "rows" ? "1 1 240px" : "1 1 380px";
+
 	return (
-		<div className="flex-1 overflow-hidden">
-			<div className="grid h-full" style={{ gridTemplateColumns: `repeat(${active.length}, minmax(0, 1fr))` }}>
-				{active.map((p, i) => (
+		<div className={outerClass}>
+			<div style={container}>
+				{active.map((p) => (
 					<div
 						key={p.sub}
-						className="flex flex-col overflow-hidden"
-						style={{ borderRight: i < active.length - 1 ? "1px solid var(--sk-line)" : "none" }}
+						className="flex flex-col"
+						style={{
+							flex: paneFlex,
+							minWidth: layout === "columns" ? 320 : 0,
+							minHeight: 240,
+							border: "1px solid var(--sk-line)",
+							borderRadius: "var(--sk-radius-lg, 10px)",
+							background: "var(--sk-bg-1)",
+							overflow: "hidden",
+							boxShadow: "0 1px 3px rgba(0,0,0,0.18)",
+						}}
 					>
 						<div
 							className="sk-upper flex items-center"
@@ -55,7 +82,7 @@ function MeterPanes({ meterSnapshot, settings, onDrillIn }: {
 								borderBottom: "1px solid var(--sk-line)",
 								color: p.tone,
 								fontWeight: 600,
-								background: "var(--sk-bg-1)",
+								background: "var(--sk-bg-2)",
 								gap: 8,
 							}}
 						>
@@ -316,10 +343,13 @@ function LiveApp({ path }: { path: string }): React.ReactElement {
 					/>
 				)}
 				{tab === "sessions" && (
-					<SessionsBody
-						sessions={snapshot?.sessions ?? []}
-						onDelete={(id) => sendCommand("deleteSession", id)}
-					/>
+					<>
+						<ProgressChart daily={snapshot?.daily ?? []} liveSession={snapshot?.session ?? undefined} />
+						<SessionsBody
+							sessions={snapshot?.sessions ?? []}
+							onDelete={(id) => sendCommand("deleteSession", id)}
+						/>
+					</>
 				)}
 				{tab === "meter" && (
 					<MeterPanes
@@ -418,7 +448,10 @@ function DemoApp({ path }: { path: string }): React.ReactElement {
 					/>
 				)}
 				{tab === "sessions" && (
-					<SessionsBody sessions={snapshot?.sessions ?? []} onDelete={() => {/* demo no-op */}} />
+					<>
+						<ProgressChart daily={snapshot?.daily ?? []} liveSession={snapshot?.session ?? undefined} />
+						<SessionsBody sessions={snapshot?.sessions ?? []} onDelete={() => {/* demo no-op */}} />
+					</>
 				)}
 				{tab === "meter" && (
 					<MeterPanes

@@ -107,6 +107,7 @@ export interface Snapshot {
 	events?: ActivityEvent[];
 	recent?: FightArchive[];
 	sessions?: ArchivedSession[]; // Local-disk archived sessions
+	daily?: DailyStat[];          // Per-day economy totals (ascending by date)
 	zones?: ZoneVisit[];          // Recent zone history
 	dungeon?: DungeonRun;         // Active run-scoped scope (when inside a dungeon)
 	loot?: LootEntry[];           // Loot ring buffer (most recent first)
@@ -182,6 +183,18 @@ export interface ArchivedSession {
 	deathsTotal: number;
 	fightCount: number;
 	tag?: string;
+}
+
+// DailyStat mirrors agent/internal/domain/daily.go DailyStat. All currency
+// fields are FixPoint internal units (divide by 10_000 for display).
+export interface DailyStat {
+	date: string;         // local calendar date "YYYY-MM-DD"
+	fameTotal: number;
+	silverTotal: number;
+	respecTotal: number;  // combat fame credits
+	mightTotal: number;
+	deathsTotal: number;
+	updatedAt?: string;
 }
 
 export interface ZoneVisit {

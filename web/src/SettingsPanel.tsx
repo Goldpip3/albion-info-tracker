@@ -1,4 +1,4 @@
-import type { AccentColor, BarStyle, Density, MeterScope, Settings } from "./useSettings.ts";
+import type { AccentColor, BarStyle, Density, MeterScope, PaneLayout, Settings } from "./useSettings.ts";
 import { accentOklch } from "./useSettings.ts";
 import type { SubMetric } from "./types.ts";
 
@@ -17,6 +17,7 @@ const ACCENT_OPTIONS: AccentColor[] = ["cyan", "violet", "amber", "lime", "rose"
 const DENSITY_OPTIONS: Array<[Density, string]> = [[28, "Compact"], [34, "Regular"], [40, "Comfy"]];
 const BAR_STYLE_OPTIONS: Array<[BarStyle, string]> = [["outline", "Outline"], ["tint", "Tint"], ["solid", "Solid"]];
 const SCOPE_OPTIONS: Array<[MeterScope, string]> = [["party", "Party"], ["partyGuild", "+ Guild"], ["everyone", "Everyone"]];
+const LAYOUT_OPTIONS: Array<[PaneLayout, string]> = [["auto", "Auto"], ["columns", "Columns"], ["rows", "Stacked"]];
 const PANE_OPTIONS: Array<[SubMetric, string]> = [
 	["damageCurrent", "Damage · Current"],
 	["damageTotal",   "Damage · Session"],
@@ -161,6 +162,13 @@ export function SettingsPanel({ settings, update, reset, onClose, sendCommand }:
 									);
 								})}
 							</div>
+						</Setting>
+						<Setting label="Meter layout" sub="How multiple panes arrange. Auto wraps into a tidy grid; Columns keeps them side-by-side (scrolls); Stacked is full-width rows.">
+							<Segment
+								options={LAYOUT_OPTIONS}
+								current={settings.paneLayout}
+								onChange={(v) => update("paneLayout", v)}
+							/>
 						</Setting>
 						<Setting label="Activity log" sub="Show recent hits / heals / deaths under the meter">
 							<Toggle
