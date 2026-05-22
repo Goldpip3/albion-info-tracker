@@ -72,7 +72,7 @@ proposals/                 feature backlog drafts (not yet implemented)
 - **Worker**: <https://albion-meter.goldpipe.workers.dev>
 - **Ingest endpoint**: `wss://albion-meter.goldpipe.workers.dev/ingest?token=<token>`
 - **Viewer endpoint**: `wss://albion-meter.goldpipe.workers.dev/view?token=<token>` (consumed by the web UI)
-- **Desktop installer (public download)**: <https://github.com/Goldpip3/albion-info-tracker/releases/latest> — the GitHub Release. The repo is **public** as of 2026-05-21 so friends can download + auto-update.
+- **Desktop download (share with friends)**: <https://github.com/Goldpip3/albion-info-tracker/releases/latest/download/GDA-Meter-Windows.zip> — a **stable, version-less** link that always serves the newest build. The release page is <https://github.com/Goldpip3/albion-info-tracker/releases/latest>. Repo is **public** as of 2026-05-21.
 
 ## Desktop release & auto-update
 
@@ -80,9 +80,11 @@ The Tauri app auto-updates: on launch it polls the repo's latest `latest.json` a
 
 **To ship an update (the only release path):**
 1. Bump `version` in `desktop/src-tauri/tauri.conf.json` (this is the single source of truth — the updater compares it).
-2. Commit, then trigger `.github/workflows/desktop-release.yml` — either push a `desktop-v<version>` tag, or run it from the Actions tab. It builds the agent sidecar (`-H=windowsgui`) + web + icons, then `tauri-action` signs the installer, publishes the GitHub Release at `desktop-v<version>`, and uploads `latest.json`. Installed apps update themselves within one launch.
+2. Commit, then trigger `.github/workflows/desktop-release.yml` — either push a `desktop-v<version>` tag, or run it from the Actions tab. It builds the agent sidecar (`-H=windowsgui`) + web + icons, then `tauri-action` updater-signs the installer, publishes the GitHub Release at `desktop-v<version>`, and uploads `latest.json`. A final step zips the installer to **`GDA-Meter-Windows.zip`** (stable name) and uploads that too. Installed apps update themselves within one launch.
 
-**Signing key (critical):** the updater private key is at `~/.tauri/gda-meter.key` (NOT in the repo) and is mirrored in the repo secret `TAURI_SIGNING_PRIVATE_KEY` (empty password). **If this key is lost, no future build will be accepted by already-installed apps** — back it up. The matching public key is baked into `tauri.conf.json`.
+**Updater signing key (critical):** the updater private key is at `~/.tauri/gda-meter.key` (NOT in the repo), mirrored in the repo secret `TAURI_SIGNING_PRIVATE_KEY` (empty password). **If this key is lost, no future build will be accepted by already-installed apps** — back it up. The matching public key is baked into `tauri.conf.json`. (This minisign key proves update integrity to the app — it is NOT Authenticode/SmartScreen signing; see below.)
+
+**Code signing (none yet) + the `.zip` workaround:** the app is **not** Authenticode code-signed, so on first run Windows SmartScreen shows "Windows protected your PC" (More info → Run anyway) and browsers **silently block the bare `.exe` download**. That last part is why releases ship **`GDA-Meter-Windows.zip`** (the installer inside a zip) — browsers don't block zips, so the download succeeds; the user unzips + runs the installer (one "Run anyway" on first launch remains). There is **no free CA for code signing**; the only free route is **SignPath Foundation** (OSS), which gates on project *reputation* (media/stars/downloads) — a brand-new project doesn't qualify, so revisit once it has real users. `SAFETY.md` is written to satisfy SignPath's privacy/security review. Cheap paid fallback that has no reputation gate: **Certum "Open Source"** cert (~$30/yr), which would be wired into the workflow's build/sign step. EV cert (~$300+/yr) is the only thing that kills the SmartScreen warning *instantly*.
 
 ---
 
